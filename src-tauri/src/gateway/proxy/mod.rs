@@ -103,6 +103,10 @@ fn compute_observe_request(
     headers: &HeaderMap,
     introspection_json: Option<&serde_json::Value>,
 ) -> bool {
+    if is_internal_forwarded_request(headers) {
+        return false;
+    }
+
     if !should_observe_request(cli_key, forwarded_path) {
         return false;
     }
@@ -111,8 +115,7 @@ fn compute_observe_request(
         return true;
     }
 
-    !is_internal_forwarded_request(headers)
-        && !is_claude_probe_request(forwarded_path, introspection_json)
+    !is_claude_probe_request(forwarded_path, introspection_json)
 }
 
 fn should_seed_in_progress_request_log(cli_key: &str, forwarded_path: &str, observe: bool) -> bool {

@@ -69,6 +69,20 @@ fn internally_forwarded_claude_requests_are_not_observed() {
 }
 
 #[test]
+fn internally_forwarded_codex_requests_are_not_observed() {
+    let mut headers = HeaderMap::new();
+    mark_internal_forwarded_request(&mut headers);
+
+    assert!(is_internal_forwarded_request(&headers));
+    assert!(!compute_observe_request(
+        "codex",
+        "/v1/responses",
+        &headers,
+        None
+    ));
+}
+
+#[test]
 fn normal_claude_message_requests_remain_observed() {
     let headers = HeaderMap::new();
     let body = json!({
