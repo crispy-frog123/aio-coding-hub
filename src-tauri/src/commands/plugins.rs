@@ -80,18 +80,30 @@ fn official_resource_root<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Resul
         .path()
         .resource_dir()
         .map_err(|error| format!("failed to resolve official plugin resources: {error}"))?;
+    Ok(official_resource_root_from_resource_dir(&resource_dir))
+}
+
+fn official_resource_root_from_resource_dir(resource_dir: &std::path::Path) -> PathBuf {
     let bundled_root =
         resource_dir.join(crate::app::plugins::official::OFFICIAL_RESOURCE_RELATIVE_ROOT);
     if official_resource_root_exists(&bundled_root) {
-        return Ok(bundled_root);
+        return bundled_root;
     }
 
     let dev_root = resource_dir.join("plugins/official");
     if official_resource_root_exists(&dev_root) {
-        return Ok(dev_root);
+        return dev_root;
     }
 
-    Ok(bundled_root)
+    #[cfg(test)]
+    {
+        let source_root = crate::app::plugins::official::official_source_resource_root();
+        if official_resource_root_exists(&source_root) {
+            return source_root;
+        }
+    }
+
+    bundled_root
 }
 
 fn official_resource_root_exists(root: &std::path::Path) -> bool {
@@ -607,6 +619,23 @@ mod tests {
             manifest.exists(),
             "official plugin manifest should exist at {}",
             manifest.display()
+        );
+    }
+
+    #[test]
+    fn official_resource_root_falls_back_to_source_resources_for_tests() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let root = official_resource_root_from_resource_dir(dir.path());
+
+        assert_eq!(
+            root,
+            crate::app::plugins::official::official_source_resource_root()
+        );
+        assert!(
+            root.join("privacy-filter").join("plugin.json").exists(),
+            "official plugin manifest should exist at {}",
+            root.display()
         );
     }
 
