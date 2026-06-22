@@ -809,6 +809,7 @@ cd src-tauri && cargo test plugin_log_redaction --lib
 pnpm check:plugin-api-contract
 pnpm check:plugin-system-docs
 node scripts/check-plugin-api-contract.selftest.mjs
+pnpm plugin:perf-smoke
 ```
 
 Observed results:
@@ -821,8 +822,10 @@ Observed results:
 - `cargo test gateway_plugin_response --lib`: `5 passed; 0 failed`.
 - `cargo test plugin_log_redaction --lib`: `1 passed; 0 failed`.
 - Contract and docs gates exited `0`.
+- `pnpm plugin:perf-smoke`: `2 passed; 0 failed`; observed `perf_empty_pipeline_request_hook_budget` average `961ns` against the `25us` budget, and `perf_one_noop_plugin_request_hook_budget` average `4505ns` against the `250us` budget.
 
 Compatibility conclusions:
 
 - Plugin API v1 remains externally compatible for this plan scope.
 - Provider Plugin API remains closed; provider adapter facades are still internal.
+- Performance smoke did not show gateway hot path regression for the measured plugin pipeline budgets.
