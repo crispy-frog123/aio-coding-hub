@@ -698,7 +698,7 @@ Expected: commit succeeds.
 - Read: `docs/superpowers/specs/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel-design.md`
 - Read: `docs/superpowers/plans/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel.md`
 
-- [ ] **Step 1: Verify no public plugin API files changed unexpectedly**
+- [x] **Step 1: Verify no public plugin API files changed unexpectedly**
 
 Run:
 
@@ -713,7 +713,7 @@ Inspect the output. Expected for this plan:
 - No `plugin.json` schema shape changes.
 - No public provider plugin API docs.
 
-- [ ] **Step 2: Run Rust formatting and compile gates**
+- [x] **Step 2: Run Rust formatting and compile gates**
 
 Run:
 
@@ -725,7 +725,7 @@ cd src-tauri && RUSTFLAGS=-Dwarnings cargo check --locked
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 3: Run plugin-focused Rust tests**
+- [x] **Step 3: Run plugin-focused Rust tests**
 
 Run:
 
@@ -735,7 +735,7 @@ cd src-tauri && cargo test plugin --lib
 
 Expected: all plugin tests pass, with existing performance smoke tests still ignored.
 
-- [ ] **Step 4: Run provider-focused Rust tests**
+- [x] **Step 4: Run provider-focused Rust tests**
 
 Run:
 
@@ -745,7 +745,7 @@ cd src-tauri && cargo test provider --lib
 
 Expected: all provider tests pass.
 
-- [ ] **Step 5: Run targeted gateway hook tests**
+- [x] **Step 5: Run targeted gateway hook tests**
 
 Run:
 
@@ -758,7 +758,7 @@ cd src-tauri && cargo test plugin_log_redaction --lib
 
 Expected: all matching tests pass.
 
-- [ ] **Step 6: Run contract and docs gates**
+- [x] **Step 6: Run contract and docs gates**
 
 Run:
 
@@ -770,7 +770,7 @@ node scripts/check-plugin-api-contract.selftest.mjs
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 7: Commit final verification notes if docs changed**
+- [x] **Step 7: Commit final verification notes if docs changed**
 
 If verification requires a small documentation note, commit it:
 
@@ -782,7 +782,7 @@ git commit -m "docs(plugins): record 0.62 gateway-first verification"
 
 If no files changed, do not create an empty commit.
 
-- [ ] **Step 8: Report final status**
+- [x] **Step 8: Report final status**
 
 Report:
 
@@ -791,3 +791,38 @@ Report:
 - any ignored performance smoke tests,
 - confirmation that Plugin API v1 remains externally compatible,
 - confirmation that Provider Plugin API was not opened.
+
+### Verification Run: 2026-06-22
+
+Step 1 review of `git diff --name-only b53075ba..HEAD` showed this branch contains both 0.62 plugin-kernel work and the merged provider route-order work from `origin/main`. Public plugin API changes are limited to the deliberate SDK contract-alignment fix in `packages/plugin-sdk`; no `packages/create-aio-plugin` changes, no `plugin.json` schema shape changes, and no public provider plugin API docs were introduced.
+
+Commands run:
+
+```bash
+cd src-tauri && cargo fmt -- --check && cargo check --locked && RUSTFLAGS=-Dwarnings cargo check --locked
+cd src-tauri && cargo test plugin --lib
+cd src-tauri && cargo test provider --lib
+cd src-tauri && cargo test gateway_plugin_pipeline --lib
+cd src-tauri && cargo test gateway_plugin_request --lib
+cd src-tauri && cargo test gateway_plugin_response --lib
+cd src-tauri && cargo test plugin_log_redaction --lib
+pnpm check:plugin-api-contract
+pnpm check:plugin-system-docs
+node scripts/check-plugin-api-contract.selftest.mjs
+```
+
+Observed results:
+
+- Rust formatting and compile gates exited `0`.
+- `cargo test plugin --lib`: `180 passed; 0 failed; 2 ignored; 1296 filtered out`. The ignored tests are the existing performance smoke tests `perf_empty_pipeline_request_hook_budget` and `perf_one_noop_plugin_request_hook_budget`.
+- `cargo test provider --lib`: `219 passed; 0 failed; 0 ignored; 1259 filtered out`.
+- `cargo test gateway_plugin_pipeline --lib`: `9 passed; 0 failed`.
+- `cargo test gateway_plugin_request --lib`: `4 passed; 0 failed`.
+- `cargo test gateway_plugin_response --lib`: `5 passed; 0 failed`.
+- `cargo test plugin_log_redaction --lib`: `1 passed; 0 failed`.
+- Contract and docs gates exited `0`.
+
+Compatibility conclusions:
+
+- Plugin API v1 remains externally compatible for this plan scope.
+- Provider Plugin API remains closed; provider adapter facades are still internal.
