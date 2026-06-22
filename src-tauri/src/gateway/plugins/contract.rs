@@ -337,6 +337,16 @@ mod tests {
             .collect()
     }
 
+    fn assert_no_duplicate_values(hook_id: &str, field_name: &str, values: &[&str]) {
+        let mut seen = std::collections::HashSet::new();
+        for value in values {
+            assert!(
+                seen.insert(*value),
+                "{hook_id} {field_name} contains duplicate value {value}"
+            );
+        }
+    }
+
     fn contract_dependency_pairs(entry: &serde_json::Value) -> Vec<(String, Vec<String>)> {
         let dependencies = entry["permissionDependencies"]
             .as_object()
@@ -360,6 +370,16 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn hook_contract_arrays_do_not_contain_duplicates() {
+        for hook in ACTIVE_HOOKS.iter().chain(RESERVED_HOOKS.iter()) {
+            assert_no_duplicate_values(hook.id, "read_permissions", hook.read_permissions);
+            assert_no_duplicate_values(hook.id, "write_permissions", hook.write_permissions);
+            assert_no_duplicate_values(hook.id, "mutation_fields", hook.mutation_fields);
+            assert_no_duplicate_values(hook.id, "context_fields", hook.context_fields);
+        }
     }
 
     #[test]
