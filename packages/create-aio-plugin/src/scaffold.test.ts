@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPluginScaffold } from "./scaffold";
 import {
+  doctorPluginDirectory,
+  doctorPluginFiles,
   generateSigningKeyPair,
   packPlugin,
   packPluginBytes,
@@ -200,6 +202,93 @@ describe("create-aio-plugin scaffold", () => {
     const result = validatePluginDirectory(root);
 
     expect(result).toEqual({ ok: true });
+  });
+
+  it("doctor reports a structured error when plugin.json is missing", () => {
+    const result = doctorPluginFiles({});
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        code: "PLUGIN_MISSING_MANIFEST",
+        path: "plugin.json",
+      }),
+    ]);
+  });
+
+  it("doctor reports missing rule files and policy-gated wasm runtime", () => {
+    const ruleFiles = createPluginScaffold({
+      id: "acme.redactor",
+      name: "Redactor",
+      template: "rule",
+    });
+    delete ruleFiles["rules/main.json"];
+
+    const ruleResult = doctorPluginFiles(ruleFiles);
+
+    expect(ruleResult.ok).toBe(false);
+    expect(ruleResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: "error",
+        code: "PLUGIN_RULE_FILE_MISSING",
+        path: "rules/main.json",
+      })
+    );
+
+    const wasmResult = doctorPluginFiles(
+      createPluginScaffold({ id: "acme.policy", name: "Policy", template: "wasm" })
+    );
+
+    expect(wasmResult.ok).toBe(false);
+    expect(wasmResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: "error",
+        code: "PLUGIN_WASM_ENTRY_MISSING",
+        path: "plugin.wasm",
+      })
+    );
+    expect(wasmResult.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: "warn",
+        code: "PLUGIN_WASM_POLICY_GATED",
+      })
+    );
+  });
+
+  it("doctor command reads a real plugin directory and returns non-zero for errors", () => {
+    const root = mkdtempSync(join(tmpdir(), "aio-plugin-doctor-"));
+    writeScaffold(
+      root,
+      createPluginScaffold({ id: "acme.real", name: "Real", template: "rule" })
+    );
+    const output: string[] = [];
+
+    const directoryResult = doctorPluginDirectory(root);
+
+    expect(directoryResult.ok).toBe(true);
+    expect(
+      runCreateAioPluginCli(["doctor", root], process.cwd(), {
+        log: (line) => output.push(line),
+        error: (line) => output.push(line),
+      })
+    ).toBe(0);
+    expect(JSON.parse(output[0] ?? "{}")).toMatchObject({ ok: true });
+
+    const brokenRoot = mkdtempSync(join(tmpdir(), "aio-plugin-doctor-broken-"));
+    writeFileSync(join(brokenRoot, "README.md"), "# broken\n");
+    const brokenOutput: string[] = [];
+
+    expect(
+      runCreateAioPluginCli(["doctor", brokenRoot], process.cwd(), {
+        log: (line) => brokenOutput.push(line),
+        error: (line) => brokenOutput.push(line),
+      })
+    ).toBe(1);
+    expect(JSON.parse(brokenOutput[0] ?? "{}")).toMatchObject({
+      ok: false,
+      diagnostics: [expect.objectContaining({ code: "PLUGIN_MISSING_MANIFEST" })],
+    });
   });
 
   it("pack command writes package bytes from a real plugin directory", () => {

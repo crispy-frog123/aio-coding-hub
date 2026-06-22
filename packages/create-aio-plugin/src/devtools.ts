@@ -29,11 +29,37 @@ export type CliIo = {
   error: (line: string) => void;
 };
 
+export type DiagnosticSeverity = "error" | "warn" | "info";
+
+export type PluginDiagnostic = {
+  severity: DiagnosticSeverity;
+  code: string;
+  message: string;
+  path?: string;
+  hint?: string;
+};
+
+export type DoctorResult = {
+  ok: boolean;
+  diagnostics: PluginDiagnostic[];
+  manifest?: {
+    id: string;
+    name: string;
+    version: string;
+    runtime: PluginManifest["runtime"]["kind"];
+  };
+};
+
+type DoctorOptions = {
+  strict?: boolean;
+};
+
 const USAGE = [
   "Usage:",
   "  create-aio-plugin <publisher.plugin-name> [rule|wasm]",
-  "  create-aio-plugin validate <plugin-dir>",
-  "  create-aio-plugin replay <plugin-dir> <fixture.json> <hook>",
+  "  create-aio-plugin doctor <plugin-dir>",
+  "  create-aio-plugin validate [--strict] <plugin-dir>",
+  "  create-aio-plugin replay [--explain] <plugin-dir> <fixture.json> <hook>",
   "  create-aio-plugin pack <plugin-dir>",
 ].join("\n");
 
@@ -43,6 +69,22 @@ export function runCreateAioPluginCli(args: string[], cwd: string, io: CliIo = c
   if (!commandOrId) {
     io.error(USAGE);
     return 1;
+  }
+
+  if (commandOrId === "doctor") {
+    try {
+      const result = doctorPluginDirectory(resolve(cwd, firstArg ?? "."));
+      const text = JSON.stringify(result);
+      if (result.ok) {
+        io.log(text);
+        return 0;
+      }
+      io.error(text);
+      return 1;
+    } catch (error) {
+      io.error(`failed to inspect plugin directory: ${errorMessage(error)}`);
+      return 1;
+    }
   }
 
   if (commandOrId === "validate") {
@@ -167,8 +209,109 @@ export function validatePluginDirectory(root: string): ValidationResult {
   return validatePluginFiles(readPluginDirectory(root));
 }
 
+export function doctorPluginDirectory(root: string, options: DoctorOptions = {}): DoctorResult {
+  return doctorPluginFiles(readPluginDirectory(root), options);
+}
+
+export function doctorPluginFiles(files: ScaffoldFiles, options: DoctorOptions = {}): DoctorResult {
+  const diagnostics: PluginDiagnostic[] = [];
+  const manifestText = files["plugin.json"];
+
+  if (!manifestText) {
+    diagnostics.push({
+      severity: "error",
+      code: "PLUGIN_MISSING_MANIFEST",
+      message: "missing plugin.json",
+      path: "plugin.json",
+      hint: "Run create-aio-plugin <publisher.plugin-name> rule or add a Plugin API v1 manifest.",
+    });
+    return { ok: false, diagnostics };
+  }
+
+  let manifest: PluginManifest;
+  try {
+    manifest = JSON.parse(manifestText) as PluginManifest;
+  } catch (error) {
+    diagnostics.push({
+      severity: "error",
+      code: "PLUGIN_INVALID_MANIFEST_JSON",
+      message: `plugin.json is not valid JSON: ${errorMessage(error)}`,
+      path: "plugin.json",
+      hint: "Fix plugin.json before running validate, replay, or pack.",
+    });
+    return { ok: false, diagnostics };
+  }
+
+  const validation = validateManifest(manifest);
+  if (!validation.ok) {
+    diagnostics.push({
+      severity: "error",
+      code: validation.error.code,
+      message: validation.error.message,
+      path: "plugin.json",
+      hint: "Update the manifest so it matches Plugin API v1.",
+    });
+  }
+
+  if (manifest.runtime.kind === "declarativeRules") {
+    for (const rulePath of manifest.runtime.rules) {
+      if (!files[rulePath]) {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_FILE_MISSING",
+          message: `declarative rule file is missing: ${rulePath}`,
+          path: rulePath,
+          hint: "Add the rule file or remove it from runtime.rules.",
+        });
+      }
+    }
+  }
+
+  if (manifest.runtime.kind === "wasm") {
+    const entry = manifest.entry ?? "plugin.wasm";
+    if (!files[entry]) {
+      diagnostics.push({
+        severity: "error",
+        code: "PLUGIN_WASM_ENTRY_MISSING",
+        message: `wasm entry file is missing: ${entry}`,
+        path: entry,
+        hint: "Build the WASM artifact before packing the plugin.",
+      });
+    }
+    diagnostics.push({
+      severity: "warn",
+      code: "PLUGIN_WASM_POLICY_GATED",
+      message: "WASM runtime remains policy-gated by the host.",
+      hint: "Do not rely on marketplace WASM execution unless host policy enables it.",
+    });
+  }
+
+  if (options.strict) {
+    diagnostics.push(...strictRuleDiagnostics(files, manifest));
+  }
+
+  return {
+    ok: !hasErrorDiagnostics(diagnostics),
+    diagnostics,
+    manifest: {
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      runtime: manifest.runtime.kind,
+    },
+  };
+}
+
 export function packPluginDirectory(root: string): PackedPlugin {
   return packPluginBytes(readPluginDirectoryBytes(root));
+}
+
+function hasErrorDiagnostics(diagnostics: readonly PluginDiagnostic[]): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
+function strictRuleDiagnostics(_files: ScaffoldFiles, _manifest: PluginManifest): PluginDiagnostic[] {
+  return [];
 }
 
 function walkPluginDirectory(root: string, dir: string, files: ScaffoldFiles): void {
