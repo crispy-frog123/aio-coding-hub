@@ -102,6 +102,26 @@ describe("validateManifest", () => {
     });
   });
 
+  it("allows beforeSend request body write-only manifests for host compatibility", () => {
+    const result = validateManifest({
+      ...manifest,
+      hooks: [{ name: "gateway.request.beforeSend", priority: 10 }],
+      permissions: ["request.body.write"],
+    });
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("allows gateway error response body write-only manifests for host compatibility", () => {
+    const result = validateManifest({
+      ...manifest,
+      hooks: [{ name: "gateway.error", priority: 10 }],
+      permissions: ["response.body.write"],
+    });
+
+    expect(result).toEqual({ ok: true });
+  });
+
   it("rejects permissions that do not apply to declared hooks", () => {
     const scopedManifest = {
       ...manifest,

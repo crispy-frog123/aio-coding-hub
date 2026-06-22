@@ -59,6 +59,91 @@ function requireRegex(path, text, regex, label) {
   }
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function functionBody(text, functionName) {
+  const signature = new RegExp(`function\\s+${escapeRegex(functionName)}\\s*\\(`).exec(text);
+  if (!signature) return null;
+  const openBrace = text.indexOf("{", signature.index);
+  if (openBrace === -1) return null;
+
+  let depth = 0;
+  for (let index = openBrace; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(openBrace + 1, index);
+      }
+    }
+  }
+  return null;
+}
+
+function dependencyEntries(contract, matrix) {
+  const entries = [];
+  for (const hook of contract.activeHooks ?? []) {
+    const hookContract = matrix?.[hook];
+    if (hookContract == null || typeof hookContract !== "object" || Array.isArray(hookContract)) {
+      continue;
+    }
+    const dependencies = hookContract.permissionDependencies;
+    if (dependencies == null || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+      continue;
+    }
+    for (const [permission, requiredPermissions] of Object.entries(dependencies)) {
+      if (!Array.isArray(requiredPermissions)) continue;
+      for (const requiredPermission of requiredPermissions) {
+        entries.push({ hook, permission, requiredPermission });
+      }
+    }
+  }
+  return entries;
+}
+
+function requireSdkPermissionDependencyContract(path, text, contract, matrix) {
+  if (!/validatePermissionSet\s*\(\s*manifest\s*:\s*PluginManifest\b/.test(text)) {
+    failures.push(`${path} validatePermissionSet must accept PluginManifest`);
+  }
+  if (!/validatePermissionSet\s*\(\s*manifest\s*\)/.test(text)) {
+    failures.push(`${path} validateManifest must pass manifest to validatePermissionSet`);
+  }
+
+  const body = functionBody(text, "validatePermissionSet");
+  if (body == null) {
+    failures.push(`${path} is missing validatePermissionSet body`);
+    return;
+  }
+  requireIncludes(
+    path,
+    body,
+    ["manifest.permissions", "manifest.hooks"],
+    "hook-aware permission validation"
+  );
+
+  for (const { hook, permission, requiredPermission } of dependencyEntries(contract, matrix)) {
+    const hookGuard = new RegExp(`hooks\\.has\\(\\s*["']${escapeRegex(hook)}["']\\s*\\)`, "g");
+    let guarded = false;
+    let match = hookGuard.exec(body);
+    while (match) {
+      const window = body.slice(match.index, match.index + 700);
+      if (window.includes(permission) && window.includes(requiredPermission)) {
+        guarded = true;
+        break;
+      }
+      match = hookGuard.exec(body);
+    }
+    if (!guarded) {
+      failures.push(
+        `${path} validatePermissionSet must guard ${permission} requires ${requiredPermission} behind ${hook}`
+      );
+    }
+  }
+}
+
 function requireObject(path, value) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     failures.push(`${path} must be an object`);
@@ -116,15 +201,24 @@ if (contract) {
     if (entry.status !== "active") {
       failures.push(`hookMatrix.${hook}.status must be active`);
     }
-    const readPermissions = requireArray(`hookMatrix.${hook}.readPermissions`, entry.readPermissions);
-    const writePermissions = requireArray(`hookMatrix.${hook}.writePermissions`, entry.writePermissions);
+    const readPermissions = requireArray(
+      `hookMatrix.${hook}.readPermissions`,
+      entry.readPermissions
+    );
+    const writePermissions = requireArray(
+      `hookMatrix.${hook}.writePermissions`,
+      entry.writePermissions
+    );
     requireUniqueArray(`hookMatrix.${hook}.readPermissions`, readPermissions);
     requireUniqueArray(`hookMatrix.${hook}.writePermissions`, writePermissions);
     const permissionDependencies =
-      requireObject(`hookMatrix.${hook}.permissionDependencies`, entry.permissionDependencies) ?? {};
+      requireObject(`hookMatrix.${hook}.permissionDependencies`, entry.permissionDependencies) ??
+      {};
     for (const [permission, requires] of Object.entries(permissionDependencies)) {
       if (!writePermissions.includes(permission)) {
-        failures.push(`hookMatrix.${hook}.permissionDependencies.${permission} must be a write permission`);
+        failures.push(
+          `hookMatrix.${hook}.permissionDependencies.${permission} must be a write permission`
+        );
       }
       const requiredPermissions = requireArray(
         `hookMatrix.${hook}.permissionDependencies.${permission}`,
@@ -175,6 +269,7 @@ if (contract) {
     contract.activeMutationFields ?? [],
     "active mutation field"
   );
+  requireSdkPermissionDependencyContract("packages/plugin-sdk/src/index.ts", sdk, contract, matrix);
 
   const scaffold = readText("packages/create-aio-plugin/src/scaffold.ts");
   requireIncludes(
@@ -255,7 +350,12 @@ if (contract) {
 
   const manifestSpec = readText("docs/plugin-manifest-v1.md");
   requireIncludes("docs/plugin-manifest-v1.md", manifestSpec, contract.activeHooks, "active hook");
-  requireIncludes("docs/plugin-manifest-v1.md", manifestSpec, contract.reservedHooks, "reserved hook");
+  requireIncludes(
+    "docs/plugin-manifest-v1.md",
+    manifestSpec,
+    contract.reservedHooks,
+    "reserved hook"
+  );
   requireIncludes(
     "docs/plugin-manifest-v1.md",
     manifestSpec,
@@ -300,7 +400,12 @@ if (contract) {
 
   const wasmGuidePath = "docs/plugins/runtime/wasm.md";
   const wasmGuide = readText(wasmGuidePath);
-  requireIncludes(wasmGuidePath, wasmGuide, ["wasm", "PLUGIN_RUNTIME_DISABLED"], "WASM policy token");
+  requireIncludes(
+    wasmGuidePath,
+    wasmGuide,
+    ["wasm", "PLUGIN_RUNTIME_DISABLED"],
+    "WASM policy token"
+  );
 
   requireRegex(
     "packages/plugin-sdk/src/index.ts",
@@ -332,7 +437,12 @@ if (contract) {
     ["PLUGIN_RESERVED_HOOK", "PLUGIN_RESERVED_PERMISSION"],
     "reserved validation error"
   );
-  requireNotIncludes("packages/plugin-sdk/src/index.ts", sdk, ["contextPatch"], "legacy mutation field");
+  requireNotIncludes(
+    "packages/plugin-sdk/src/index.ts",
+    sdk,
+    ["contextPatch"],
+    "legacy mutation field"
+  );
   requireNotIncludes(
     "packages/create-aio-plugin/src/scaffold.ts",
     scaffold,

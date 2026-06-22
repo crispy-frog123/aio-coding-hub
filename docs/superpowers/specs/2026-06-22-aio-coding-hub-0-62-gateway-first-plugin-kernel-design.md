@@ -104,6 +104,7 @@ Provider 是未来插件系统的重要方向，但 0.62 不开放 Provider Plug
 - Active/reserved hooks 一致性检查。
 - Active/reserved permissions 一致性检查。
 - Hook context fields、mutation fields、permission dependencies 一致性检查。
+- SDK manifest validation 必须按 hook-scoped `permissionDependencies` 执行，不能把某个 hook 的 write/read 依赖误提升为全局规则。
 - SDK、docs、scaffold、replay、Rust validation 的 drift 报错可定位。
 
 不做：
@@ -227,6 +228,7 @@ Provider 是未来插件系统的重要方向，但 0.62 不开放 Provider Plug
 - Active permissions 与 docs/SDK 一致。
 - Reserved permissions 仍被 manifest validation 拒绝。
 - Permission dependencies 与 contract 一致。
+- SDK 允许 contract 中无依赖的 write-only hook manifest，同时继续拒绝有依赖的 write-without-read manifest。
 - Mutation fields 与 hook descriptor 一致。
 - Legacy `contextPatch` 不回到 active contract。
 

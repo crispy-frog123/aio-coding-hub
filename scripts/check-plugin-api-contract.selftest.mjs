@@ -32,23 +32,70 @@ function writePassingScaffold(root) {
   writeFileSync(
     join(root, "packages/plugin-sdk/src/index.ts"),
     [
-      "gateway.request.afterBodyRead gateway.response.headers",
-      "request.body.read request.body.write network.fetch requestBody",
+      [
+        "gateway.request.afterBodyRead",
+        "gateway.request.beforeSend",
+        "gateway.response.chunk",
+        "gateway.response.after",
+        "gateway.error",
+        "log.beforePersist",
+        "gateway.response.headers",
+      ].join(" "),
+      [
+        "request.meta.read",
+        "request.header.read",
+        "request.header.readSensitive",
+        "request.header.write",
+        "request.body.read",
+        "request.body.write",
+        "response.header.read",
+        "response.header.write",
+        "response.body.read",
+        "response.body.write",
+        "stream.inspect",
+        "stream.modify",
+        "log.redact",
+        "network.fetch",
+      ].join(" "),
+      "requestBody responseBody streamChunk logMessage headers",
       "declarativeRules wasm",
-      "export type ActiveGatewayHookName = 'gateway.request.afterBodyRead';",
+      [
+        "export type ActiveGatewayHookName =",
+        "'gateway.request.afterBodyRead' |",
+        "'gateway.request.beforeSend' |",
+        "'gateway.response.chunk' |",
+        "'gateway.response.after' |",
+        "'gateway.error' |",
+        "'log.beforePersist';",
+      ].join(" "),
       "export type ReservedGatewayHookName = 'gateway.response.headers';",
       "export type GatewayHookName = ActiveGatewayHookName | ReservedGatewayHookName;",
+      "type PluginManifest = { permissions: string[]; hooks: { name: string }[] };",
+      "function validateManifest(manifest: PluginManifest) {",
+      "  return validatePermissionSet(manifest);",
+      "}",
+      "function validatePermissionSet(manifest: PluginManifest) {",
+      "  const set = new Set(manifest.permissions);",
+      "  const hooks = new Set(manifest.hooks.map((hook) => hook.name));",
+      "  if (hooks.has('gateway.request.afterBodyRead') && set.has('request.body.write') && !set.has('request.body.read')) return 'request.body.write requires request.body.read';",
+      "  if (hooks.has('gateway.response.after') && set.has('response.body.write') && !set.has('response.body.read')) return 'response.body.write requires response.body.read';",
+      "  if (hooks.has('gateway.response.chunk') && set.has('stream.modify') && !set.has('stream.inspect')) return 'stream.modify requires stream.inspect';",
+      "  return null;",
+      "}",
     ].join("\n")
   );
   writeFileSync(
     join(root, "packages/create-aio-plugin/src/scaffold.ts"),
-    "declarativeRules wasm gateway.request.afterBodyRead request.body.read request.body.write"
+    [
+      "declarativeRules wasm gateway.request.afterBodyRead gateway.request.beforeSend",
+      "request.body.read request.body.write",
+    ].join("\n")
   );
   writeFileSync(
     join(root, "src-tauri/src/gateway/plugins/contract.rs"),
     [
-      "gateway.request.afterBodyRead gateway.response.headers",
-      "request.body.read network.fetch",
+      "gateway.request.afterBodyRead gateway.request.beforeSend gateway.response.headers",
+      "request.body.read request.body.write network.fetch",
     ].join("\n")
   );
   writeFileSync(
@@ -59,10 +106,12 @@ function writePassingScaffold(root) {
       "crate::gateway::plugins::contract::is_reserved_hook",
       "crate::gateway::plugins::contract::is_reserved_permission",
       "crate::gateway::plugins::contract::hook_contract",
-      "pub fn is_active_gateway_hook(hook: &str) -> bool { hook == \"gateway.request.afterBodyRead\" }",
-      "pub fn is_reserved_gateway_hook(hook: &str) -> bool { hook == \"gateway.response.headers\" }",
-      "pub fn is_reserved_permission(permission: &str) -> bool { permission == \"network.fetch\" }",
-      "fn permission_risk(permission: &str) { request.body.read; network.fetch; }",
+      "pub fn is_active_gateway_hook(hook: &str) -> bool {",
+      '  hook == "gateway.request.afterBodyRead" || hook == "gateway.request.beforeSend"',
+      "}",
+      'pub fn is_reserved_gateway_hook(hook: &str) -> bool { hook == "gateway.response.headers" }',
+      'pub fn is_reserved_permission(permission: &str) -> bool { permission == "network.fetch" }',
+      "fn permission_risk(permission: &str) { request.body.read; request.body.write; network.fetch; }",
       "PLUGIN_RESERVED_HOOK PLUGIN_RESERVED_PERMISSION",
     ].join("\n")
   );
@@ -72,15 +121,18 @@ function writePassingScaffold(root) {
   );
   writeFileSync(
     join(root, "docs/plugin-manifest-v1.md"),
-    "gateway.request.afterBodyRead gateway.response.headers request.body.read network.fetch"
+    [
+      "gateway.request.afterBodyRead gateway.request.beforeSend gateway.response.headers",
+      "request.body.read request.body.write network.fetch",
+    ].join("\n")
   );
   writeFileSync(
     join(root, "docs/plugins/reference/hooks.md"),
-    "gateway.request.afterBodyRead gateway.response.headers"
+    "gateway.request.afterBodyRead gateway.request.beforeSend gateway.response.headers"
   );
   writeFileSync(
     join(root, "docs/plugins/reference/permissions.md"),
-    "request.body.read network.fetch"
+    "request.body.read request.body.write network.fetch"
   );
   writeFileSync(
     join(root, "docs/plugins/reference/manifest.md"),
@@ -124,16 +176,25 @@ writeFileSync(
   join(reservedHookRoot, "docs/plugin-manifest-v1.md"),
   "gateway.request.afterBodyRead request.body.read"
 );
-writeFileSync(join(reservedHookRoot, "docs/plugins/reference/hooks.md"), "gateway.request.afterBodyRead");
+writeFileSync(
+  join(reservedHookRoot, "docs/plugins/reference/hooks.md"),
+  "gateway.request.afterBodyRead"
+);
 writeFileSync(join(reservedHookRoot, "docs/plugins/reference/permissions.md"), "request.body.read");
 writeFileSync(
   join(reservedHookRoot, "docs/plugins/reference/manifest.md"),
   "declarativeRules wasm native privacyFilter"
 );
-writeFileSync(join(reservedHookRoot, "docs/plugins/runtime/wasm.md"), "wasm PLUGIN_RUNTIME_DISABLED");
+writeFileSync(
+  join(reservedHookRoot, "docs/plugins/runtime/wasm.md"),
+  "wasm PLUGIN_RUNTIME_DISABLED"
+);
 
 const reservedHookResult = runCheck(reservedHookRoot);
-if (reservedHookResult.status === 0 || !reservedHookResult.stderr.includes("gateway.response.headers")) {
+if (
+  reservedHookResult.status === 0 ||
+  !reservedHookResult.stderr.includes("gateway.response.headers")
+) {
   throw new Error(
     `expected structural contract failure, got status ${reservedHookResult.status}\n${reservedHookResult.stderr}`
   );
@@ -173,7 +234,9 @@ if (
   !missingHookMetadataResult.stderr.includes(
     "hookMatrix.gateway.request.afterBodyRead.permissionDependencies"
   ) ||
-  !missingHookMetadataResult.stderr.includes("hookMatrix.gateway.request.afterBodyRead.mutationFields")
+  !missingHookMetadataResult.stderr.includes(
+    "hookMatrix.gateway.request.afterBodyRead.mutationFields"
+  )
 ) {
   throw new Error(
     `expected hookMatrix metadata failure, got status ${missingHookMetadataResult.status}\n${missingHookMetadataResult.stderr}`
@@ -270,5 +333,86 @@ if (
 ) {
   throw new Error(
     `expected hookMatrix duplicate metadata failure, got status ${duplicateHookMetadataResult.status}\n${duplicateHookMetadataResult.stderr}`
+  );
+}
+
+const globalPermissionDependencyRoot = makeRoot("global-permission-dependency");
+writeJson(globalPermissionDependencyRoot, "docs/plugins/plugin-api-v1-contract.json", {
+  apiVersion: "1.0.0",
+  defaultHookTimeoutMs: 150,
+  defaultFailurePolicy: "fail-open",
+  activeHooks: ["gateway.request.afterBodyRead", "gateway.request.beforeSend"],
+  reservedHooks: ["gateway.response.headers"],
+  activeMutationFields: ["requestBody"],
+  configSchemaTypes: ["object"],
+  activePermissions: ["request.body.read", "request.body.write"],
+  reservedPermissions: ["network.fetch"],
+  hookMatrix: {
+    "gateway.request.afterBodyRead": {
+      phase: "after request body read and before upstream provider send",
+      kind: "request",
+      status: "active",
+      defaultFailurePolicy: "fail-open",
+      timeoutMs: 150,
+      reservedHeaderPolicy: "block-gateway-owned",
+      readPermissions: ["request.body.read"],
+      writePermissions: ["request.body.write"],
+      permissionDependencies: {
+        "request.body.write": ["request.body.read"],
+      },
+      mutationFields: ["requestBody"],
+      contextFields: ["traceId", "request.body"],
+    },
+    "gateway.request.beforeSend": {
+      phase: "after provider resolution and before upstream provider send",
+      kind: "request",
+      status: "active",
+      defaultFailurePolicy: "fail-open",
+      timeoutMs: 150,
+      reservedHeaderPolicy: "block-gateway-owned",
+      readPermissions: ["request.body.read"],
+      writePermissions: ["request.body.write"],
+      permissionDependencies: {},
+      mutationFields: ["requestBody"],
+      contextFields: ["traceId", "request.body"],
+    },
+  },
+  communityRuntimes: ["declarativeRules"],
+  policyGatedRuntimes: ["wasm"],
+  officialRuntimes: ["native:privacyFilter"],
+});
+writePassingScaffold(globalPermissionDependencyRoot);
+writeFileSync(
+  join(globalPermissionDependencyRoot, "packages/plugin-sdk/src/index.ts"),
+  [
+    "export type PluginPermission = 'request.body.read' | 'request.body.write' | 'network.fetch';",
+    "export type ActiveGatewayHookName = 'gateway.request.afterBodyRead' | 'gateway.request.beforeSend';",
+    "export type ReservedGatewayHookName = 'gateway.response.headers';",
+    "export type GatewayHookName = ActiveGatewayHookName | ReservedGatewayHookName;",
+    "const runtimeTokens = 'declarativeRules wasm';",
+    "const activeMutationField = 'requestBody';",
+    "function validateManifest(manifest: { permissions: PluginPermission[] }) {",
+    "  return validatePermissionSet(manifest.permissions);",
+    "}",
+    "function validatePermissionSet(permissions: PluginPermission[]) {",
+    "  const set = new Set(permissions);",
+    "  if (set.has('request.body.write') && !set.has('request.body.read')) {",
+    "    return 'request.body.write requires request.body.read';",
+    "  }",
+    "  return null;",
+    "}",
+  ].join("\n")
+);
+
+const globalPermissionDependencyResult = runCheck(globalPermissionDependencyRoot);
+if (
+  globalPermissionDependencyResult.status === 0 ||
+  !globalPermissionDependencyResult.stderr.includes(
+    "packages/plugin-sdk/src/index.ts validatePermissionSet must accept PluginManifest"
+  ) ||
+  !globalPermissionDependencyResult.stderr.includes("gateway.request.afterBodyRead")
+) {
+  throw new Error(
+    `expected hook-aware permission dependency failure, got status ${globalPermissionDependencyResult.status}\n${globalPermissionDependencyResult.stderr}`
   );
 }

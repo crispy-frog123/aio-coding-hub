@@ -479,6 +479,150 @@ git commit -m "test(plugins): reject duplicate hook contract metadata"
 
 Expected: commit succeeds.
 
+## Task 5A: Align SDK Permission Dependencies With Hook Contract
+
+**Files:**
+- Modify: `packages/plugin-sdk/src/index.ts`
+- Modify: `packages/plugin-sdk/src/index.test.ts`
+- Modify: `scripts/check-plugin-api-contract.mjs`
+- Modify: `scripts/check-plugin-api-contract.selftest.mjs`
+- Modify: `docs/superpowers/specs/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel-design.md`
+- Modify: `docs/superpowers/plans/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel.md`
+
+- [x] **Step 1: Write failing SDK tests for host-compatible write-only hooks**
+
+Add these tests to `packages/plugin-sdk/src/index.test.ts`:
+
+```ts
+it("allows beforeSend request body write-only manifests for host compatibility", () => {
+  const result = validateManifest({
+    ...manifest,
+    hooks: [{ name: "gateway.request.beforeSend", priority: 10 }],
+    permissions: ["request.body.write"],
+  });
+
+  expect(result).toEqual({ ok: true });
+});
+
+it("allows gateway error response body write-only manifests for host compatibility", () => {
+  const result = validateManifest({
+    ...manifest,
+    hooks: [{ name: "gateway.error", priority: 10 }],
+    permissions: ["response.body.write"],
+  });
+
+  expect(result).toEqual({ ok: true });
+});
+```
+
+- [x] **Step 2: Run SDK tests and verify they fail before the fix**
+
+Run:
+
+```bash
+pnpm --filter @aio-coding-hub/plugin-sdk test
+```
+
+Expected before implementation: tests fail with `PLUGIN_INVALID_PERMISSION_SET` because SDK applies write/read dependencies globally.
+
+- [x] **Step 3: Make SDK permission dependencies hook-aware**
+
+Change `packages/plugin-sdk/src/index.ts` so `validatePermissionSet` receives the full manifest and only applies dependencies for hooks that declare them in Plugin API v1:
+
+```ts
+const permissionSetError = validatePermissionSet(manifest);
+```
+
+```ts
+function validatePermissionSet(manifest: PluginManifest): ValidationResult | null {
+  const set = new Set(manifest.permissions);
+  const hooks = new Set(manifest.hooks.map((hook) => hook.name));
+
+  if (
+    hooks.has("gateway.request.afterBodyRead") &&
+    set.has("request.body.write") &&
+    !set.has("request.body.read")
+  ) {
+    return invalid(
+      "PLUGIN_INVALID_PERMISSION_SET",
+      "request.body.write requires request.body.read"
+    );
+  }
+  if (
+    hooks.has("gateway.response.after") &&
+    set.has("response.body.write") &&
+    !set.has("response.body.read")
+  ) {
+    return invalid(
+      "PLUGIN_INVALID_PERMISSION_SET",
+      "response.body.write requires response.body.read"
+    );
+  }
+  if (
+    hooks.has("gateway.response.chunk") &&
+    set.has("stream.modify") &&
+    !set.has("stream.inspect")
+  ) {
+    return invalid("PLUGIN_INVALID_PERMISSION_SET", "stream.modify requires stream.inspect");
+  }
+  return null;
+}
+```
+
+- [x] **Step 4: Add contract checker self-test for global dependency drift**
+
+Append a fixture to `scripts/check-plugin-api-contract.selftest.mjs` that creates a temporary SDK with `validatePermissionSet(permissions)` and a global `request.body.write` -> `request.body.read` rule while the contract says `gateway.request.beforeSend.permissionDependencies` is `{}`.
+
+Run:
+
+```bash
+node scripts/check-plugin-api-contract.selftest.mjs
+```
+
+Expected before checker implementation: failure because `check-plugin-api-contract.mjs` returns status `0` for the bad SDK fixture.
+
+- [x] **Step 5: Check SDK permission dependencies from contract metadata**
+
+Update `scripts/check-plugin-api-contract.mjs` so it derives dependency entries from `hookMatrix.*.permissionDependencies` and checks that SDK validation:
+
+- calls `validatePermissionSet(manifest)`;
+- defines `validatePermissionSet(manifest: PluginManifest)`;
+- reads both `manifest.permissions` and `manifest.hooks`;
+- guards every dependency behind `hooks.has("<hook>")`.
+
+- [x] **Step 6: Run verification**
+
+Run:
+
+```bash
+pnpm exec prettier --check packages/plugin-sdk/src/index.ts packages/plugin-sdk/src/index.test.ts scripts/check-plugin-api-contract.mjs scripts/check-plugin-api-contract.selftest.mjs
+node scripts/check-plugin-api-contract.selftest.mjs
+pnpm check:plugin-api-contract
+pnpm --filter @aio-coding-hub/plugin-sdk test
+pnpm --filter @aio-coding-hub/plugin-sdk typecheck
+pnpm create-aio-plugin:test
+pnpm typecheck
+git diff --check
+```
+
+Expected: every command exits `0`; SDK accepts host-compatible write-only hooks and rejects only hook-scoped permission dependency violations.
+
+- [x] **Step 7: Commit**
+
+Run:
+
+```bash
+git add packages/plugin-sdk/src/index.ts \
+  packages/plugin-sdk/src/index.test.ts \
+  scripts/check-plugin-api-contract.mjs \
+  scripts/check-plugin-api-contract.selftest.mjs \
+  docs/superpowers/specs/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel-design.md \
+  docs/superpowers/plans/2026-06-22-aio-coding-hub-0-62-gateway-first-plugin-kernel.md
+git commit -m "fix(plugin-sdk): align permission dependencies with hook contract"
+```
+
+Expected: commit succeeds and contains only the SDK permission dependency alignment plus its contract drift guard.
+
 ## Task 6: Strengthen Provider API Non-Exposure Docs Gate
 
 **Files:**

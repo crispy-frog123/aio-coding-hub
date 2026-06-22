@@ -253,7 +253,7 @@ export function validateManifest(manifest: PluginManifest): ValidationResult {
       return invalid("PLUGIN_UNKNOWN_PERMISSION", `unknown permission: ${permission}`);
     }
   }
-  const permissionSetError = validatePermissionSet(manifest.permissions);
+  const permissionSetError = validatePermissionSet(manifest);
   if (permissionSetError) return permissionSetError;
   const permissionScopeError = validatePermissionScope(manifest);
   if (permissionScopeError) return permissionScopeError;
@@ -286,21 +286,35 @@ function supportsPluginApiV1(value: string): boolean {
   return trimmed === "^1.0.0" || trimmed === "1.x.x" || trimmed === ">=1.0.0 <2.0.0";
 }
 
-function validatePermissionSet(permissions: PluginPermission[]): ValidationResult | null {
-  const set = new Set(permissions);
-  if (set.has("request.body.write") && !set.has("request.body.read")) {
+function validatePermissionSet(manifest: PluginManifest): ValidationResult | null {
+  const set = new Set(manifest.permissions);
+  const hooks = new Set(manifest.hooks.map((hook) => hook.name));
+
+  if (
+    hooks.has("gateway.request.afterBodyRead") &&
+    set.has("request.body.write") &&
+    !set.has("request.body.read")
+  ) {
     return invalid(
       "PLUGIN_INVALID_PERMISSION_SET",
       "request.body.write requires request.body.read"
     );
   }
-  if (set.has("response.body.write") && !set.has("response.body.read")) {
+  if (
+    hooks.has("gateway.response.after") &&
+    set.has("response.body.write") &&
+    !set.has("response.body.read")
+  ) {
     return invalid(
       "PLUGIN_INVALID_PERMISSION_SET",
       "response.body.write requires response.body.read"
     );
   }
-  if (set.has("stream.modify") && !set.has("stream.inspect")) {
+  if (
+    hooks.has("gateway.response.chunk") &&
+    set.has("stream.modify") &&
+    !set.has("stream.inspect")
+  ) {
     return invalid("PLUGIN_INVALID_PERMISSION_SET", "stream.modify requires stream.inspect");
   }
   return null;
@@ -315,7 +329,9 @@ function hookAllowsPermission(hookName: GatewayHookName, permission: PluginPermi
     permission === "request.body.read" ||
     permission === "request.body.write"
   ) {
-    return hookName === "gateway.request.afterBodyRead" || hookName === "gateway.request.beforeSend";
+    return (
+      hookName === "gateway.request.afterBodyRead" || hookName === "gateway.request.beforeSend"
+    );
   }
   if (
     permission === "response.header.read" ||
