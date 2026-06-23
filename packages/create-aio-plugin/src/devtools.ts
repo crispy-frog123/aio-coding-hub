@@ -652,7 +652,7 @@ function ruleMatcherDiagnostics(
     });
     return diagnostics;
   }
-  if (usesUnsupportedRustRegexSyntax(regex)) {
+  if (usesUnsupportedRustRegexSyntax(regex) || hasMalformedRegexSyntax(regex)) {
     diagnostics.push({
       severity: "error",
       code: "PLUGIN_RULE_MATCHER_INVALID",
@@ -671,6 +671,67 @@ function usesUnsupportedRustRegexSyntax(regex: string): boolean {
     /\\k(?:<[^>]+>|'[^']+')/.test(regex) ||
     /\(\?(?:[=!]|<[=!])/.test(regex)
   );
+}
+
+function hasMalformedRegexSyntax(regex: string): boolean {
+  let escaped = false;
+  let characterClassOpen = false;
+  let groupDepth = 0;
+  let hasPreviousAtom = false;
+  let previousChar = "";
+
+  for (const char of regex) {
+    if (escaped) {
+      escaped = false;
+      hasPreviousAtom = true;
+      previousChar = char;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      previousChar = char;
+      continue;
+    }
+    if (characterClassOpen) {
+      if (char === "]") {
+        characterClassOpen = false;
+        hasPreviousAtom = true;
+      }
+      previousChar = char;
+      continue;
+    }
+    if (char === "[") {
+      characterClassOpen = true;
+      previousChar = char;
+      continue;
+    }
+    if (char === "(") {
+      groupDepth += 1;
+      hasPreviousAtom = false;
+      previousChar = char;
+      continue;
+    }
+    if (char === ")") {
+      if (groupDepth === 0) return true;
+      groupDepth -= 1;
+      hasPreviousAtom = true;
+      previousChar = char;
+      continue;
+    }
+    if (
+      (char === "*" || char === "+" || char === "?") &&
+      !hasPreviousAtom &&
+      previousChar !== "("
+    ) {
+      return true;
+    }
+    if (char !== "^" && char !== "$" && char !== "|") {
+      hasPreviousAtom = true;
+    }
+    previousChar = char;
+  }
+
+  return escaped || characterClassOpen || groupDepth > 0;
 }
 
 function ruleJsonPathDiagnostics(

@@ -513,6 +513,27 @@ describe("create-aio-plugin scaffold", () => {
             id: "invalid-syntax",
             hook: "gateway.request.afterBodyRead",
             target: { field: "request.body" },
+            match: { regex: "[" },
+            action: { kind: "replace", replacement: "[x]" },
+          },
+          {
+            id: "invalid-group",
+            hook: "gateway.request.afterBodyRead",
+            target: { field: "request.body" },
+            match: { regex: "(" },
+            action: { kind: "replace", replacement: "[x]" },
+          },
+          {
+            id: "invalid-repeat",
+            hook: "gateway.request.afterBodyRead",
+            target: { field: "request.body" },
+            match: { regex: "*" },
+            action: { kind: "replace", replacement: "[x]" },
+          },
+          {
+            id: "named-backref",
+            hook: "gateway.request.afterBodyRead",
+            target: { field: "request.body" },
             match: { regex: "(?<word>secret)\\k<word>" },
             action: { kind: "replace", replacement: "[x]" },
           },
@@ -543,6 +564,27 @@ describe("create-aio-plugin scaffold", () => {
       expect.objectContaining({
         code: "PLUGIN_RULE_MATCHER_INVALID",
         path: "rules/main.json#/rules/2/match/regex",
+        message: expect.stringContaining("unsupported Rust regex syntax"),
+      })
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_MATCHER_INVALID",
+        path: "rules/main.json#/rules/3/match/regex",
+        message: expect.stringContaining("unsupported Rust regex syntax"),
+      })
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_MATCHER_INVALID",
+        path: "rules/main.json#/rules/4/match/regex",
+        message: expect.stringContaining("unsupported Rust regex syntax"),
+      })
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_MATCHER_INVALID",
+        path: "rules/main.json#/rules/5/match/regex",
         message: expect.stringContaining("unsupported Rust regex syntax"),
       })
     );
