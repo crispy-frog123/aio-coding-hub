@@ -293,6 +293,64 @@ describe("create-aio-plugin scaffold", () => {
     );
   });
 
+  it("validate strict allows host-compatible write-only request hooks", () => {
+    const files = rulePluginFilesWithRule({
+      hook: "gateway.request.beforeSend",
+      target: { field: "request.body" },
+    });
+    const manifest = JSON.parse(files["plugin.json"] ?? "{}") as {
+      permissions: string[];
+    };
+    manifest.permissions = ["request.body.write"];
+    files["plugin.json"] = `${JSON.stringify(manifest, null, 2)}\n`;
+
+    const result = validatePluginFilesStrict(files);
+
+    expect(result.diagnostics).not.toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_PERMISSION_MISMATCH",
+      })
+    );
+  });
+
+  it("validate strict allows host-compatible write-only gateway error response hooks", () => {
+    const files = rulePluginFilesWithRule({
+      hook: "gateway.error",
+      target: { field: "response.body" },
+    });
+    const manifest = JSON.parse(files["plugin.json"] ?? "{}") as {
+      permissions: string[];
+    };
+    manifest.permissions = ["response.body.write"];
+    files["plugin.json"] = `${JSON.stringify(manifest, null, 2)}\n`;
+
+    const result = validatePluginFilesStrict(files);
+
+    expect(result.diagnostics).not.toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_PERMISSION_MISMATCH",
+      })
+    );
+  });
+
+  it("validate strict rejects rule targets that do not match the hook", () => {
+    const files = rulePluginFilesWithRule({
+      hook: "gateway.response.after",
+      target: { field: "request.body" },
+    });
+
+    const result = validatePluginFilesStrict(files);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: "error",
+        code: "PLUGIN_RULE_TARGET_INCOMPATIBLE_WITH_HOOK",
+        path: "rules/main.json#/rules/0/target/field",
+      })
+    );
+  });
+
   it("legacy validate remains manifest-only while validate strict reports package errors", () => {
     const files = createPluginScaffold({ id: "acme.real", name: "Real", template: "rule" });
     delete files["rules/main.json"];

@@ -486,7 +486,7 @@ function strictRuleDiagnostics(files: ScaffoldFiles, manifest: PluginManifest): 
         });
       }
 
-      for (const permission of permissionsForRuleTarget(targetField, actionKind)) {
+      for (const permission of permissionsForRuleTarget(hook, targetField, actionKind)) {
         if (!grantedPermissions.has(permission)) {
           diagnostics.push({
             severity: "error",
@@ -505,10 +505,11 @@ function strictRuleDiagnostics(files: ScaffoldFiles, manifest: PluginManifest): 
   return diagnostics;
 }
 
-function permissionsForRuleTarget(field: string, actionKind: string): string[] {
+function permissionsForRuleTarget(hook: string, field: string, actionKind: string): string[] {
   const mutates = actionKind === "replace" || actionKind === "appendMessage";
   switch (field) {
     case "response.body":
+      if (mutates && hook === "gateway.error") return ["response.body.write"];
       return mutates ? ["response.body.read", "response.body.write"] : ["response.body.read"];
     case "stream.chunk":
       return mutates ? ["stream.inspect", "stream.modify"] : ["stream.inspect"];
@@ -516,6 +517,7 @@ function permissionsForRuleTarget(field: string, actionKind: string): string[] {
       return ["log.redact"];
     case "request.body":
     default:
+      if (mutates && hook === "gateway.request.beforeSend") return ["request.body.write"];
       return mutates ? ["request.body.read", "request.body.write"] : ["request.body.read"];
   }
 }
