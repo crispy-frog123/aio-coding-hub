@@ -725,6 +725,11 @@ function hasMalformedRegexSyntax(regex: string): boolean {
     ) {
       return true;
     }
+    if (char === "|") {
+      hasPreviousAtom = false;
+      previousChar = char;
+      continue;
+    }
     if (char !== "^" && char !== "$" && char !== "|") {
       hasPreviousAtom = true;
     }
