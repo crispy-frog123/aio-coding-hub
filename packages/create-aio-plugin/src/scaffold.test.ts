@@ -1646,27 +1646,7 @@ describe("create-aio-plugin scaffold", () => {
     });
   });
 
-  it("replay explain handles Rust extended and disabled inline flags", () => {
-    const extendedFiles = rulePluginFilesWithTarget(undefined);
-    const extendedDocument = JSON.parse(extendedFiles["rules/main.json"] ?? "{}") as {
-      rules?: Array<Record<string, unknown>>;
-    };
-    const extendedRule = extendedDocument.rules?.[0];
-    if (extendedRule) {
-      extendedRule.match = { regex: "(?x)sec ret" };
-    }
-    extendedFiles["rules/main.json"] = `${JSON.stringify(extendedDocument, null, 2)}\n`;
-
-    expect(
-      replayHookExplain(extendedFiles, "gateway.request.afterBodyRead", {
-        request: { body: "secret token" },
-      })
-    ).toMatchObject({
-      matchedRuleIds: ["redact-token-rule"],
-      outputKind: "replace",
-      result: { action: "replace", requestBody: "[REDACTED] token" },
-    });
-
+  it("replay explain handles disabled leading inline flags", () => {
     const disabledFiles = rulePluginFilesWithTarget(undefined);
     const disabledDocument = JSON.parse(disabledFiles["rules/main.json"] ?? "{}") as {
       rules?: Array<Record<string, unknown>>;
@@ -1685,6 +1665,63 @@ describe("create-aio-plugin scaffold", () => {
       matchedRuleIds: [],
       outputKind: "pass",
       result: { action: "pass" },
+    });
+  });
+
+  it("replay explain warns instead of false passing complex Rust regex flags", () => {
+    const toggledFiles = rulePluginFilesWithTarget(undefined);
+    const toggledDocument = JSON.parse(toggledFiles["rules/main.json"] ?? "{}") as {
+      rules?: Array<Record<string, unknown>>;
+    };
+    const toggledRule = toggledDocument.rules?.[0];
+    if (toggledRule) {
+      toggledRule.match = { regex: "(?i)sec(?-i)ret" };
+    }
+    toggledFiles["rules/main.json"] = `${JSON.stringify(toggledDocument, null, 2)}\n`;
+
+    const toggledResult = replayHookExplain(toggledFiles, "gateway.request.afterBodyRead", {
+      request: { body: "SECRET token" },
+    });
+
+    expect(toggledResult).toMatchObject({
+      matchedRuleIds: [],
+      outputKind: "pass",
+      warnings: [
+        expect.objectContaining({
+          severity: "warn",
+          code: "PLUGIN_REPLAY_REGEX_UNSUPPORTED",
+        }),
+      ],
+    });
+    expect(() =>
+      replayHook(toggledFiles, "gateway.request.afterBodyRead", {
+        request: { body: "SECRET token" },
+      })
+    ).toThrow(/PLUGIN_REPLAY_REGEX_UNSUPPORTED/);
+
+    const extendedFiles = rulePluginFilesWithTarget(undefined);
+    const extendedDocument = JSON.parse(extendedFiles["rules/main.json"] ?? "{}") as {
+      rules?: Array<Record<string, unknown>>;
+    };
+    const extendedRule = extendedDocument.rules?.[0];
+    if (extendedRule) {
+      extendedRule.match = { regex: "(?x)[ a ]" };
+    }
+    extendedFiles["rules/main.json"] = `${JSON.stringify(extendedDocument, null, 2)}\n`;
+
+    expect(
+      replayHookExplain(extendedFiles, "gateway.request.afterBodyRead", {
+        request: { body: " " },
+      })
+    ).toMatchObject({
+      matchedRuleIds: [],
+      outputKind: "pass",
+      warnings: [
+        expect.objectContaining({
+          severity: "warn",
+          code: "PLUGIN_REPLAY_REGEX_UNSUPPORTED",
+        }),
+      ],
     });
   });
 

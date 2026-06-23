@@ -81,6 +81,7 @@ export type ReplayRuleTrace = {
   result: ReplayRuleResult;
   targetField?: string;
   jsonPath?: string;
+  warning?: PluginDiagnostic;
 };
 
 type DoctorOptions = {
@@ -1305,6 +1306,7 @@ export function replayHookExplain(
     for (const rule of document.rules ?? []) {
       evaluatedRuleCount += 1;
       const trace = replayDeclarativeRuleWithTrace(rule, hook, context);
+      if (trace.warning) warnings.push(trace.warning);
       if (trace.result.action === "pass") continue;
       if (trace.ruleId) matchedRuleIds.push(trace.ruleId);
       result = trace.result;
@@ -1425,7 +1427,9 @@ function replayDeclarativeRule(
   hook: GatewayHookName,
   context: unknown
 ): ReplayRuleResult {
-  return replayDeclarativeRuleWithTrace(rawRule, hook, context).result;
+  const trace = replayDeclarativeRuleWithTrace(rawRule, hook, context);
+  if (trace.warning) throw new Error(`${trace.warning.code}: ${trace.warning.message}`);
+  return trace.result;
 }
 
 function replayDeclarativeRuleWithTrace(
@@ -1441,8 +1445,9 @@ function replayDeclarativeRuleWithTrace(
   const matcher = asRecord(rule.matcher) ?? asRecord(rule.match);
   const action = asRecord(rule.action);
   if (!target || !matcher || !action) return pass();
-  const regex = compileReplayRegex(matcher);
-  if (!regex) return pass();
+  const compiled = compileReplayRegex(matcher);
+  if (!compiled.ok) return { ...pass(), warning: compiled.warning };
+  const regex = compiled.regex;
 
   const targetField = typeof target.field === "string" ? target.field : "request.body";
   const text = textFromFixture(context, targetField);
@@ -1483,13 +1488,21 @@ type ReplayRuleResult =
 
 type JsonPathSegment = { kind: "key"; key: string } | { kind: "wildcardArray" };
 
-function compileReplayRegex(matcher: Record<string, unknown>): RegExp | null {
-  if (typeof matcher.regex !== "string") return null;
+type ReplayRegexCompileResult =
+  | { ok: true; regex: RegExp }
+  | { ok: false; warning?: PluginDiagnostic };
+
+function compileReplayRegex(matcher: Record<string, unknown>): ReplayRegexCompileResult {
+  if (typeof matcher.regex !== "string") return { ok: false };
   const parsed = parseReplayRegexPattern(matcher.regex);
+  if (parsed.warning) return { ok: false, warning: parsed.warning };
   try {
-    return new RegExp(parsed.pattern, replayRegexFlags(matcher, parsed));
+    return { ok: true, regex: new RegExp(parsed.pattern, replayRegexFlags(matcher, parsed)) };
   } catch {
-    return null;
+    return {
+      ok: false,
+      warning: replayRegexUnsupportedDiagnostic("rule regex cannot be replayed by JavaScript"),
+    };
   }
 }
 
@@ -1497,13 +1510,21 @@ type ReplayRegexPattern = {
   pattern: string;
   enabledFlags: Set<string>;
   disabledFlags: Set<string>;
+  warning?: PluginDiagnostic;
 };
 
 function parseReplayRegexPattern(regex: string): ReplayRegexPattern {
   const enabledFlags = new Set<string>();
   const disabledFlags = new Set<string>();
   const match = regex.match(/^\(\?([imsux-]+)\)/);
-  if (!match) return { pattern: regex, enabledFlags, disabledFlags };
+  if (!match) {
+    return {
+      pattern: regex,
+      enabledFlags,
+      disabledFlags,
+      warning: hasInlineFlagToggle(regex) ? replayRegexUnsupportedDiagnostic() : undefined,
+    };
+  }
   let enabled = true;
   for (const flag of match[1] ?? "") {
     if (flag === "-") {
@@ -1519,10 +1540,15 @@ function parseReplayRegexPattern(regex: string): ReplayRegexPattern {
     }
   }
   const pattern = regex.slice(match[0].length);
+  const warning =
+    hasInlineFlagToggle(pattern) || hasUnsupportedExtendedReplayPattern(pattern, enabledFlags)
+      ? replayRegexUnsupportedDiagnostic()
+      : undefined;
   return {
     pattern: enabledFlags.has("x") ? stripReplayRegexExtendedWhitespace(pattern) : pattern,
     enabledFlags,
     disabledFlags,
+    ...(warning ? { warning } : {}),
   };
 }
 
@@ -1538,6 +1564,25 @@ function replayRegexFlags(matcher: Record<string, unknown>, parsed: ReplayRegexP
   if (parsed.enabledFlags.has("s")) flags.add("s");
   if (parsed.enabledFlags.has("u")) flags.add("u");
   return Array.from(flags).join("");
+}
+
+function hasInlineFlagToggle(pattern: string): boolean {
+  return /\(\?[imsux-]+[:)]/.test(pattern);
+}
+
+function hasUnsupportedExtendedReplayPattern(pattern: string, enabledFlags: Set<string>): boolean {
+  return enabledFlags.has("x") && (pattern.includes("#") || /\[[^\]]*\s[^\]]*\]/.test(pattern));
+}
+
+function replayRegexUnsupportedDiagnostic(
+  message = "rule regex uses Rust regex syntax that replay cannot safely emulate"
+): PluginDiagnostic {
+  return {
+    severity: "warn",
+    code: "PLUGIN_REPLAY_REGEX_UNSUPPORTED",
+    message,
+    hint: "Use host runtime logs for exact Rust regex behavior.",
+  };
 }
 
 function stripReplayRegexExtendedWhitespace(pattern: string): string {
