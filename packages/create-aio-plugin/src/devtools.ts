@@ -472,11 +472,59 @@ function strictRuleDiagnostics(files: ScaffoldFiles, manifest: PluginManifest): 
       }
 
       const target = asRecord(rule.target);
+      if (!target) {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_TARGET_MISSING",
+          message: "rule target must be an object",
+          path: `${rulePath}#/rules/${index}/target`,
+          hint: "Set target.field to the hook-visible field the rule should inspect.",
+        });
+      }
+      const matcher = asRecord(rule.matcher) ?? asRecord(rule.match);
+      if (!matcher) {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_MATCHER_MISSING",
+          message: "rule match must be an object",
+          path: `${rulePath}#/rules/${index}/match`,
+          hint: "Set match.regex to the pattern the rule should evaluate.",
+        });
+      } else if (typeof matcher.regex !== "string") {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_MATCHER_INVALID",
+          message: "rule match.regex must be a string",
+          path: `${rulePath}#/rules/${index}/match/regex`,
+          hint: "Use a JavaScript-compatible regex string.",
+        });
+      }
       const action = asRecord(rule.action);
-      const targetField = typeof target?.field === "string" ? target.field : "request.body";
+      if (!action) {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_ACTION_MISSING",
+          message: "rule action must be an object",
+          path: `${rulePath}#/rules/${index}/action`,
+          hint: "Set action.kind and its required payload.",
+        });
+      }
+      const targetField = typeof target?.field === "string" ? target.field : "";
+      if (target && !targetField) {
+        diagnostics.push({
+          severity: "error",
+          code: "PLUGIN_RULE_TARGET_INVALID",
+          message: "rule target.field must be a string",
+          path: `${rulePath}#/rules/${index}/target/field`,
+          hint: "Use a hook-visible target field such as request.body.",
+        });
+      }
       const actionKind = typeof action?.kind === "string" ? action.kind : "";
+      diagnostics.push(...ruleActionDiagnostics(action, actionKind, rulePath, index));
       const allowedFields = RULE_TARGET_FIELDS_BY_HOOK[hook] ?? [];
+      let targetCompatible = true;
       if (hook && allowedFields.length > 0 && !allowedFields.includes(targetField)) {
+        targetCompatible = false;
         diagnostics.push({
           severity: "error",
           code: "PLUGIN_RULE_TARGET_INCOMPATIBLE_WITH_HOOK",
@@ -485,6 +533,8 @@ function strictRuleDiagnostics(files: ScaffoldFiles, manifest: PluginManifest): 
           hint: `Use one of: ${allowedFields.join(", ")}.`,
         });
       }
+
+      if (!targetCompatible || !targetField) return;
 
       for (const permission of permissionsForRuleTarget(hook, targetField, actionKind)) {
         if (!grantedPermissions.has(permission)) {
@@ -520,6 +570,75 @@ function permissionsForRuleTarget(hook: string, field: string, actionKind: strin
       if (mutates && hook === "gateway.request.beforeSend") return ["request.body.write"];
       return mutates ? ["request.body.read", "request.body.write"] : ["request.body.read"];
   }
+}
+
+function ruleActionDiagnostics(
+  action: Record<string, unknown> | null,
+  actionKind: string,
+  rulePath: string,
+  index: number
+): PluginDiagnostic[] {
+  if (!action) return [];
+  const path = `${rulePath}#/rules/${index}/action`;
+  if (!actionKind) {
+    return [
+      {
+        severity: "error",
+        code: "PLUGIN_RULE_ACTION_INVALID",
+        message: "rule action.kind must be a string",
+        path: `${path}/kind`,
+        hint: "Use replace, block, warn, or appendMessage.",
+      },
+    ];
+  }
+  if (actionKind === "replace" && typeof action.replacement !== "string") {
+    return [
+      {
+        severity: "error",
+        code: "PLUGIN_RULE_ACTION_INVALID",
+        message: "replace action requires a string replacement",
+        path: `${path}/replacement`,
+        hint: "Set action.replacement to the replacement text.",
+      },
+    ];
+  }
+  if (actionKind === "block" && typeof action.reason !== "string") {
+    return [
+      {
+        severity: "error",
+        code: "PLUGIN_RULE_ACTION_INVALID",
+        message: "block action requires a string reason",
+        path: `${path}/reason`,
+        hint: "Set action.reason to the block reason.",
+      },
+    ];
+  }
+  if (actionKind === "warn" && typeof action.message !== "string") {
+    return [
+      {
+        severity: "error",
+        code: "PLUGIN_RULE_ACTION_INVALID",
+        message: "warn action requires a string message",
+        path: `${path}/message`,
+        hint: "Set action.message to the warning message.",
+      },
+    ];
+  }
+  if (
+    actionKind === "appendMessage" &&
+    (typeof action.role !== "string" || typeof action.content !== "string")
+  ) {
+    return [
+      {
+        severity: "error",
+        code: "PLUGIN_RULE_ACTION_INVALID",
+        message: "appendMessage action requires string role and content",
+        path,
+        hint: "Set action.role and action.content.",
+      },
+    ];
+  }
+  return [];
 }
 
 function manifestRuntimeKind(
