@@ -721,7 +721,7 @@ function hasMalformedRegexSyntax(regex: string): boolean {
     if (
       (char === "*" || char === "+" || char === "?") &&
       !hasPreviousAtom &&
-      previousChar !== "("
+      (char !== "?" || previousChar !== "(")
     ) {
       return true;
     }

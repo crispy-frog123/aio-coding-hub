@@ -558,6 +558,20 @@ describe("create-aio-plugin scaffold", () => {
             match: { regex: "secret|?token" },
             action: { kind: "replace", replacement: "[x]" },
           },
+          {
+            id: "invalid-group-star",
+            hook: "gateway.request.afterBodyRead",
+            target: { field: "request.body" },
+            match: { regex: "(*token)" },
+            action: { kind: "replace", replacement: "[x]" },
+          },
+          {
+            id: "invalid-group-plus",
+            hook: "gateway.request.afterBodyRead",
+            target: { field: "request.body" },
+            match: { regex: "(+token)" },
+            action: { kind: "replace", replacement: "[x]" },
+          },
         ],
       },
       null,
@@ -627,6 +641,20 @@ describe("create-aio-plugin scaffold", () => {
       expect.objectContaining({
         code: "PLUGIN_RULE_MATCHER_INVALID",
         path: "rules/main.json#/rules/8/match/regex",
+        message: expect.stringContaining("unsupported Rust regex syntax"),
+      })
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_MATCHER_INVALID",
+        path: "rules/main.json#/rules/9/match/regex",
+        message: expect.stringContaining("unsupported Rust regex syntax"),
+      })
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "PLUGIN_RULE_MATCHER_INVALID",
+        path: "rules/main.json#/rules/10/match/regex",
         message: expect.stringContaining("unsupported Rust regex syntax"),
       })
     );
