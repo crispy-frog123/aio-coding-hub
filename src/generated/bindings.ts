@@ -1428,6 +1428,29 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async pluginPreviewFromFile(
+    input: PluginPreviewFromFileInput
+  ): Promise<Result<PluginInstallPreview, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("plugin_preview_from_file", { input }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async pluginPreviewUpdateFromFile(
+    input: PluginPreviewUpdateFromFileInput
+  ): Promise<Result<PluginUpdateDiff, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("plugin_preview_update_from_file", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async pluginInstallFromFile(
     input: PluginInstallFromFileInput
   ): Promise<Result<PluginDetail, string>> {
@@ -2685,6 +2708,14 @@ export type PluginAuditLog = {
   details: JsonValue;
   created_at: number;
 };
+export type PluginCompatibilitySummary = {
+  compatible: boolean;
+  hostVersion: string;
+  appRange: string;
+  pluginApiRange: string;
+  platforms: string[];
+  blockingReasons: PluginLifecycleNotice[];
+};
 export type PluginDetail = {
   summary: PluginSummary;
   manifest: PluginManifest;
@@ -2699,8 +2730,34 @@ export type PluginDetail = {
 export type PluginGetInput = { pluginId: string };
 export type PluginGrantPermissionsInput = { pluginId: string; permissions: string[] };
 export type PluginHook = { name: string; priority?: number; failurePolicy?: string | null };
+export type PluginHookLifecycleSummary = {
+  name: string;
+  priority: number;
+  failurePolicy: string | null;
+};
 export type PluginHostCompatibility = { app: string; pluginApi: string; platforms?: string[] };
 export type PluginInstallFromFileInput = { filePath: string };
+export type PluginInstallPreview = {
+  pluginId: string;
+  name: string;
+  version: string;
+  source: PluginInstallSource;
+  description: string | null;
+  author: JsonValue | null;
+  homepage: string | null;
+  repository: JsonValue | null;
+  license: string | null;
+  category: string | null;
+  runtime: PluginRuntimeLifecycleSummary;
+  hooks: PluginHookLifecycleSummary[];
+  permissions: PluginPermissionLifecycleSummary[];
+  compatibility: PluginCompatibilitySummary;
+  trust: PluginTrustSummary;
+  existingStatus: PluginStatus | null;
+  existingVersion: string | null;
+  blockingReasons: PluginLifecycleNotice[];
+  warnings: PluginLifecycleNotice[];
+};
 export type PluginInstallRemoteInput = {
   pluginId: string;
   downloadUrl: string;
@@ -2710,6 +2767,13 @@ export type PluginInstallRemoteInput = {
   source: string | null;
 };
 export type PluginInstallSource = "local" | "market" | "github_release" | "offline" | "official";
+export type PluginLifecycleChange = {
+  name: string;
+  change: string;
+  before: string | null;
+  after: string | null;
+};
+export type PluginLifecycleNotice = { severity: string; code: string; message: string };
 export type PluginListAuditLogsInput = { pluginId: string | null; limit: number | null };
 export type PluginManifest = {
   id: string;
@@ -2750,7 +2814,20 @@ export type PluginMarketListing = {
   updateAvailable: boolean;
   installBlockReason: string | null;
 };
+export type PluginPermissionLifecycleChange = {
+  permission: string;
+  risk: PluginPermissionRisk;
+  change: string;
+};
+export type PluginPermissionLifecycleSummary = {
+  permission: string;
+  risk: PluginPermissionRisk;
+  granted: boolean;
+  pending: boolean;
+};
 export type PluginPermissionRisk = "low" | "medium" | "high" | "critical";
+export type PluginPreviewFromFileInput = { filePath: string };
+export type PluginPreviewUpdateFromFileInput = { filePath: string };
 export type PluginRevokePermissionInput = { pluginId: string; permission: string };
 export type PluginRollbackInput = { pluginId: string; version: string };
 export type PluginRuntime =
@@ -2765,6 +2842,12 @@ export type PluginRuntimeFailure = {
   message: string;
   trace_id: string | null;
   created_at: number;
+};
+export type PluginRuntimeLifecycleSummary = {
+  kind: string;
+  label: string;
+  supported: boolean;
+  blockingReasons: PluginLifecycleNotice[];
 };
 export type PluginSaveConfigInput = { pluginId: string; config: JsonValue };
 export type PluginStatus =
@@ -2788,6 +2871,29 @@ export type PluginSummary = {
   last_error: string | null;
   created_at: number;
   updated_at: number;
+};
+export type PluginTrustSummary = {
+  checksum: string;
+  expectedChecksum: string | null;
+  checksumVerified: boolean;
+  signatureVerified: boolean;
+  unsigned: boolean;
+  developerMode: boolean;
+};
+export type PluginUpdateDiff = {
+  pluginId: string;
+  fromVersion: string;
+  toVersion: string;
+  versionDirection: string;
+  runtimeChange: PluginLifecycleChange | null;
+  hookChanges: PluginLifecycleChange[];
+  permissionChanges: PluginPermissionLifecycleChange[];
+  configVersionChange: string | null;
+  compatibility: PluginCompatibilitySummary;
+  trust: PluginTrustSummary;
+  rollbackAvailable: boolean;
+  blockingReasons: PluginLifecycleNotice[];
+  warnings: PluginLifecycleNotice[];
 };
 export type PromptListSummary = {
   id: number;

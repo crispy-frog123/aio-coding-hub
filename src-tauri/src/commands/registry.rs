@@ -166,6 +166,8 @@ macro_rules! generated_command_registry {
             // ── plugins ──
             plugin_list => crate::commands::plugins::plugin_list,
             plugin_get => crate::commands::plugins::plugin_get,
+            plugin_preview_from_file => crate::commands::plugins::plugin_preview_from_file,
+            plugin_preview_update_from_file => crate::commands::plugins::plugin_preview_update_from_file,
             plugin_install_from_file => crate::commands::plugins::plugin_install_from_file,
             plugin_update_from_file => crate::commands::plugins::plugin_update_from_file,
             plugin_rollback => crate::commands::plugins::plugin_rollback,
@@ -315,6 +317,8 @@ mod tests {
         for command in [
             "plugin_list",
             "plugin_get",
+            "plugin_preview_from_file",
+            "plugin_preview_update_from_file",
             "plugin_install_from_file",
             "plugin_update_from_file",
             "plugin_rollback",

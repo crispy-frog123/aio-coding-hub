@@ -2,7 +2,9 @@
 
 use crate::app::plugin_service;
 use crate::app_state::{ensure_db_ready, DbInitState};
-use crate::domain::plugins::{PluginAuditLog, PluginDetail, PluginInstallSource};
+use crate::domain::plugins::{
+    PluginAuditLog, PluginDetail, PluginInstallPreview, PluginInstallSource, PluginUpdateDiff,
+};
 use crate::infra::plugins::market::PluginMarketListing;
 use crate::{blocking, plugins};
 use std::collections::HashMap;
@@ -18,6 +20,18 @@ pub(crate) struct PluginGetInput {
 #[derive(Debug, Clone, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PluginInstallFromFileInput {
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginPreviewFromFileInput {
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginPreviewUpdateFromFileInput {
     pub file_path: String,
 }
 
@@ -110,6 +124,14 @@ fn official_resource_root_exists(root: &std::path::Path) -> bool {
     root.join("privacy-filter").join("plugin.json").exists()
 }
 
+fn local_plugin_preview_policy() -> plugin_service::LocalPackageInstallPolicy {
+    plugin_service::LocalPackageInstallPolicy {
+        allow_unsigned: true,
+        developer_mode: true,
+        ..Default::default()
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn plugin_list(
@@ -132,6 +154,52 @@ pub(crate) async fn plugin_get(
     let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
     blocking::run("plugin_get", move || {
         plugin_service::get_plugin_detail(&db, &input.plugin_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn plugin_preview_from_file(
+    app: tauri::AppHandle,
+    db_state: tauri::State<'_, DbInitState>,
+    input: PluginPreviewFromFileInput,
+) -> Result<PluginInstallPreview, String> {
+    let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
+    blocking::run("plugin_preview_from_file", move || {
+        let path = PathBuf::from(&input.file_path);
+        let cache_dir = crate::app_paths::plugins_cache_dir(&app)?;
+        plugin_service::preview_plugin_from_local_package_with_policy(
+            &db,
+            &path,
+            &cache_dir,
+            env!("CARGO_PKG_VERSION"),
+            local_plugin_preview_policy(),
+        )
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn plugin_preview_update_from_file(
+    app: tauri::AppHandle,
+    db_state: tauri::State<'_, DbInitState>,
+    input: PluginPreviewUpdateFromFileInput,
+) -> Result<PluginUpdateDiff, String> {
+    let db = ensure_db_ready(app.clone(), db_state.inner()).await?;
+    blocking::run("plugin_preview_update_from_file", move || {
+        let path = PathBuf::from(&input.file_path);
+        let cache_dir = crate::app_paths::plugins_cache_dir(&app)?;
+        plugin_service::preview_plugin_update_from_local_package(
+            &db,
+            &path,
+            &cache_dir,
+            env!("CARGO_PKG_VERSION"),
+            local_plugin_preview_policy(),
+        )
     })
     .await
     .map_err(Into::into)

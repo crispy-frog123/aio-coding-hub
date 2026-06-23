@@ -5,6 +5,7 @@ import {
   type JsonValue,
   type PluginAuditLog,
   type PluginDetail,
+  type PluginInstallPreview,
   type PluginInstallSource,
   type PluginManifest,
   type PluginMarketListing,
@@ -12,6 +13,7 @@ import {
   type PluginRuntime,
   type PluginStatus,
   type PluginSummary,
+  type PluginUpdateDiff,
 } from "../generated/bindings";
 import { invokeGeneratedIpc } from "./generatedIpc";
 
@@ -19,6 +21,7 @@ export type {
   JsonValue,
   PluginAuditLog,
   PluginDetail,
+  PluginInstallPreview,
   PluginInstallSource,
   PluginManifest,
   PluginMarketListing,
@@ -26,6 +29,7 @@ export type {
   PluginRuntime,
   PluginStatus,
   PluginSummary,
+  PluginUpdateDiff,
 };
 
 const PLUGIN_AUDIT_LOG_DEFAULT_LIMIT = 50;
@@ -80,6 +84,28 @@ export async function pluginGet(pluginId: string) {
     cmd: "plugin_get",
     args: { pluginId: normalizedPluginId },
     invoke: async () => commands.pluginGet({ pluginId: normalizedPluginId }),
+  });
+}
+
+export async function pluginPreviewFromFile(filePath: string) {
+  const normalizedFilePath = normalizePluginFilePath(filePath);
+
+  return invokeGeneratedIpc<PluginInstallPreview>({
+    title: "预览插件失败",
+    cmd: "plugin_preview_from_file",
+    args: { filePath: normalizedFilePath },
+    invoke: async () => commands.pluginPreviewFromFile({ filePath: normalizedFilePath }),
+  });
+}
+
+export async function pluginPreviewUpdateFromFile(filePath: string) {
+  const normalizedFilePath = normalizePluginFilePath(filePath);
+
+  return invokeGeneratedIpc<PluginUpdateDiff>({
+    title: "预览插件更新失败",
+    cmd: "plugin_preview_update_from_file",
+    args: { filePath: normalizedFilePath },
+    invoke: async () => commands.pluginPreviewUpdateFromFile({ filePath: normalizedFilePath }),
   });
 }
 
