@@ -208,9 +208,44 @@ pub(crate) fn plugin_installed_dir_available(installed_dir: &str) -> bool {
     root.is_dir() && root.join("plugin.json").is_file()
 }
 
+pub(crate) fn with_plugin_transaction<T>(
+    db: &db::Db,
+    f: impl FnOnce(&rusqlite::Transaction<'_>) -> AppResult<T>,
+) -> AppResult<T> {
+    let mut conn = db.open_connection()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| db_err!("failed to start plugin transaction: {e}"))?;
+    match f(&tx) {
+        Ok(value) => {
+            tx.commit()
+                .map_err(|e| db_err!("failed to commit plugin transaction: {e}"))?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = tx.rollback();
+            Err(err)
+        }
+    }
+}
+
 pub(crate) fn insert_plugin(db: &db::Db, input: InsertPluginInput) -> AppResult<PluginDetail> {
-    validate_manifest(&input.manifest, env!("CARGO_PKG_VERSION"))?;
     let conn = db.open_connection()?;
+    insert_plugin_with_conn(&conn, input)
+}
+
+pub(crate) fn insert_plugin_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    input: InsertPluginInput,
+) -> AppResult<PluginDetail> {
+    insert_plugin_with_conn(conn, input)
+}
+
+fn insert_plugin_with_conn(
+    conn: &rusqlite::Connection,
+    input: InsertPluginInput,
+) -> AppResult<PluginDetail> {
+    validate_manifest(&input.manifest, env!("CARGO_PKG_VERSION"))?;
     let now = now_unix_seconds();
     let manifest_json = serde_json::to_string(&input.manifest)
         .map_err(|e| format!("PLUGIN_INVALID_MANIFEST: failed to serialize manifest: {e}"))?;
@@ -273,7 +308,7 @@ INSERT OR IGNORE INTO plugin_versions(
     )
     .map_err(|e| db_err!("failed to insert plugin version: {e}"))?;
 
-    get_plugin_with_conn(&conn, &input.manifest.id)
+    get_plugin_with_conn(conn, &input.manifest.id)
 }
 
 pub(crate) fn update_plugin_status(
@@ -302,13 +337,30 @@ WHERE plugin_id = ?4
     get_plugin_with_conn(&conn, plugin_id)
 }
 
+#[allow(dead_code)]
 pub(crate) fn update_plugin_manifest(
     db: &db::Db,
     manifest: PluginManifest,
     installed_dir: Option<String>,
 ) -> AppResult<PluginDetail> {
-    validate_manifest(&manifest, env!("CARGO_PKG_VERSION"))?;
     let conn = db.open_connection()?;
+    update_plugin_manifest_with_conn(&conn, manifest, installed_dir)
+}
+
+pub(crate) fn update_plugin_manifest_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    manifest: PluginManifest,
+    installed_dir: Option<String>,
+) -> AppResult<PluginDetail> {
+    update_plugin_manifest_with_conn(conn, manifest, installed_dir)
+}
+
+fn update_plugin_manifest_with_conn(
+    conn: &rusqlite::Connection,
+    manifest: PluginManifest,
+    installed_dir: Option<String>,
+) -> AppResult<PluginDetail> {
+    validate_manifest(&manifest, env!("CARGO_PKG_VERSION"))?;
     let now = now_unix_seconds();
     let plugin_id = manifest.id.clone();
     let version = manifest.version.clone();
@@ -367,7 +419,7 @@ INSERT OR IGNORE INTO plugin_versions(
     )
     .map_err(|e| db_err!("failed to insert plugin version: {e}"))?;
 
-    get_plugin_with_conn(&conn, &manifest.id)
+    get_plugin_with_conn(conn, &manifest.id)
 }
 
 pub(crate) fn get_plugin_version(
@@ -408,7 +460,27 @@ pub(crate) fn save_plugin_config(
     sensitive_keys: &[String],
 ) -> AppResult<PluginDetail> {
     let conn = db.open_connection()?;
-    ensure_plugin_exists(&conn, plugin_id)?;
+    save_plugin_config_with_conn(&conn, plugin_id, config_version, config, sensitive_keys)
+}
+
+pub(crate) fn save_plugin_config_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    plugin_id: &str,
+    config_version: u32,
+    config: &serde_json::Value,
+    sensitive_keys: &[String],
+) -> AppResult<PluginDetail> {
+    save_plugin_config_with_conn(conn, plugin_id, config_version, config, sensitive_keys)
+}
+
+fn save_plugin_config_with_conn(
+    conn: &rusqlite::Connection,
+    plugin_id: &str,
+    config_version: u32,
+    config: &serde_json::Value,
+    sensitive_keys: &[String],
+) -> AppResult<PluginDetail> {
+    ensure_plugin_exists(conn, plugin_id)?;
     let now = now_unix_seconds();
     let config_json = serde_json::to_string(config)
         .map_err(|e| format!("PLUGIN_INVALID_CONFIG: failed to serialize config: {e}"))?;
@@ -467,7 +539,25 @@ pub(crate) fn save_plugin_permissions(
     pending_permissions: &[String],
 ) -> AppResult<PluginDetail> {
     let conn = db.open_connection()?;
-    ensure_plugin_exists(&conn, plugin_id)?;
+    save_plugin_permissions_with_conn(&conn, plugin_id, permissions, pending_permissions)
+}
+
+pub(crate) fn save_plugin_permissions_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    plugin_id: &str,
+    permissions: &[String],
+    pending_permissions: &[String],
+) -> AppResult<PluginDetail> {
+    save_plugin_permissions_with_conn(conn, plugin_id, permissions, pending_permissions)
+}
+
+fn save_plugin_permissions_with_conn(
+    conn: &rusqlite::Connection,
+    plugin_id: &str,
+    permissions: &[String],
+    pending_permissions: &[String],
+) -> AppResult<PluginDetail> {
+    ensure_plugin_exists(conn, plugin_id)?;
     let now = now_unix_seconds();
     let permissions_json = serde_json::to_string(permissions)
         .map_err(|e| format!("PLUGIN_INVALID_PERMISSION: failed to serialize permissions: {e}"))?;
@@ -498,7 +588,7 @@ ON CONFLICT(plugin_id) DO UPDATE SET
     )
     .map_err(|e| db_err!("failed to mirror plugin permissions: {e}"))?;
 
-    get_plugin_with_conn(&conn, plugin_id)
+    get_plugin_with_conn(conn, plugin_id)
 }
 
 pub(crate) fn append_audit_log(
@@ -506,6 +596,20 @@ pub(crate) fn append_audit_log(
     input: AppendPluginAuditLogInput,
 ) -> AppResult<PluginAuditLog> {
     let conn = db.open_connection()?;
+    append_audit_log_with_conn(&conn, input)
+}
+
+pub(crate) fn append_audit_log_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    input: AppendPluginAuditLogInput,
+) -> AppResult<PluginAuditLog> {
+    append_audit_log_with_conn(conn, input)
+}
+
+fn append_audit_log_with_conn(
+    conn: &rusqlite::Connection,
+    input: AppendPluginAuditLogInput,
+) -> AppResult<PluginAuditLog> {
     let details_json = serde_json::to_string(&input.details)
         .map_err(|e| format!("PLUGIN_INVALID_AUDIT: failed to serialize details: {e}"))?;
     let now = now_unix_seconds();
@@ -534,7 +638,7 @@ INSERT INTO plugin_audit_logs(
     .map_err(|e| db_err!("failed to append plugin audit log: {e}"))?;
 
     let id = conn.last_insert_rowid();
-    get_audit_log_by_id(&conn, id)
+    get_audit_log_by_id(conn, id)
 }
 
 pub(crate) fn list_audit_logs(
@@ -890,6 +994,69 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    fn test_manifest(plugin_id: &str, version: &str) -> PluginManifest {
+        let mut manifest = manifest();
+        manifest.id = plugin_id.to_string();
+        manifest.version = version.to_string();
+        manifest
+    }
+
+    #[test]
+    fn plugin_repository_transaction_rolls_back_partial_plugin_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("plugins.db")).unwrap();
+        let manifest = test_manifest("tx.rollback", "1.0.0");
+        let granted = vec!["request.body.read".to_string()];
+        let pending = vec!["request.body.write".to_string()];
+
+        let result: AppResult<()> = with_plugin_transaction(&db, |tx| {
+            insert_plugin_with_tx(
+                tx,
+                InsertPluginInput {
+                    manifest: manifest.clone(),
+                    install_source: PluginInstallSource::Local,
+                    status: PluginStatus::Disabled,
+                    installed_dir: Some("/tmp/plugin".to_string()),
+                },
+            )?;
+            save_plugin_permissions_with_tx(tx, &manifest.id, &granted, &pending)?;
+            append_audit_log_with_tx(
+                tx,
+                AppendPluginAuditLogInput {
+                    plugin_id: Some(manifest.id.clone()),
+                    trace_id: None,
+                    event_type: "plugin.test".to_string(),
+                    risk_level: "low".to_string(),
+                    message: "test audit".to_string(),
+                    details: serde_json::json!({ "test": true }),
+                },
+            )?;
+            Err(crate::shared::error::AppError::new(
+                "TEST_ROLLBACK",
+                "force rollback",
+            ))
+        });
+
+        assert!(result.is_err());
+        assert!(get_plugin(&db, "tx.rollback").is_err());
+        let conn = db.open_connection().unwrap();
+        for table in [
+            "plugins",
+            "plugin_versions",
+            "plugin_permissions",
+            "plugin_audit_logs",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE plugin_id = ?1"),
+                    params!["tx.rollback"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0, "{table} rows should roll back");
+        }
     }
 
     #[test]

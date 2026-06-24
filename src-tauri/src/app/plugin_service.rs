@@ -874,32 +874,39 @@ pub(crate) fn install_plugin_from_local_package_with_policy(
 
         replace_dir(&extracted.root_dir, &installed_dir)?;
         let requested_permissions = extracted.manifest.permissions.clone();
-        repository::insert_plugin(
-            db,
-            repository::InsertPluginInput {
-                manifest: extracted.manifest.clone(),
-                install_source: PluginInstallSource::Local,
-                status: PluginStatus::Disabled,
-                installed_dir: Some(installed_dir.to_string_lossy().to_string()),
-            },
-        )?;
-        let detail =
-            repository::save_plugin_permissions(db, &plugin_id, &[], &requested_permissions)?;
-        append_audit(
-            db,
-            Some(plugin_id.clone()),
-            "plugin.installed",
-            "medium",
-            "Local plugin package installed",
-            serde_json::json!({
-                "source": "local",
-                "packageChecksum": extracted.checksum,
-                "cachedPackage": cache_package_path.to_string_lossy(),
-                "unsigned": !trust.signature_verified,
-                "signatureVerified": trust.signature_verified,
-                "developerMode": policy.developer_mode,
-            }),
-        )?;
+        let detail = repository::with_plugin_transaction(db, |tx| {
+            repository::insert_plugin_with_tx(
+                tx,
+                repository::InsertPluginInput {
+                    manifest: extracted.manifest.clone(),
+                    install_source: PluginInstallSource::Local,
+                    status: PluginStatus::Disabled,
+                    installed_dir: Some(installed_dir.to_string_lossy().to_string()),
+                },
+            )?;
+            let detail = repository::save_plugin_permissions_with_tx(
+                tx,
+                &plugin_id,
+                &[],
+                &requested_permissions,
+            )?;
+            append_audit_with_tx(
+                tx,
+                Some(plugin_id.clone()),
+                "plugin.installed",
+                "medium",
+                "Local plugin package installed",
+                serde_json::json!({
+                    "source": "local",
+                    "packageChecksum": extracted.checksum,
+                    "cachedPackage": cache_package_path.to_string_lossy(),
+                    "unsigned": !trust.signature_verified,
+                    "signatureVerified": trust.signature_verified,
+                    "developerMode": policy.developer_mode,
+                }),
+            )?;
+            Ok(detail)
+        })?;
         tracing::info!(
             plugin_id,
             version,
@@ -1108,34 +1115,38 @@ pub(crate) fn update_plugin_from_local_package(
             .filter(|permission| !granted.contains(permission))
             .cloned()
             .collect();
-        repository::update_plugin_manifest(
-            db,
-            extracted.manifest.clone(),
-            Some(installed_dir.to_string_lossy().to_string()),
-        )?;
-        repository::save_plugin_config(
-            db,
-            &plugin_id,
-            extracted.manifest.config_version.unwrap_or(1),
-            &current.config,
-            &[],
-        )?;
-        let detail = repository::save_plugin_permissions(db, &plugin_id, &granted, &pending)?;
-        append_audit(
-            db,
-            Some(plugin_id.clone()),
-            "plugin.updated",
-            "high",
-            "Plugin updated from local package",
-            serde_json::json!({
-                "fromVersion": current.summary.current_version,
-                "toVersion": extracted.manifest.version,
-                "pendingPermissions": pending,
-                "unsigned": !trust.signature_verified,
-                "signatureVerified": trust.signature_verified,
-                "developerMode": policy.developer_mode,
-            }),
-        )?;
+        let detail = repository::with_plugin_transaction(db, |tx| {
+            repository::update_plugin_manifest_with_tx(
+                tx,
+                extracted.manifest.clone(),
+                Some(installed_dir.to_string_lossy().to_string()),
+            )?;
+            repository::save_plugin_config_with_tx(
+                tx,
+                &plugin_id,
+                extracted.manifest.config_version.unwrap_or(1),
+                &current.config,
+                &[],
+            )?;
+            let detail =
+                repository::save_plugin_permissions_with_tx(tx, &plugin_id, &granted, &pending)?;
+            append_audit_with_tx(
+                tx,
+                Some(plugin_id.clone()),
+                "plugin.updated",
+                "high",
+                "Plugin updated from local package",
+                serde_json::json!({
+                    "fromVersion": current.summary.current_version,
+                    "toVersion": extracted.manifest.version,
+                    "pendingPermissions": pending,
+                    "unsigned": !trust.signature_verified,
+                    "signatureVerified": trust.signature_verified,
+                    "developerMode": policy.developer_mode,
+                }),
+            )?;
+            Ok(detail)
+        })?;
         tracing::info!(
             plugin_id,
             version = extracted.manifest.version,
@@ -1170,15 +1181,18 @@ pub(crate) fn rollback_plugin_to_version(
             format!("plugin version {version} install directory is unavailable"),
         ));
     }
-    let detail = repository::update_plugin_manifest(db, manifest, installed_dir)?;
-    append_audit(
-        db,
-        Some(plugin_id.to_string()),
-        "plugin.rollback",
-        "high",
-        "Plugin rolled back",
-        serde_json::json!({ "version": version }),
-    )?;
+    let detail = repository::with_plugin_transaction(db, |tx| {
+        let detail = repository::update_plugin_manifest_with_tx(tx, manifest, installed_dir)?;
+        append_audit_with_tx(
+            tx,
+            Some(plugin_id.to_string()),
+            "plugin.rollback",
+            "high",
+            "Plugin rolled back",
+            serde_json::json!({ "version": version }),
+        )?;
+        Ok(detail)
+    })?;
     tracing::warn!(plugin_id, version, "plugin rolled back to previous version");
     Ok(detail)
 }
@@ -1620,6 +1634,28 @@ fn append_audit(
 ) -> AppResult<()> {
     repository::append_audit_log(
         db,
+        repository::AppendPluginAuditLogInput {
+            plugin_id,
+            trace_id: None,
+            event_type: event_type.to_string(),
+            risk_level: risk_level.to_string(),
+            message: message.to_string(),
+            details,
+        },
+    )?;
+    Ok(())
+}
+
+fn append_audit_with_tx(
+    conn: &rusqlite::Transaction<'_>,
+    plugin_id: Option<String>,
+    event_type: &str,
+    risk_level: &str,
+    message: &str,
+    details: serde_json::Value,
+) -> AppResult<()> {
+    repository::append_audit_log_with_tx(
+        conn,
         repository::AppendPluginAuditLogInput {
             plugin_id,
             trace_id: None,
