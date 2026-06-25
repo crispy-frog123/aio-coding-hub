@@ -10,6 +10,8 @@
 
 用户可以在 Plugins 页面通过官方插件安装入口安装它。
 
+Plugins 页面也会展示 `examples/prompt-helper`、`examples/redactor` 和 `examples/response-guard` 作为社区示例方向。它们不是 bundled official plugin，也不会绕过宿主的安装、权限、兼容性或签名校验。
+
 ## Privacy Filter
 
 ID: `official.privacy-filter`
@@ -64,8 +66,16 @@ Official privacy filter rules are loaded under a 1 MiB host byte budget. Communi
 - 一个 package command。
 - 精确列出它请求的 permissions。
 - 简短说明哪些行为是 intentionally unsupported。
+- 能被宿主导出的 trace replay fixture 覆盖至少一个正常路径和一个边界路径。
+- 能通过 `create-aio-plugin publish-check` 生成市场发布 metadata。
 
 社区示例应优先使用 `declarativeRules`。只有当行为需要确定性代码执行且规则运行时无法表达时，才考虑 WASM。WASM examples 可以展示 ABI packaging，但 gateway execution 在宿主启用前仍受策略限制。
+
+## Replay 与发布流程
+
+`official.privacy-filter` 可以用宿主导出的 replay fixture 验证请求脱敏和日志脱敏边界。当前 request logs 不持久化完整 request/response body，所以导出的 fixture 会携带 trace、attempts、运行报告和 notes；插件作者需要用本地 fixture 补齐需要复现的 body。
+
+发布到市场前，插件包仍应经过 `pack`、`sign` 或 `verify` 以及 `publish-check`。`publish-check` 只生成发布 metadata，不替代宿主安装时的 checksum、signature、兼容性和撤销状态检查。
 
 ## 已移除的内置示例
 

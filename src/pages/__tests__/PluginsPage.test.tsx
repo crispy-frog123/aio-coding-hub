@@ -13,6 +13,7 @@ import type {
   PluginSummary,
   PluginUpdateDiff,
 } from "../../services/plugins";
+import { pluginParseMarketIndex } from "../../services/plugins";
 import { openDesktopSinglePath } from "../../services/desktop/dialog";
 import { createTestQueryClient } from "../../test/utils/reactQuery";
 import {
@@ -21,6 +22,7 @@ import {
   usePluginGrantPermissionsMutation,
   usePluginInstallFromFileMutation,
   usePluginInstallOfficialMutation,
+  usePluginInstallRemoteMutation,
   usePluginPreviewFromFileMutation,
   usePluginPreviewUpdateFromFileMutation,
   usePluginExportReplayFixtureMutation,
@@ -51,6 +53,15 @@ vi.mock("../../services/desktop/dialog", async () => {
 
 vi.mock("../../services/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 
+vi.mock("../../services/plugins", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../services/plugins")>("../../services/plugins");
+  return {
+    ...actual,
+    pluginParseMarketIndex: vi.fn(),
+  };
+});
+
 vi.mock("../../query/plugins", async () => {
   const actual = await vi.importActual<typeof import("../../query/plugins")>("../../query/plugins");
   return {
@@ -59,6 +70,7 @@ vi.mock("../../query/plugins", async () => {
     usePluginQuery: vi.fn(),
     usePluginInstallFromFileMutation: vi.fn(),
     usePluginInstallOfficialMutation: vi.fn(),
+    usePluginInstallRemoteMutation: vi.fn(),
     usePluginPreviewFromFileMutation: vi.fn(),
     usePluginPreviewUpdateFromFileMutation: vi.fn(),
     usePluginExportReplayFixtureMutation: vi.fn(),
@@ -325,6 +337,7 @@ describe("pages/PluginsPage", () => {
     );
     vi.mocked(usePluginInstallFromFileMutation).mockReturnValue(mutation() as any);
     vi.mocked(usePluginInstallOfficialMutation).mockReturnValue(mutation() as any);
+    vi.mocked(usePluginInstallRemoteMutation).mockReturnValue(mutation() as any);
     vi.mocked(usePluginUpdateFromFileMutation).mockReturnValue(mutation() as any);
     vi.mocked(usePluginRollbackMutation).mockReturnValue(mutation() as any);
     vi.mocked(usePluginEnableMutation).mockReturnValue(mutation() as any);
@@ -460,6 +473,114 @@ describe("pages/PluginsPage", () => {
       expect(copyText).toHaveBeenCalledWith(expect.stringContaining('"traceId": "trace-report-1"'));
       expect(toast.success).toHaveBeenCalledWith("Replay fixture 已复制");
     });
+  });
+
+  it("renders market state and disables revoked or incompatible installs", async () => {
+    const installRemoteMutation = mutation();
+    vi.mocked(usePluginInstallRemoteMutation).mockReturnValue(installRemoteMutation as any);
+    vi.mocked(pluginParseMarketIndex).mockResolvedValue([
+      {
+        pluginId: "community.safe-helper",
+        name: "Safe Helper",
+        latestVersion: "1.0.0",
+        downloadUrl: "https://plugins.example.test/safe-helper.aio-plugin",
+        checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        signature: "signed-safe",
+        riskLabels: ["request.body.read"],
+        revoked: false,
+        compatible: true,
+        updateAvailable: false,
+        installBlockReason: null,
+      },
+      {
+        pluginId: "community.revoked",
+        name: "Revoked Helper",
+        latestVersion: "1.0.0",
+        downloadUrl: "https://plugins.example.test/revoked.aio-plugin",
+        checksum: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        signature: null,
+        riskLabels: ["request.body.write"],
+        revoked: true,
+        compatible: true,
+        updateAvailable: false,
+        installBlockReason: "插件已被市场撤销",
+      },
+      {
+        pluginId: "community.future",
+        name: "Future Helper",
+        latestVersion: "2.0.0",
+        downloadUrl: "https://plugins.example.test/future.aio-plugin",
+        checksum: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        signature: null,
+        riskLabels: ["response.body.write"],
+        revoked: false,
+        compatible: false,
+        updateAvailable: false,
+        installBlockReason: "需要更高版本的宿主",
+      },
+    ]);
+    vi.mocked(usePluginsListQuery).mockReturnValue({
+      data: [summary()],
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    } as any);
+
+    renderWithProviders(<PluginsPage />);
+    fireEvent.change(screen.getByLabelText("市场索引 JSON"), {
+      target: { value: '{"plugins":[]}' },
+    });
+    fireEvent.change(screen.getByLabelText("市场索引 URL"), {
+      target: { value: "https://plugins.example.test/index.json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "加载市场" }));
+
+    const safeListing = await screen.findByText("Safe Helper");
+    const revokedListing = screen.getByText("Revoked Helper").closest("article");
+    const futureListing = screen.getByText("Future Helper").closest("article");
+    expect(safeListing).toBeInTheDocument();
+    expect(revokedListing).not.toBeNull();
+    expect(futureListing).not.toBeNull();
+    expect(screen.getByText("插件已被市场撤销")).toBeInTheDocument();
+    expect(screen.getByText("需要更高版本的宿主")).toBeInTheDocument();
+    expect(
+      within(revokedListing as HTMLElement).getByRole("button", { name: "安装" })
+    ).toBeDisabled();
+    expect(
+      within(futureListing as HTMLElement).getByRole("button", { name: "安装" })
+    ).toBeDisabled();
+
+    fireEvent.click(
+      within(safeListing.closest("article") as HTMLElement).getByRole("button", { name: "安装" })
+    );
+
+    await waitFor(() => {
+      expect(installRemoteMutation.mutateAsync).toHaveBeenCalledWith({
+        pluginId: "community.safe-helper",
+        downloadUrl: "https://plugins.example.test/safe-helper.aio-plugin",
+        checksum: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        signature: "signed-safe",
+        publicKey: null,
+        source: "market",
+      });
+      expect(toast.success).toHaveBeenCalledWith("安装市场插件成功");
+    });
+  });
+
+  it("keeps privacy filter, prompt helper, redactor, and response guard example guidance visible", () => {
+    vi.mocked(usePluginsListQuery).mockReturnValue({
+      data: [summary()],
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    } as any);
+
+    renderWithProviders(<PluginsPage />);
+
+    expect(screen.getByText("official.privacy-filter")).toBeInTheDocument();
+    expect(screen.getByText("examples/prompt-helper")).toBeInTheDocument();
+    expect(screen.getByText("examples/redactor")).toBeInTheDocument();
+    expect(screen.getByText("examples/response-guard")).toBeInTheDocument();
   });
 
   it("uses only the latest lifecycle audit for trust state", () => {
