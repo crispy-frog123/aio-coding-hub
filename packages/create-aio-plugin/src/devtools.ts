@@ -91,6 +91,23 @@ export type ReplayRuleTrace = {
   warning?: PluginDiagnostic;
 };
 
+export type PublishCheckResult = {
+  ok: boolean;
+  checksum: string;
+  expectedChecksum: string;
+  checksumVerified: boolean;
+  signatureVerified: boolean;
+  unsigned: boolean;
+  manifestId: string;
+  name: string;
+  version: string;
+  runtime: PluginManifest["runtime"]["kind"];
+  permissions: string[];
+  hooks: string[];
+  hostCompatibility: PluginManifest["hostCompatibility"];
+  sizeBytes: number;
+};
+
 type DoctorOptions = {
   strict?: boolean;
 };
@@ -153,6 +170,7 @@ const USAGE = [
   "  create-aio-plugin validate [--strict] <plugin-dir>",
   "  create-aio-plugin replay [--explain] <plugin-dir> <fixture.json> <hook>",
   "  create-aio-plugin pack <plugin-dir>",
+  "  create-aio-plugin publish-check <plugin-dir>",
 ].join("\n");
 
 export function runCreateAioPluginCli(args: string[], cwd: string, io: CliIo = console): number {
@@ -248,6 +266,29 @@ export function runCreateAioPluginCli(args: string[], cwd: string, io: CliIo = c
       return 0;
     } catch (error) {
       io.error(`failed to pack plugin directory: ${errorMessage(error)}`);
+      return 1;
+    }
+  }
+
+  if (commandOrId === "publish-check") {
+    try {
+      const root = resolve(cwd, firstArg ?? ".");
+      const files = readPluginDirectoryBytes(root);
+      const manifestText = textFromBytes(files["plugin.json"]) ?? "{}";
+      const manifest = JSON.parse(manifestText) as Partial<PluginManifest>;
+      const packed = packPluginBytes(files);
+      io.log(
+        JSON.stringify({
+          artifactPath: join(cwd, `${manifest.id ?? firstArg ?? "plugin"}.aio-plugin`),
+          ...publishCheckPluginBytes(packed.bytes, {
+            checksum: packed.checksum,
+            manifest: manifestText,
+          }),
+        })
+      );
+      return 0;
+    } catch (error) {
+      io.error(`failed to publish-check plugin directory: ${errorMessage(error)}`);
       return 1;
     }
   }
@@ -1490,6 +1531,43 @@ export function verifyPackage(
   };
 }
 
+export function publishCheckPluginBytes(
+  bytes: Uint8Array,
+  input: {
+    checksum: string;
+    signature?: string | null;
+    publicKey?: string | null;
+    manifest: string;
+  }
+): PublishCheckResult {
+  const manifest = JSON.parse(input.manifest) as PluginManifest;
+  const validation = validateManifest(manifest);
+  const checksum = sha256(bytes);
+  const checksumVerified = checksum === input.checksum;
+  const signatureVerified =
+    input.signature && input.publicKey
+      ? verifyPackage(bytes, input.signature, input.publicKey).ok
+      : false;
+  const unsigned = !input.signature || !input.publicKey;
+
+  return {
+    ok: validation.ok && checksumVerified && (unsigned || signatureVerified),
+    checksum,
+    expectedChecksum: input.checksum,
+    checksumVerified,
+    signatureVerified,
+    unsigned,
+    manifestId: manifest.id,
+    name: manifest.name,
+    version: manifest.version,
+    runtime: manifest.runtime.kind,
+    permissions: [...manifest.permissions],
+    hooks: manifest.hooks.map((hook) => hook.name),
+    hostCompatibility: manifest.hostCompatibility,
+    sizeBytes: bytes.length,
+  };
+}
+
 function createPublicKeyFromPrivateKey(privateKey: string): string {
   return signPackage(new Uint8Array(), privateKey).publicKey;
 }
@@ -1734,22 +1812,35 @@ function textFromFixture(context: unknown, field: string): string | undefined {
   if (typeof context === "string") return context;
   const contextRecord = asRecord(context);
   if (field === "request.body") {
-    if (typeof contextRecord?.body === "string") return contextRecord.body;
+    const direct = textFromFixtureValue(contextRecord?.body);
+    if (direct) return direct;
     const request = asRecord(contextRecord?.request);
-    return typeof request?.body === "string" ? request.body : undefined;
+    const body = textFromFixtureValue(request?.body);
+    if (body) return body;
+    return Array.isArray(request?.normalizedMessages)
+      ? JSON.stringify({ messages: request.normalizedMessages })
+      : undefined;
   }
   if (field === "response.body") {
     const response = asRecord(contextRecord?.response);
-    return typeof response?.body === "string" ? response.body : undefined;
+    return textFromFixtureValue(response?.body);
   }
   if (field === "stream.chunk") {
     const stream = asRecord(contextRecord?.stream);
-    return typeof stream?.chunk === "string" ? stream.chunk : undefined;
+    return textFromFixtureValue(stream?.chunk);
   }
   if (field === "log.message") {
     const log = asRecord(contextRecord?.log);
-    return typeof log?.message === "string" ? log.message : undefined;
+    return textFromFixtureValue(log?.message) ?? textFromFixtureValue(log?.body);
   }
+  return undefined;
+}
+
+function textFromFixtureValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value == null) return undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object") return JSON.stringify(value);
   return undefined;
 }
 

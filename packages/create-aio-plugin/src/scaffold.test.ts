@@ -12,6 +12,7 @@ import {
   packPlugin,
   packPluginBytes,
   packPluginDirectory,
+  publishCheckPluginBytes,
   replayHook,
   replayHookExplain,
   runCreateAioPluginCli,
@@ -132,6 +133,33 @@ describe("create-aio-plugin scaffold", () => {
     });
   });
 
+  it("publish-check emits package metadata needed by the market flow", () => {
+    const files = createPluginScaffold({
+      id: "acme.redactor",
+      name: "Redactor",
+      template: "rule",
+    });
+    const packed = packPlugin(files);
+    const keyPair = generateSigningKeyPair();
+    const signed = signPackage(packed.bytes, keyPair.privateKey);
+
+    const result = publishCheckPluginBytes(packed.bytes, {
+      checksum: signed.checksum,
+      signature: signed.signature,
+      publicKey: signed.publicKey,
+      manifest: files["plugin.json"] ?? "",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      checksum: signed.checksum,
+      signatureVerified: true,
+      manifestId: "acme.redactor",
+      version: "0.1.0",
+      runtime: "declarativeRules",
+    });
+  });
+
   it("signs and verifies package bytes through the CLI helper", () => {
     const keyPair = generateSigningKeyPair();
     const signedOutput: string[] = [];
@@ -195,6 +223,41 @@ describe("create-aio-plugin scaffold", () => {
     expect(result.checksum).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(result.sizeBytes).toBeGreaterThan(0);
     expect(existsSync(result.path)).toBe(true);
+  });
+
+  it("publish-check command emits release metadata without writing the artifact", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "aio-plugin-publish-check-"));
+    writeScaffold(
+      join(cwd, "acme.redactor"),
+      createPluginScaffold({
+        id: "acme.redactor",
+        name: "Redactor",
+        template: "rule",
+      })
+    );
+    const output: string[] = [];
+
+    expect(
+      runCreateAioPluginCli(["publish-check", "./acme.redactor"], cwd, {
+        log: (line) => output.push(line),
+        error: () => undefined,
+      })
+    ).toBe(0);
+
+    const result = JSON.parse(output[0] ?? "{}") as {
+      artifactPath: string;
+      checksum: string;
+      manifestId: string;
+      signatureVerified: boolean;
+    };
+
+    expect(result).toMatchObject({
+      artifactPath: join(cwd, "acme.redactor.aio-plugin"),
+      manifestId: "acme.redactor",
+      signatureVerified: false,
+    });
+    expect(result.checksum).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(existsSync(result.artifactPath)).toBe(false);
   });
 
   it("validate command reads plugin.json from a real plugin directory", () => {
@@ -1612,6 +1675,52 @@ describe("create-aio-plugin scaffold", () => {
     expect(result).toMatchObject({
       matchedRuleIds: ["redact-token-rule"],
       actionKind: "replace",
+      outputKind: "replace",
+      mutationSummary: {
+        changed: true,
+        field: "requestBody",
+        targetField: "request.body",
+        jsonPath: "$.messages[*].content",
+      },
+    });
+    expect(JSON.stringify(result)).toContain("[REDACTED]");
+  });
+
+  it("replay explain accepts exported host fixtures without changing the host contract shape", () => {
+    const fixture = {
+      schemaVersion: 1,
+      source: {
+        appVersion: "0.62.3",
+        traceId: "trace-replay-1",
+        exportedAtMs: 1_000,
+        requestLogId: 1,
+        createdAtMs: 900,
+      },
+      traceId: "trace-replay-1",
+      hookName: "gateway.request.afterBodyRead",
+      pluginId: "acme.redactor",
+      request: {
+        cliKey: "codex",
+        method: "POST",
+        path: "/v1/responses",
+        body: { messages: [{ role: "user", content: "SECRET_TOKEN" }] },
+        normalizedMessages: [{ role: "user", content: "SECRET_TOKEN" }],
+      },
+      response: null,
+      log: null,
+      attempts: [],
+      runtimeReports: [],
+      notes: [],
+    };
+
+    const result = replayHookExplain(
+      rulePluginFilesWithTarget("$.messages[*].content"),
+      "gateway.request.afterBodyRead",
+      fixture
+    );
+
+    expect(result).toMatchObject({
+      pluginId: "acme.redactor",
       outputKind: "replace",
       mutationSummary: {
         changed: true,
