@@ -1005,7 +1005,9 @@ pub(crate) fn install_plugin_from_remote_package_bytes(
     let expected_plugin_id = policy.expected_plugin_id.clone();
     let expected_checksum = policy.expected_checksum.clone();
     let signature = policy.signature.clone();
-    let market_source_url = policy.market_source_url.clone();
+    let market_source_url = (install_source == PluginInstallSource::Market)
+        .then(|| policy.market_source_url.clone())
+        .flatten();
     let public_key = remote_package_trusted_public_key(db, source_url, &policy)?;
     let result = install_plugin_from_local_package_with_policy(
         db,
@@ -3465,6 +3467,47 @@ DROP TABLE plugins;
             .join("1.0.0")
             .join("plugin.json")
             .exists());
+    }
+
+    #[test]
+    fn github_release_plugin_install_ignores_market_source_url_in_audit() {
+        use sha2::Digest;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("plugins.db")).unwrap();
+        let package_path = dir.path().join("github-release-market-url.aio-plugin");
+        write_local_package(
+            &package_path,
+            local_package_manifest("github.market-url", "1.0.0"),
+        );
+        let package_bytes = std::fs::read(&package_path).unwrap();
+        let checksum = format!("sha256:{:x}", sha2::Sha256::digest(&package_bytes));
+
+        let detail = install_plugin_from_remote_package_bytes(
+            &db,
+            package_bytes,
+            "https://github.com/acme/release/releases/download/v1/plugin.aio-plugin",
+            &dir.path().join("plugins/cache"),
+            &dir.path().join("plugins/installed"),
+            env!("CARGO_PKG_VERSION"),
+            RemotePackageInstallPolicy {
+                install_source: PluginInstallSource::GithubRelease,
+                expected_plugin_id: "github.market-url".to_string(),
+                expected_checksum: checksum,
+                signature: None,
+                public_key: None,
+                market_source_url: Some("https://plugins.example.test/index.json".to_string()),
+            },
+        )
+        .unwrap();
+
+        let install_audit = detail
+            .audit_logs
+            .iter()
+            .find(|log| log.event_type == "plugin.remote.installed")
+            .unwrap();
+        assert_eq!(install_audit.details["source"], "github_release");
+        assert!(install_audit.details.get("marketSourceUrl").is_none());
     }
 
     #[test]

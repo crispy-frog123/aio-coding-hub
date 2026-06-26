@@ -383,6 +383,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_market_index_preserves_market_source_url() {
+        let index_url = "https://plugins.example.test/index.json";
+        let listings = parse_market_index(
+            market_index().to_string().as_bytes(),
+            Some(index_url),
+            "0.56.0",
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        let prompt_tools = listings
+            .iter()
+            .find(|item| item.plugin_id == "community.prompt-tools")
+            .unwrap();
+        assert_eq!(prompt_tools.market_source_url.as_deref(), Some(index_url));
+    }
+
+    #[test]
     fn plugin_market_index_marks_incompatible_plugins_as_blocked() {
         let listings = parse_market_index(
             market_index().to_string().as_bytes(),

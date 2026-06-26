@@ -56,12 +56,18 @@ WHERE enabled = 1
         })
         .map_err(|e| db_err!("failed to query plugin market sources: {e}"))?;
 
+    let mut sources = Vec::new();
     for row in rows {
         let (index_url, public_key) =
             row.map_err(|e| db_err!("failed to read plugin market source: {e}"))?;
-        if index_url == url {
-            return Ok(Some(public_key));
-        }
+        sources.push((index_url, public_key));
+    }
+
+    if let Some((_, public_key)) = sources.iter().find(|(index_url, _)| index_url == url) {
+        return Ok(Some(public_key.clone()));
+    }
+
+    for (index_url, public_key) in sources {
         let source_host = reqwest::Url::parse(&index_url)
             .ok()
             .and_then(|parsed| parsed.host_str().map(str::to_ascii_lowercase));
@@ -1199,6 +1205,58 @@ INSERT INTO plugin_market_sources(
         assert_eq!(exact.as_deref(), Some("trusted-key"));
         assert_eq!(same_host.as_deref(), Some("trusted-key"));
         assert_eq!(disabled, None);
+    }
+
+    #[test]
+    fn trusted_market_public_key_prefers_exact_url_before_host_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("plugins.db")).unwrap();
+        let conn = db.open_connection().unwrap();
+        conn.execute(
+            r#"
+INSERT INTO plugin_market_sources(
+  name,
+  index_url,
+  enabled,
+  trusted_public_key,
+  created_at,
+  updated_at
+) VALUES (?1, ?2, 1, ?3, 1, 1)
+"#,
+            rusqlite::params![
+                "Host Fallback",
+                "https://plugins.example.test/community/index.json",
+                "host-key"
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+INSERT INTO plugin_market_sources(
+  name,
+  index_url,
+  enabled,
+  trusted_public_key,
+  created_at,
+  updated_at
+) VALUES (?1, ?2, 1, ?3, 2, 2)
+"#,
+            rusqlite::params![
+                "Exact Source",
+                "https://plugins.example.test/official/index.json",
+                "exact-key"
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let key = trusted_market_public_key_for_url(
+            &db,
+            "https://plugins.example.test/official/index.json",
+        )
+        .unwrap();
+
+        assert_eq!(key.as_deref(), Some("exact-key"));
     }
 
     #[test]
