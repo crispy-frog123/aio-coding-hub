@@ -115,7 +115,7 @@ describe("pages/providers/SortableProviderCard", () => {
     expect(sortablePointerDownMock).toHaveBeenCalledTimes(1);
   });
 
-  it("renders trailing route action in the card right-side action row", () => {
+  it("renders trailing route action in an independent card-edge region", () => {
     renderCard(
       {},
       {
@@ -124,7 +124,8 @@ describe("pages/providers/SortableProviderCard", () => {
     );
 
     const trailingAction = screen.getByRole("button", { name: "加入" });
-    expect(trailingAction.closest('[data-provider-card-trailing-region="right"]')).not.toBeNull();
+    expect(trailingAction.closest('[data-provider-card-edge-action="true"]')).not.toBeNull();
+    expect(trailingAction.closest('[data-provider-card-management-actions="true"]')).toBeNull();
     expect(trailingAction.closest('[data-provider-card-secondary-actions="true"]')).toBeNull();
   });
 

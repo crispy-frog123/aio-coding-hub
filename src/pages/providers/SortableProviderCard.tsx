@@ -250,12 +250,12 @@ export const ProviderCard = memo(function ProviderCard({
       <Card
         padding="sm"
         className={cn(
-          "rounded-lg sm:rounded-xl flex flex-col gap-2 transition-shadow duration-200 sm:flex-row sm:items-center sm:justify-between",
+          "rounded-lg sm:rounded-xl flex flex-col gap-2 transition-shadow duration-200 sm:flex-row sm:items-stretch sm:justify-between",
           className
         )}
         {...cardProps}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1">
           {dragHandleProps ? (
             <button
               type="button"
@@ -448,108 +448,116 @@ export const ProviderCard = memo(function ProviderCard({
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2" onPointerDown={(e) => e.stopPropagation()}>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {isUnavailable ? (
+        <div
+          className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-stretch sm:justify-end"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div
+            data-provider-card-management-actions="true"
+            className="flex flex-col items-end gap-2"
+          >
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {isUnavailable ? (
+                <Button
+                  onClick={() => onResetCircuit(provider)}
+                  variant="secondary"
+                  size="md"
+                  className="h-9"
+                  disabled={circuitResetting}
+                >
+                  {circuitResetting ? "处理中…" : "解除熔断"}
+                </Button>
+              ) : null}
+
               <Button
-                onClick={() => onResetCircuit(provider)}
+                onClick={() => onEdit(provider)}
                 variant="secondary"
                 size="md"
                 className="h-9"
-                disabled={circuitResetting}
+                title="编辑"
               >
-                {circuitResetting ? "处理中…" : "解除熔断"}
+                <Pencil className="h-4 w-4" />
+                编辑
               </Button>
-            ) : null}
 
-            <Button
-              onClick={() => onEdit(provider)}
-              variant="secondary"
-              size="md"
-              className="h-9"
-              title="编辑"
-            >
-              <Pencil className="h-4 w-4" />
-              编辑
-            </Button>
-
-            <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-white px-3 text-sm shadow-sm dark:border-border dark:bg-secondary">
-              <span className="text-sm font-medium text-secondary-foreground">
-                {provider.enabled ? "已启用" : "已关闭"}
-              </span>
-              <Switch
-                checked={provider.enabled}
-                onCheckedChange={() => onToggleEnabled(provider)}
-              />
+              <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-white px-3 text-sm shadow-sm dark:border-border dark:bg-secondary">
+                <span className="text-sm font-medium text-secondary-foreground">
+                  {provider.enabled ? "已启用" : "已关闭"}
+                </span>
+                <Switch
+                  checked={provider.enabled}
+                  onCheckedChange={() => onToggleEnabled(provider)}
+                />
+              </div>
             </div>
 
-            {trailing ? (
-              <div
-                data-provider-card-trailing-region="right"
-                className="flex shrink-0 items-center justify-end"
-              >
-                {trailing}
-              </div>
-            ) : null}
-          </div>
-
-          <div
-            data-provider-card-secondary-actions="true"
-            className="flex flex-wrap items-center justify-end gap-2"
-          >
-            {onCopyTerminalLaunchCommand ? (
-              <Button
-                onClick={() => onCopyTerminalLaunchCommand(provider)}
-                variant="secondary"
-                size="sm"
-                className="px-2 py-1 text-[11px] gap-1.5"
-                disabled={terminalLaunchCopying}
-                title="复制终端启动命令"
-              >
-                <Terminal className="h-3.5 w-3.5" />
-                {terminalLaunchCopying ? "复制中…" : "终端启动"}
-              </Button>
-            ) : null}
-
-            {onTestAvailability ? (
-              <Button
-                onClick={() => onTestAvailability(provider)}
-                variant="secondary"
-                size="sm"
-                className="px-2 py-1 text-[11px] gap-1.5"
-                disabled={testAvailabilityLoading}
-                title="测试供应商可用性"
-              >
-                <Zap className="h-3.5 w-3.5" />
-                {testAvailabilityLoading ? "测试中…" : "测试"}
-              </Button>
-            ) : null}
-
-            {onDuplicate ? (
-              <Button
-                onClick={() => onDuplicate(provider)}
-                variant="secondary"
-                size="sm"
-                className="px-2 py-1 text-[11px] gap-1.5"
-                disabled={duplicateLoading}
-                title="复制"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                {duplicateLoading ? "复制中…" : "复制"}
-              </Button>
-            ) : null}
-
-            <Button
-              onClick={() => onDelete(provider)}
-              variant="danger"
-              size="sm"
-              className="px-2 py-1 text-[11px] gap-1.5"
-              title="删除"
+            <div
+              data-provider-card-secondary-actions="true"
+              className="flex flex-wrap items-center justify-end gap-2"
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              删除
-            </Button>
+              {onCopyTerminalLaunchCommand ? (
+                <Button
+                  onClick={() => onCopyTerminalLaunchCommand(provider)}
+                  variant="secondary"
+                  size="sm"
+                  className="px-2 py-1 text-[11px] gap-1.5"
+                  disabled={terminalLaunchCopying}
+                  title="复制终端启动命令"
+                >
+                  <Terminal className="h-3.5 w-3.5" />
+                  {terminalLaunchCopying ? "复制中…" : "终端启动"}
+                </Button>
+              ) : null}
+
+              {onTestAvailability ? (
+                <Button
+                  onClick={() => onTestAvailability(provider)}
+                  variant="secondary"
+                  size="sm"
+                  className="px-2 py-1 text-[11px] gap-1.5"
+                  disabled={testAvailabilityLoading}
+                  title="测试供应商可用性"
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  {testAvailabilityLoading ? "测试中…" : "测试"}
+                </Button>
+              ) : null}
+
+              {onDuplicate ? (
+                <Button
+                  onClick={() => onDuplicate(provider)}
+                  variant="secondary"
+                  size="sm"
+                  className="px-2 py-1 text-[11px] gap-1.5"
+                  disabled={duplicateLoading}
+                  title="复制"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {duplicateLoading ? "复制中…" : "复制"}
+                </Button>
+              ) : null}
+
+              <Button
+                onClick={() => onDelete(provider)}
+                variant="danger"
+                size="sm"
+                className="px-2 py-1 text-[11px] gap-1.5"
+                title="删除"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </Button>
+            </div>
           </div>
+
+          {trailing ? (
+            <div
+              data-provider-card-edge-action="true"
+              className="flex shrink-0 items-center justify-end border-t border-border pt-2 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0"
+            >
+              {trailing}
+            </div>
+          ) : null}
         </div>
       </Card>
       <ConfirmDialog
