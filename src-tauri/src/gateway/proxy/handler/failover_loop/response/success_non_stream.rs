@@ -1,5 +1,6 @@
 //! Usage: Handle successful non-SSE upstream responses inside `failover_loop::run`.
 
+use super::attempt_executor::RetryLoopState;
 use super::*;
 use crate::domain::provider_oauth_limits;
 use crate::gateway::plugins::context::{GatewayPluginHookName, GatewayResponseHookInput};
@@ -347,6 +348,7 @@ pub(super) async fn handle_success_non_stream<R>(
     provider_ctx: ProviderCtx<'_>,
     attempt_ctx: AttemptCtx<'_>,
     loop_state: LoopState<'_, R>,
+    retry_state: &mut RetryLoopState,
     resp: reqwest::Response,
     status: StatusCode,
     mut response_headers: HeaderMap,
@@ -401,11 +403,14 @@ where
 
     strip_hop_headers(&mut response_headers);
     let cx2cc_buffered_event_stream = cx2cc_active && is_event_stream(&response_headers);
+    let should_inspect_codex_reasoning_guard =
+        common.codex_reasoning_guard_enabled && common.cli_key == "codex";
     if should_passthrough_non_stream_success(
         gemini_oauth_response_mode,
         cx2cc_buffered_event_stream,
         cx2cc_active,
-    ) {
+    ) && !should_inspect_codex_reasoning_guard
+    {
         let should_gunzip = has_gzip_content_encoding(&response_headers);
 
         match resp.content_length() {
@@ -654,40 +659,6 @@ where
         }
     };
 
-    let outcome = "success".to_string();
-
-    attempts.push(FailoverAttempt {
-        provider_id,
-        provider_name: provider_ctx_owned.provider_name_base.clone(),
-        base_url: provider_ctx_owned.provider_base_url_base.clone(),
-        outcome: outcome.clone(),
-        status: Some(status.as_u16()),
-        provider_index: Some(provider_index),
-        retry_index: Some(retry_index),
-        session_reuse,
-        error_category: None,
-        error_code: None,
-        decision: Some("success"),
-        reason: None,
-        selection_method,
-        reason_code: Some(reason_code),
-        attempt_started_ms: Some(attempt_started_ms),
-        attempt_duration_ms: Some(attempt_started.elapsed().as_millis()),
-        circuit_state_before: Some(circuit_before.state.as_str()),
-        circuit_state_after: None,
-        circuit_failure_count: Some(circuit_before.failure_count),
-        circuit_failure_threshold: Some(circuit_before.failure_threshold),
-    });
-
-    emit_attempt_event_and_log_with_circuit_before(
-        ctx,
-        provider_ctx,
-        attempt_ctx,
-        outcome,
-        Some(status.as_u16()),
-    )
-    .await;
-
     body_bytes = maybe_gunzip_response_body_bytes_with_limit(
         body_bytes,
         &mut response_headers,
@@ -907,6 +878,92 @@ where
         }
         body_bytes = outcome.body;
     }
+
+    if should_inspect_codex_reasoning_guard {
+        if let Ok(body_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+            if let Some(matched) = codex_reasoning_guard::detect_from_json(
+                common.cli_key.as_str(),
+                &body_json,
+                common.codex_reasoning_guard_compare_mode,
+                common.codex_reasoning_guard_reasoning_equals.as_slice(),
+            ) {
+                codex_reasoning_guard::push_special_setting(
+                    &common.special_settings,
+                    provider_id,
+                    provider_ctx_owned.provider_name_base.as_str(),
+                    retry_index,
+                    &matched,
+                );
+                codex_reasoning_guard::record_guard_retry_attempt(
+                    attempts,
+                    provider_id,
+                    provider_ctx_owned.provider_name_base.as_str(),
+                    provider_ctx_owned.provider_base_url_base.as_str(),
+                    provider_index,
+                    retry_index,
+                    session_reuse,
+                    attempt_started_ms,
+                    attempt_started.elapsed().as_millis(),
+                    circuit_before.state.as_str(),
+                    circuit_before.failure_count,
+                    circuit_before.failure_threshold,
+                    &matched,
+                );
+                emit_attempt_event_and_log(
+                    ctx,
+                    provider_ctx,
+                    attempt_ctx,
+                    "codex_reasoning_guard_retry".to_string(),
+                    Some(StatusCode::BAD_GATEWAY.as_u16()),
+                    AttemptCircuitFields {
+                        state_before: Some(circuit_before.state.as_str()),
+                        state_after: Some(circuit_before.state.as_str()),
+                        failure_count: Some(circuit_before.failure_count),
+                        failure_threshold: Some(circuit_before.failure_threshold),
+                    },
+                )
+                .await;
+                retry_state.codex_reasoning_guard_hits =
+                    retry_state.codex_reasoning_guard_hits.saturating_add(1);
+                retry_state.allow_next_retry_beyond_max_attempts = true;
+                return LoopControl::ContinueRetry;
+            }
+        }
+    }
+
+    let outcome = "success".to_string();
+
+    attempts.push(FailoverAttempt {
+        provider_id,
+        provider_name: provider_ctx_owned.provider_name_base.clone(),
+        base_url: provider_ctx_owned.provider_base_url_base.clone(),
+        outcome: outcome.clone(),
+        status: Some(status.as_u16()),
+        provider_index: Some(provider_index),
+        retry_index: Some(retry_index),
+        session_reuse,
+        error_category: None,
+        error_code: None,
+        decision: Some("success"),
+        reason: None,
+        selection_method,
+        reason_code: Some(reason_code),
+        attempt_started_ms: Some(attempt_started_ms),
+        attempt_duration_ms: Some(attempt_started.elapsed().as_millis()),
+        circuit_state_before: Some(circuit_before.state.as_str()),
+        circuit_state_after: None,
+        circuit_failure_count: Some(circuit_before.failure_count),
+        circuit_failure_threshold: Some(circuit_before.failure_threshold),
+    });
+
+    emit_attempt_event_and_log_with_circuit_before(
+        ctx,
+        provider_ctx,
+        attempt_ctx,
+        outcome,
+        Some(status.as_u16()),
+    )
+    .await;
 
     if (200..300).contains(&status.as_u16()) && is_fake_200_non_stream_body(body_bytes.as_ref()) {
         let error_code = GatewayErrorCode::Fake200.as_str();

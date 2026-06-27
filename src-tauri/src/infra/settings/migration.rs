@@ -1,7 +1,7 @@
 //! Usage: Schema migrations and input sanitization for settings upgrades.
 
 use super::defaults::*;
-use super::types::{AppSettings, CodexHomeMode};
+use super::types::{AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode};
 use crate::shared::error::AppResult;
 
 pub(super) fn normalize_cli_priority_order(input: &[String]) -> Vec<String> {
@@ -628,9 +628,38 @@ fn migrate_add_codex_oauth_compatible_proxy_mode(
     )
 }
 
+fn migrate_add_codex_reasoning_guard(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    // v34: Add Codex reasoning guard defaults.
+    migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD,
+    )
+}
+
+fn migrate_add_codex_reasoning_guard_compare_mode(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    // v35: Add Codex reasoning guard compare mode (default equals).
+    if !migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD_COMPARE_MODE,
+    ) {
+        return false;
+    }
+
+    settings.codex_reasoning_guard_compare_mode = CodexReasoningGuardCompareMode::Equals;
+    true
+}
+
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 27] = [
+const SETTINGS_MIGRATIONS: [SettingsMigration; 29] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -658,6 +687,8 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 27] = [
     migrate_add_upstream_proxy,
     migrate_add_upstream_proxy_credentials,
     migrate_add_codex_oauth_compatible_proxy_mode,
+    migrate_add_codex_reasoning_guard,
+    migrate_add_codex_reasoning_guard_compare_mode,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {
@@ -1134,6 +1165,36 @@ mod tests {
             SCHEMA_VERSION_ADD_CODEX_OAUTH_COMPATIBLE_PROXY_MODE
         );
         assert!(!s.codex_oauth_compatible_proxy_mode);
+    }
+
+    #[test]
+    fn migrate_add_codex_reasoning_guard_bumps_schema_version() {
+        let mut s = AppSettings {
+            schema_version: 33,
+            ..Default::default()
+        };
+        assert!(migrate_add_codex_reasoning_guard(&mut s, true));
+        assert_eq!(s.schema_version, SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD);
+        assert!(s.codex_reasoning_guard_enabled);
+        assert_eq!(s.codex_reasoning_guard_reasoning_equals, vec![516]);
+    }
+
+    #[test]
+    fn migrate_add_codex_reasoning_guard_compare_mode_bumps_schema_version() {
+        let mut s = AppSettings {
+            schema_version: 34,
+            ..Default::default()
+        };
+        s.codex_reasoning_guard_compare_mode = CodexReasoningGuardCompareMode::LessThanOrEqual;
+        assert!(migrate_add_codex_reasoning_guard_compare_mode(&mut s, true));
+        assert_eq!(
+            s.schema_version,
+            SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD_COMPARE_MODE
+        );
+        assert_eq!(
+            s.codex_reasoning_guard_compare_mode,
+            CodexReasoningGuardCompareMode::Equals
+        );
     }
 
     #[test]

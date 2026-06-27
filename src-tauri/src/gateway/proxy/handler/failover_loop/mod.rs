@@ -56,6 +56,8 @@ mod send;
 mod send_timeout;
 
 // --- response/ : upstream response handling & finalization ---
+#[path = "response/codex_reasoning_guard.rs"]
+mod codex_reasoning_guard;
 #[path = "response/finalize.rs"]
 mod finalize;
 #[path = "response/response_router.rs"]
@@ -192,6 +194,9 @@ where
         upstream_stream_idle_timeout: input.upstream_stream_idle_timeout,
         upstream_request_timeout_non_streaming: input.upstream_request_timeout_non_streaming,
         verbose_provider_error: input.verbose_provider_error,
+        codex_reasoning_guard_enabled: input.codex_reasoning_guard_enabled,
+        codex_reasoning_guard_compare_mode: input.codex_reasoning_guard_compare_mode,
+        codex_reasoning_guard_reasoning_equals: &input.codex_reasoning_guard_reasoning_equals,
         max_attempts_per_provider: input.max_attempts_per_provider,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,

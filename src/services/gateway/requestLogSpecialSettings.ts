@@ -5,6 +5,12 @@ export type ParsedRequestLogSpecialSetting = {
   reason?: string;
 } & Record<string, unknown>;
 
+export type CodexReasoningGuardSummary = {
+  count: number;
+  latestRuleLabel: string | null;
+  latestReasoningTokens: number | null;
+};
+
 export function parseRequestLogSpecialSettings(
   specialSettingsJson: string | null | undefined
 ): ParsedRequestLogSpecialSetting[] {
@@ -78,4 +84,57 @@ export function hasClaudeModelMappingSpecialSetting(
     return true;
   }
   return false;
+}
+
+export function countCodexReasoningGuardSpecialSettings(
+  specialSettingsJson: string | null | undefined
+): number {
+  return resolveCodexReasoningGuardSummary(specialSettingsJson).count;
+}
+
+function normalizeCodexReasoningGuardCompareSymbol(
+  compareMode: unknown,
+  compareModeSymbol: unknown
+): string | null {
+  const explicitSymbol = parsedSettingString(compareModeSymbol);
+  if (explicitSymbol === "==" || explicitSymbol === "<=") {
+    return explicitSymbol;
+  }
+
+  const mode = parsedSettingString(compareMode);
+  if (mode === "equals") return "==";
+  if (mode === "less_than_or_equal") return "<=";
+  return null;
+}
+
+export function resolveCodexReasoningGuardSummary(
+  specialSettingsJson: string | null | undefined
+): CodexReasoningGuardSummary {
+  const settings = parseRequestLogSpecialSettings(specialSettingsJson);
+  let count = 0;
+  let latestRuleLabel: string | null = null;
+  let latestReasoningTokens: number | null = null;
+
+  for (const setting of settings) {
+    if (setting.type === "codex_reasoning_guard") {
+      count += 1;
+      const compareSymbol = normalizeCodexReasoningGuardCompareSymbol(
+        setting.compareMode,
+        setting.compareModeSymbol
+      );
+      const matchedRuleValue = parsedSettingNumber(setting.matchedRuleValue);
+      const reasoningTokens = parsedSettingNumber(setting.reasoningTokens);
+      latestRuleLabel =
+        compareSymbol && Number.isFinite(matchedRuleValue)
+          ? `${compareSymbol} ${matchedRuleValue}`
+          : null;
+      latestReasoningTokens = Number.isFinite(reasoningTokens) ? reasoningTokens : null;
+    }
+  }
+
+  return {
+    count,
+    latestRuleLabel,
+    latestReasoningTokens,
+  };
 }

@@ -16,6 +16,7 @@ import {
   requestAttemptLogsByTraceId,
   requestLogGet,
   requestLogGetByTraceId,
+  requestLogsCodexReasoningGuardStats,
   requestLogsList,
   requestLogsListAfterId,
   requestLogsListAfterIdAll,
@@ -37,6 +38,7 @@ vi.mock("../../../generated/bindings", async () => {
       requestLogGet: vi.fn(),
       requestLogGetByTraceId: vi.fn(),
       requestAttemptLogsByTraceId: vi.fn(),
+      requestLogsCodexReasoningGuardStats: vi.fn(),
     },
   };
 });
@@ -134,6 +136,13 @@ describe("services/gateway/requestLogs", () => {
       status: "ok",
       data: [makeRequestAttemptLog()],
     });
+    vi.mocked(commands.requestLogsCodexReasoningGuardStats).mockResolvedValueOnce({
+      status: "ok",
+      data: {
+        hit_request_count: 3,
+        hit_attempt_count: 7,
+      },
+    });
 
     await requestLogsList("claude", 10);
     await requestLogsListAll(20);
@@ -142,6 +151,7 @@ describe("services/gateway/requestLogs", () => {
     await requestLogGet(1);
     await requestLogGetByTraceId("t1");
     await requestAttemptLogsByTraceId("t1", 99);
+    await requestLogsCodexReasoningGuardStats();
 
     expect(commands.requestLogsList).toHaveBeenCalledWith("claude", 10);
     expect(commands.requestLogsListAll).toHaveBeenCalledWith(20);
@@ -150,6 +160,7 @@ describe("services/gateway/requestLogs", () => {
     expect(commands.requestLogGet).toHaveBeenCalledWith(1);
     expect(commands.requestLogGetByTraceId).toHaveBeenCalledWith("t1");
     expect(commands.requestAttemptLogsByTraceId).toHaveBeenCalledWith("t1", 99);
+    expect(commands.requestLogsCodexReasoningGuardStats).toHaveBeenCalledWith();
   });
 
   it("normalizes request log list limits before ipc", async () => {
@@ -300,6 +311,13 @@ describe("services/gateway/requestLogs", () => {
       status: "ok",
       data: [makeRequestAttemptLog({ cli_key: "gemini" }) as any],
     });
+    vi.mocked(commands.requestLogsCodexReasoningGuardStats).mockResolvedValueOnce({
+      status: "ok",
+      data: {
+        hit_request_count: 11,
+        hit_attempt_count: 19,
+      },
+    });
 
     await expect(requestLogsList("codex")).resolves.toEqual([
       expect.objectContaining({ cli_key: "codex" }),
@@ -320,6 +338,10 @@ describe("services/gateway/requestLogs", () => {
     await expect(requestAttemptLogsByTraceId("trace-2")).resolves.toEqual([
       expect.objectContaining({ cli_key: "gemini" }),
     ]);
+    await expect(requestLogsCodexReasoningGuardStats()).resolves.toEqual({
+      hit_request_count: 11,
+      hit_attempt_count: 19,
+    });
 
     expect(commands.requestLogsList).toHaveBeenCalledWith("codex", null);
     expect(commands.requestLogsListAll).toHaveBeenCalledWith(null);

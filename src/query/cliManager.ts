@@ -25,6 +25,7 @@ import {
   type SimpleCliInfo,
 } from "../services/cli/cliManager";
 import { cliManagerKeys } from "./keys";
+import { useRequestLogsCodexReasoningGuardStatsQuery } from "./requestLogs";
 
 export function useCliManagerClaudeInfoQuery(options?: { enabled?: boolean }) {
   return useQuery({
@@ -178,4 +179,8 @@ export function useCliManagerClaudeHooksSetMutation() {
 export function pickCliAvailable(info: SimpleCliInfo | ClaudeCliInfo | null) {
   if (!info) return "unavailable" as const;
   return info.found ? ("available" as const) : ("unavailable" as const);
+}
+
+export function useCliManagerCodexReasoningGuardStatsQuery(options?: { enabled?: boolean }) {
+  return useRequestLogsCodexReasoningGuardStatsQuery(options);
 }

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use super::costing::cost_usd_from_femto;
-use super::{RequestLogDetail, RequestLogRouteHop, RequestLogSummary};
+use super::{CodexReasoningGuardStats, RequestLogDetail, RequestLogRouteHop, RequestLogSummary};
 
 const CLAUDE_VISIBLE_LOG_PATH: &str = "/v1/messages";
 const CLAUDE_VISIBLE_LOG_CONDITION: &str = "(cli_key != 'claude' OR path = '/v1/messages')";
@@ -580,6 +580,32 @@ pub fn get_by_trace_id(
         attach_source_provider_info_to_detail(&conn, detail)?;
     }
     Ok(item)
+}
+
+pub fn codex_reasoning_guard_stats(
+    db: &db::Db,
+) -> crate::shared::error::AppResult<CodexReasoningGuardStats> {
+    let conn = db.open_connection()?;
+    let sql = r#"
+SELECT
+  COUNT(DISTINCT request_logs.id) AS hit_request_count,
+  COUNT(1) AS hit_attempt_count
+FROM request_logs
+JOIN json_each(request_logs.special_settings_json) AS special
+WHERE request_logs.cli_key = 'codex'
+  AND json_extract(special.value, '$.type') = 'codex_reasoning_guard'
+"#;
+
+    let stats = conn
+        .query_row(sql, [], |row| {
+            Ok(CodexReasoningGuardStats {
+                hit_request_count: row.get::<_, i64>("hit_request_count")?.max(0),
+                hit_attempt_count: row.get::<_, i64>("hit_attempt_count")?.max(0),
+            })
+        })
+        .map_err(|e| db_err!("failed to query codex reasoning guard stats: {e}"))?;
+
+    Ok(stats)
 }
 
 #[cfg(test)]

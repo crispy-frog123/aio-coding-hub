@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  countCodexReasoningGuardSpecialSettings,
   hasClaudeModelMappingSpecialSetting,
+  resolveCodexReasoningGuardSummary,
   resolveClaudeModelMappingFromSpecialSettings,
 } from "../requestLogSpecialSettings";
 
@@ -68,5 +70,59 @@ describe("services/gateway/requestLogSpecialSettings", () => {
       )
     ).toBeNull();
     expect(hasClaudeModelMappingSpecialSetting("bad-json")).toBe(false);
+  });
+
+  it("counts Codex reasoning guard special settings", () => {
+    expect(
+      countCodexReasoningGuardSpecialSettings(
+        JSON.stringify([
+          {
+            type: "codex_reasoning_guard",
+            compareMode: "equals",
+            compareModeSymbol: "==",
+            matchedRuleValue: 516,
+            reasoningTokens: 516,
+          },
+          { type: "noop" },
+          {
+            type: "codex_reasoning_guard",
+            compareMode: "less_than_or_equal",
+            compareModeSymbol: "<=",
+            matchedRuleValue: 516,
+            reasoningTokens: 300,
+          },
+        ])
+      )
+    ).toBe(2);
+    expect(
+      countCodexReasoningGuardSpecialSettings(JSON.stringify({ type: "codex_reasoning_guard" }))
+    ).toBe(1);
+    expect(countCodexReasoningGuardSpecialSettings("bad-json")).toBe(0);
+  });
+
+  it("resolves Codex reasoning guard summary with latest rule label", () => {
+    expect(
+      resolveCodexReasoningGuardSummary(
+        JSON.stringify([
+          {
+            type: "codex_reasoning_guard",
+            compareMode: "equals",
+            matchedRuleValue: 516,
+            reasoningTokens: 516,
+          },
+          {
+            type: "codex_reasoning_guard",
+            compareMode: "less_than_or_equal",
+            compareModeSymbol: "<=",
+            matchedRuleValue: 516,
+            reasoningTokens: 300,
+          },
+        ])
+      )
+    ).toEqual({
+      count: 2,
+      latestRuleLabel: "<= 516",
+      latestReasoningTokens: 300,
+    });
   });
 });

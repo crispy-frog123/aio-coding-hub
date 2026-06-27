@@ -4,7 +4,10 @@ use super::defaults::*;
 use super::migration::{
     normalize_cli_priority_order, normalize_codex_home_override, repair_settings,
 };
-use super::types::{AppSettings, CodexHomeMode, GatewayListenMode, WslHostAddressMode};
+use super::types::{
+    AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, GatewayListenMode,
+    WslHostAddressMode,
+};
 use crate::app_paths;
 use crate::shared::error::AppResult;
 use crate::shared::fs::read_file_with_max_len;
@@ -318,6 +321,33 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
         &settings.cx2cc_service_tier,
         MAX_CX2CC_OPTIONAL_FIELD_LEN,
     )?;
+    if settings.codex_reasoning_guard_reasoning_equals.is_empty() {
+        return Err(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_reasoning_equals must not be empty".into(),
+        );
+    }
+    if settings.codex_reasoning_guard_reasoning_equals.len()
+        > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_reasoning_equals must contain <= {MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} values"
+        )
+        .into());
+    }
+    if settings
+        .codex_reasoning_guard_reasoning_equals
+        .iter()
+        .any(|value| *value < 0 || *value > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE)
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_reasoning_equals values must be between 0 and {MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE}"
+        )
+        .into());
+    }
+    match settings.codex_reasoning_guard_compare_mode {
+        CodexReasoningGuardCompareMode::Equals
+        | CodexReasoningGuardCompareMode::LessThanOrEqual => {}
+    }
     validate_update_releases_url(&settings.update_releases_url)?;
     if settings.log_retention_days == 0 {
         return Err("SEC_INVALID_INPUT: log_retention_days must be >= 1".into());

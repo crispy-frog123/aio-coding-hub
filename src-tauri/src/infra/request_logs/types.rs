@@ -140,3 +140,9 @@ pub struct SessionStatsAggregate {
     pub total_cost_usd_femto: i64,
     pub total_duration_ms: i64,
 }
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct CodexReasoningGuardStats {
+    pub hit_request_count: i64,
+    pub hit_attempt_count: i64,
+}

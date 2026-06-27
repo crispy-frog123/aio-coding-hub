@@ -51,6 +51,7 @@ export const requestLogsKeys = {
   detail: (logId: number | null) => [...requestLogsAllKey, "detail", logId] as const,
   attemptsByTrace: (traceId: string | null, limit: number | null) =>
     [...requestLogsAllKey, "attempts", traceId, limit] as const,
+  codexReasoningGuardStats: () => [...requestLogsAllKey, "codexReasoningGuardStats"] as const,
 };
 
 const sortModesAllKey = ["sortModes"] as const;

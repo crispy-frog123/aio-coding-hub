@@ -10,6 +10,7 @@ import {
 import {
   hasClaudeModelMappingSpecialSetting,
   parseRequestLogSpecialSettings,
+  resolveCodexReasoningGuardSummary,
   resolveClaudeModelMappingFromSpecialSettings,
 } from "../../services/gateway/requestLogSpecialSettings";
 import type { CliKey } from "../../services/providers/providers";
@@ -130,6 +131,11 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
       settingTypes.has("client_abort"));
   const isAllProvidersUnavailable = log.error_code === GatewayErrorCodes.ALL_PROVIDERS_UNAVAILABLE;
   const excludedFromStats = !!log.excluded_from_stats;
+  const codexReasoningGuard = resolveCodexReasoningGuardSummary(log.special_settings_json);
+  const codexReasoningGuardHitCount = codexReasoningGuard.count;
+  const codexReasoningGuardRuleSuffix = codexReasoningGuard.latestRuleLabel
+    ? ` ${codexReasoningGuard.latestRuleLabel}`
+    : "";
 
   const tags: RequestLogAuditTag[] = [];
 
@@ -173,6 +179,20 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
     );
   }
 
+  if (codexReasoningGuardHitCount > 0) {
+    tags.push(
+      auditTag(
+        codexReasoningGuardHitCount > 1
+          ? `降智命中 ${codexReasoningGuardHitCount}${codexReasoningGuardRuleSuffix}`
+          : `降智命中${codexReasoningGuardRuleSuffix}`,
+        "bg-violet-50/80 text-violet-700 ring-1 ring-inset ring-violet-500/10 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-400/20",
+        codexReasoningGuard.latestRuleLabel
+          ? `命中 Codex 降智拦截规则 ${codexReasoningGuard.latestRuleLabel} 后在当前 provider 上继续重试，不计入熔断`
+          : "命中 Codex 降智拦截后在当前 provider 上继续重试，不计入熔断"
+      )
+    );
+  }
+
   if (excludedFromStats) {
     tags.push(
       auditTag(
@@ -188,6 +208,11 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
     summary = "Warmup 命中后由网关直接应答，仅保留审计记录，不进入统计。";
   } else if (isCliProxyGuard) {
     summary = "这次请求由 CLI 代理守卫提前处理，保留为审计行。";
+  } else if (codexReasoningGuardHitCount > 0) {
+    summary =
+      codexReasoningGuardHitCount > 1
+        ? `本次请求命中了 ${codexReasoningGuardHitCount} 次 Codex 降智拦截${codexReasoningGuard.latestRuleLabel ? `（规则 ${codexReasoningGuard.latestRuleLabel}）` : ""}，并在同一 provider 上继续重试。`
+        : `本次请求命中了 Codex 降智拦截${codexReasoningGuard.latestRuleLabel ? `（规则 ${codexReasoningGuard.latestRuleLabel}）` : ""}，并在同一 provider 上继续重试。`;
   } else if (isAllProvidersUnavailable) {
     summary = "当前没有可用 Provider，网关未继续向已熔断或冷却中的供应商发起上游请求。";
   } else if (isClientAbort) {

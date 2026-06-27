@@ -8,6 +8,7 @@ import {
   REQUEST_LOG_TRACE_ID_MAX_LENGTH,
   requestAttemptLogsByTraceId,
   requestLogGet,
+  requestLogsCodexReasoningGuardStats,
   requestLogsListAfterIdAll,
   requestLogsListAll,
   type RequestLogSummary,
@@ -24,6 +25,7 @@ import {
   REQUEST_LOG_DETAIL_STALE_TIME_MS,
   useRequestAttemptLogsByTraceIdQuery,
   useRequestLogDetailQuery,
+  useRequestLogsCodexReasoningGuardStatsQuery,
   useRequestLogsIncrementalRefreshMutation,
   useRequestLogsListAllQuery,
 } from "../requestLogs";
@@ -38,6 +40,7 @@ vi.mock("../../services/gateway/requestLogs", async () => {
     requestLogsListAfterIdAll: vi.fn(),
     requestLogGet: vi.fn(),
     requestAttemptLogsByTraceId: vi.fn(),
+    requestLogsCodexReasoningGuardStats: vi.fn(),
   };
 });
 
@@ -356,6 +359,32 @@ describe("query/requestLogs", () => {
     expect(detailOptions?.gcTime).toBe(REQUEST_LOG_DETAIL_GC_TIME_MS);
     expect(attemptsOptions?.staleTime).toBe(REQUEST_LOG_DETAIL_STALE_TIME_MS);
     expect(attemptsOptions?.gcTime).toBe(REQUEST_LOG_DETAIL_GC_TIME_MS);
+  });
+
+  it("queries Codex reasoning guard stats with a stable cache key", async () => {
+    setTauriRuntime();
+
+    vi.mocked(requestLogsCodexReasoningGuardStats).mockResolvedValue({
+      hit_request_count: 5,
+      hit_attempt_count: 8,
+    });
+
+    const client = createTestQueryClient();
+    const wrapper = createQueryWrapper(client);
+
+    const { result } = renderHook(() => useRequestLogsCodexReasoningGuardStatsQuery(), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual({
+        hit_request_count: 5,
+        hit_attempt_count: 8,
+      });
+    });
+
+    expect(requestLogsCodexReasoningGuardStats).toHaveBeenCalledWith();
+    expect(client.getQueryState(requestLogsKeys.codexReasoningGuardStats())).toBeTruthy();
   });
 
   it("incremental refresh mutation keeps backend rows and cache stable on empty incremental items", async () => {

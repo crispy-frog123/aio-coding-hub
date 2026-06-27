@@ -1,4 +1,5 @@
 import type {
+  CodexReasoningGuardCompareMode,
   GatewayListenMode,
   SensitiveStringUpdate,
   WslHostAddressMode,
@@ -10,6 +11,8 @@ export const MAX_UPSTREAM_PROXY_USERNAME_LEN = 256;
 export const MAX_UPSTREAM_PROXY_PASSWORD_LEN = 4096;
 export const MAX_CX2CC_MODEL_NAME_LEN = 128;
 export const MAX_CX2CC_OPTIONAL_FIELD_LEN = 64;
+export const MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN = 32;
+export const MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE = 1_000_000_000;
 export const MIN_PREFERRED_PORT = 1024;
 export const MAX_PREFERRED_PORT = 65535;
 export const MIN_LOG_RETENTION_DAYS = 1;
@@ -318,6 +321,8 @@ export type SettingsSetValidationInput = {
   cx2CcFallbackModelMain?: string | null;
   cx2CcModelReasoningEffort?: string | null;
   cx2CcServiceTier?: string | null;
+  codexReasoningGuardReasoningEquals?: number[] | null;
+  codexReasoningGuardCompareMode?: CodexReasoningGuardCompareMode | null;
 };
 
 export function validateSettingsSetInput(input: SettingsSetValidationInput): string | null {
@@ -429,6 +434,33 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
     if (value == null) continue;
     const message = validateCx2ccOptionalField(fieldLabel, value);
     if (message) return message;
+  }
+
+  if (input.codexReasoningGuardReasoningEquals != null) {
+    const values = input.codexReasoningGuardReasoningEquals;
+    if (!Array.isArray(values) || values.length === 0) {
+      return "Codex 降智拦截规则至少需要一个 reasoning_tokens 值";
+    }
+    if (values.length > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN) {
+      return `Codex 降智拦截规则最多支持 ${MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} 个值`;
+    }
+    for (const value of values) {
+      if (!Number.isSafeInteger(value)) {
+        return "Codex 降智拦截规则必须是整数列表";
+      }
+      if (value < 0 || value > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE) {
+        return `Codex 降智拦截值必须在 0 到 ${MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE} 之间`;
+      }
+    }
+  }
+
+  if (input.codexReasoningGuardCompareMode != null) {
+    if (
+      input.codexReasoningGuardCompareMode !== "equals" &&
+      input.codexReasoningGuardCompareMode !== "less_than_or_equal"
+    ) {
+      return "Codex 降智拦截比较模式仅支持 equals 或 less_than_or_equal";
+    }
   }
 
   return null;

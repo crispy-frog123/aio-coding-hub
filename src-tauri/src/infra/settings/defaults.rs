@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-pub const SCHEMA_VERSION: u32 = 33;
+pub const SCHEMA_VERSION: u32 = 35;
 pub const DEFAULT_GATEWAY_PORT: u16 = 37123;
 pub const MAX_GATEWAY_PORT: u16 = 37199;
 pub const DEFAULT_PROVIDER_COOLDOWN_SECONDS: u32 = 30;
@@ -40,6 +40,8 @@ pub(super) const SCHEMA_VERSION_RAISE_STREAM_IDLE_TIMEOUT_DEFAULT: u32 = 30;
 pub(super) const SCHEMA_VERSION_ADD_UPSTREAM_PROXY: u32 = 31;
 pub(super) const SCHEMA_VERSION_ADD_UPSTREAM_PROXY_CREDENTIALS: u32 = 32;
 pub(super) const SCHEMA_VERSION_ADD_CODEX_OAUTH_COMPATIBLE_PROXY_MODE: u32 = 33;
+pub(super) const SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD: u32 = 34;
+pub(super) const SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD_COMPARE_MODE: u32 = 35;
 
 pub(super) const DEFAULT_LOG_RETENTION_DAYS: u32 = 7;
 pub(super) const MAX_LOG_RETENTION_DAYS: u32 = 3650;
@@ -62,6 +64,8 @@ pub(super) const DEFAULT_ENABLE_NOTIFICATION_SOUND: bool = true;
 pub(super) const DEFAULT_ENABLE_RESPONSE_FIXER: bool = true;
 pub(super) const DEFAULT_ENABLE_CLI_PROXY_STARTUP_RECOVERY: bool = true;
 pub(super) const DEFAULT_CODEX_OAUTH_COMPATIBLE_PROXY_MODE: bool = false;
+pub const DEFAULT_CODEX_REASONING_GUARD_ENABLED: bool = true;
+pub const DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS: &[i64] = &[516];
 pub(super) const DEFAULT_SHOW_HOME_HEATMAP: bool = true;
 pub(super) const DEFAULT_SHOW_HOME_USAGE: bool = true;
 pub(super) const DEFAULT_RESPONSE_FIXER_FIX_ENCODING: bool = true;
@@ -88,6 +92,8 @@ pub(super) const MAX_UPSTREAM_PROXY_USERNAME_LEN: usize = 256;
 pub(super) const MAX_UPSTREAM_PROXY_PASSWORD_LEN: usize = 4096;
 pub(super) const MAX_CX2CC_MODEL_NAME_LEN: usize = 128;
 pub(super) const MAX_CX2CC_OPTIONAL_FIELD_LEN: usize = 64;
+pub const MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN: usize = 32;
+pub const MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE: i64 = 1_000_000_000;
 pub(super) const SETTINGS_FILE_MAX_BYTES: usize = 1024 * 1024;
 
 pub(super) const LEGACY_IDENTIFIER: &str = "io.aio.gateway";

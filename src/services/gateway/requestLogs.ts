@@ -1,5 +1,6 @@
 import {
   commands,
+  type CodexReasoningGuardStats as GeneratedCodexReasoningGuardStats,
   type RequestAttemptLog as GeneratedRequestAttemptLog,
   type RequestLogDetail as GeneratedRequestLogDetail,
   type RequestLogRouteHop as GeneratedRequestLogRouteHop,
@@ -19,6 +20,7 @@ export const REQUEST_ATTEMPT_LOGS_MAX_LIMIT = 200;
 export const REQUEST_LOG_TRACE_ID_MAX_LENGTH = 256;
 
 export type RequestLogRouteHop = GeneratedRequestLogRouteHop;
+export type CodexReasoningGuardStats = GeneratedCodexReasoningGuardStats;
 
 export type RequestLogSummary = Override<
   GeneratedRequestLogSummary,
@@ -231,6 +233,18 @@ export async function requestAttemptLogsByTraceId(traceId: string, limit?: numbe
       mapGeneratedCommandResponse(
         await commands.requestAttemptLogsByTraceId(normalizedTraceId, normalizedLimit),
         (rows) => rows.map(toRequestAttemptLog)
+      ),
+  });
+}
+
+export async function requestLogsCodexReasoningGuardStats() {
+  return invokeGeneratedIpc<CodexReasoningGuardStats>({
+    title: "读取 Codex 降智拦截统计失败",
+    cmd: "request_logs_codex_reasoning_guard_stats",
+    invoke: async () =>
+      mapGeneratedCommandResponse(
+        await commands.requestLogsCodexReasoningGuardStats(),
+        (value) => value
       ),
   });
 }

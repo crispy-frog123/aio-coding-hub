@@ -1632,6 +1632,17 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async requestLogsCodexReasoningGuardStats(): Promise<Result<CodexReasoningGuardStats, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("request_logs_codex_reasoning_guard_stats"),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async cliSessionsFolderLookupByIds(
     items: CliSessionsFolderLookupInput[],
     wslDistro: string | null
@@ -2329,6 +2340,7 @@ export type CodexConfigTomlValidationResult = {
   error: CodexConfigTomlValidationError | null;
 };
 export type CodexHomeMode = "user_home_default" | "follow_codex_home" | "custom";
+export type CodexReasoningGuardCompareMode = "equals" | "less_than_or_equal";
 export type CodexSessionIdCompletionUpdate = { enableCodexSessionIdCompletion: boolean };
 export type ConfigImportResult = {
   providers_imported: number;
@@ -2968,6 +2980,10 @@ export type RequestAttemptLog = {
   attempt_duration_ms: number;
   created_at: number;
 };
+export type CodexReasoningGuardStats = {
+  hit_request_count: number;
+  hit_attempt_count: number;
+};
 export type RequestLogDetail = {
   id: number;
   trace_id: string;
@@ -3114,6 +3130,9 @@ export type SettingsUpdate = {
   codexHomeMode: CodexHomeMode | null;
   codexHomeOverride: string | null;
   codexOauthCompatibleProxyMode: boolean | null;
+  codexReasoningGuardEnabled: boolean | null;
+  codexReasoningGuardCompareMode: CodexReasoningGuardCompareMode | null;
+  codexReasoningGuardReasoningEquals: number[] | null;
   cx2CcFallbackModelOpus: string | null;
   cx2CcFallbackModelSonnet: string | null;
   cx2CcFallbackModelHaiku: string | null;
@@ -3146,6 +3165,9 @@ export type SettingsView = {
   codex_home_mode: CodexHomeMode;
   codex_home_override: string;
   codex_oauth_compatible_proxy_mode: boolean;
+  codex_reasoning_guard_enabled: boolean;
+  codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode;
+  codex_reasoning_guard_reasoning_equals: number[];
   auto_start: boolean;
   start_minimized: boolean;
   tray_enabled: boolean;

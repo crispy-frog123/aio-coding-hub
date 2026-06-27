@@ -81,6 +81,9 @@ pub(crate) struct SettingsUpdate {
     pub codex_home_mode: Option<settings::CodexHomeMode>,
     pub codex_home_override: Option<String>,
     pub codex_oauth_compatible_proxy_mode: Option<bool>,
+    pub codex_reasoning_guard_enabled: Option<bool>,
+    pub codex_reasoning_guard_compare_mode: Option<settings::CodexReasoningGuardCompareMode>,
+    pub codex_reasoning_guard_reasoning_equals: Option<Vec<i64>>,
     #[serde(rename = "cx2CcFallbackModelOpus")]
     #[specta(rename = "cx2CcFallbackModelOpus")]
     pub cx2cc_fallback_model_opus: Option<String>,
@@ -145,6 +148,9 @@ pub(crate) struct SettingsView {
     pub codex_home_mode: settings::CodexHomeMode,
     pub codex_home_override: String,
     pub codex_oauth_compatible_proxy_mode: bool,
+    pub codex_reasoning_guard_enabled: bool,
+    pub codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
+    pub codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub auto_start: bool,
     pub start_minimized: bool,
     pub tray_enabled: bool,
@@ -264,6 +270,11 @@ impl From<&settings::AppSettings> for SettingsView {
             codex_home_mode: value.codex_home_mode,
             codex_home_override: value.codex_home_override.clone(),
             codex_oauth_compatible_proxy_mode: value.codex_oauth_compatible_proxy_mode,
+            codex_reasoning_guard_enabled: value.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_compare_mode: value.codex_reasoning_guard_compare_mode,
+            codex_reasoning_guard_reasoning_equals: value
+                .codex_reasoning_guard_reasoning_equals
+                .clone(),
             auto_start: value.auto_start,
             start_minimized: value.start_minimized,
             tray_enabled: value.tray_enabled,
@@ -577,6 +588,9 @@ pub(crate) async fn settings_set_impl(
         codex_home_mode,
         codex_home_override,
         codex_oauth_compatible_proxy_mode,
+        codex_reasoning_guard_enabled,
+        codex_reasoning_guard_compare_mode,
+        codex_reasoning_guard_reasoning_equals,
         cx2cc_fallback_model_opus,
         cx2cc_fallback_model_sonnet,
         cx2cc_fallback_model_haiku,
@@ -637,6 +651,12 @@ pub(crate) async fn settings_set_impl(
                 .to_string();
             let codex_oauth_compatible_proxy_mode = codex_oauth_compatible_proxy_mode
                 .unwrap_or(previous.codex_oauth_compatible_proxy_mode);
+            let codex_reasoning_guard_enabled = codex_reasoning_guard_enabled
+                .unwrap_or(previous.codex_reasoning_guard_enabled);
+            let codex_reasoning_guard_compare_mode = codex_reasoning_guard_compare_mode
+                .unwrap_or(previous.codex_reasoning_guard_compare_mode);
+            let codex_reasoning_guard_reasoning_equals = codex_reasoning_guard_reasoning_equals
+                .unwrap_or(previous.codex_reasoning_guard_reasoning_equals.clone());
             let cx2cc_fallback_model_opus = cx2cc_fallback_model_opus
                 .unwrap_or(previous.cx2cc_fallback_model_opus.clone())
                 .trim()
@@ -759,6 +779,9 @@ pub(crate) async fn settings_set_impl(
                 codex_home_mode,
                 codex_home_override,
                 codex_oauth_compatible_proxy_mode,
+                codex_reasoning_guard_enabled,
+                codex_reasoning_guard_compare_mode,
+                codex_reasoning_guard_reasoning_equals,
                 auto_start: next_auto_start,
                 start_minimized,
                 tray_enabled,

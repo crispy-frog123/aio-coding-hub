@@ -31,6 +31,7 @@ import {
   useCliManagerCodexConfigTomlQuery,
   useCliManagerCodexConfigTomlSetMutation,
   useCliManagerCodexInfoQuery,
+  useCliManagerCodexReasoningGuardStatsQuery,
   useCliManagerGeminiConfigQuery,
   useCliManagerGeminiConfigSetMutation,
   useCliManagerGeminiInfoQuery,
@@ -131,6 +132,9 @@ export function useCliManagerPageDataModel() {
   const codexConfigTomlQuery = useCliManagerCodexConfigTomlQuery({ enabled: tab === "codex" });
   const codexConfigSetMutation = useCliManagerCodexConfigSetMutation();
   const codexConfigTomlSetMutation = useCliManagerCodexConfigTomlSetMutation();
+  const codexReasoningGuardStatsQuery = useCliManagerCodexReasoningGuardStatsQuery({
+    enabled: tab === "codex",
+  });
 
   const codexInfo = codexInfoQuery.data ?? null;
   const codexConfig = codexConfigQuery.data ?? null;
@@ -142,6 +146,8 @@ export function useCliManagerPageDataModel() {
   const codexConfigSaving = codexConfigSetMutation.isPending;
   const codexConfigTomlLoading = codexConfigTomlQuery.isFetching;
   const codexConfigTomlSaving = codexConfigTomlSetMutation.isPending;
+  const codexReasoningGuardStats = codexReasoningGuardStatsQuery.data ?? null;
+  const codexReasoningGuardStatsLoading = codexReasoningGuardStatsQuery.isFetching;
 
   const geminiInfoQuery = useCliManagerGeminiInfoQuery({ enabled: tab === "gemini" });
   const geminiConfigQuery = useCliManagerGeminiConfigQuery({ enabled: tab === "gemini" });
@@ -450,6 +456,20 @@ export function useCliManagerPageDataModel() {
     return true;
   }
 
+  async function persistCodexReasoningGuardSettings(
+    patch: Partial<
+      Pick<
+        AppSettings,
+        | "codex_reasoning_guard_enabled"
+        | "codex_reasoning_guard_compare_mode"
+        | "codex_reasoning_guard_reasoning_equals"
+      >
+    >
+  ) {
+    const updated = await persistCommonSettings(patch);
+    return Boolean(updated);
+  }
+
   async function pickCodexHomeDirectory(initialPath?: string): Promise<string | null> {
     try {
       return await openDesktopSinglePath({
@@ -624,12 +644,15 @@ export function useCliManagerPageDataModel() {
       codexInfo,
       codexConfig,
       codexConfigToml,
+      codexReasoningGuardStats,
+      codexReasoningGuardStatsLoading,
       appSettings,
       codexHomeSettingsSaving: commonSettingsSaving || settingsWriteBlocked,
       refreshCodex,
       openCodexConfigDir,
       persistCodexConfig,
       persistCodexConfigToml,
+      persistCodexReasoningGuardSettings,
       persistCodexHomeSettings,
       persistCodexOauthCompatibleProxyMode,
       pickCodexHomeDirectory,

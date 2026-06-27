@@ -19,6 +19,9 @@ pub(super) struct HandlerRuntimeSettings {
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) provider_base_url_ping_cache_ttl_seconds: u32,
     pub(super) enable_codex_session_id_completion: bool,
+    pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
+    pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub(super) enable_claude_metadata_user_id_injection: bool,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
@@ -113,6 +116,15 @@ pub(super) fn handler_runtime_settings(
         enable_codex_session_id_completion: settings_cfg
             .map(|cfg| cfg.enable_codex_session_id_completion)
             .unwrap_or(true),
+        codex_reasoning_guard_enabled: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_enabled)
+            .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_ENABLED),
+        codex_reasoning_guard_compare_mode: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_compare_mode)
+            .unwrap_or_default(),
+        codex_reasoning_guard_reasoning_equals: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_reasoning_equals.clone())
+            .unwrap_or_else(|| settings::DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS.to_vec()),
         enable_claude_metadata_user_id_injection: settings_cfg
             .map(|cfg| cfg.enable_claude_metadata_user_id_injection)
             .unwrap_or(true)

@@ -1,8 +1,10 @@
 //! Usage: Handle successful event-stream upstream responses inside `failover_loop::run`.
 
+use super::attempt_executor::RetryLoopState;
 use super::*;
 use crate::gateway::proxy::gemini_oauth;
 use crate::gateway::proxy::protocol_bridge;
+use crate::gateway::proxy::provider_router;
 use std::time::Duration;
 
 pub(super) async fn handle_success_event_stream<R>(
@@ -10,6 +12,7 @@ pub(super) async fn handle_success_event_stream<R>(
     provider_ctx: ProviderCtx<'_>,
     attempt_ctx: AttemptCtx<'_>,
     loop_state: LoopState<'_, R>,
+    retry_state: &mut RetryLoopState,
     resp: reqwest::Response,
     status: StatusCode,
     mut response_headers: HeaderMap,
@@ -55,6 +58,12 @@ where
     } = attempt_ctx;
     let selection_method = dc::selection_method(provider_index, retry_index, session_reuse);
     let reason_code = dc::success_reason_code(provider_index, retry_index);
+    let should_buffer_codex_reasoning_guard = common.codex_reasoning_guard_enabled
+        && common.cli_key == "codex"
+        && matches!(
+            common.forwarded_path.trim_end_matches('/'),
+            "/v1/responses" | "/responses"
+        );
 
     let LoopState {
         attempts,
@@ -229,6 +238,443 @@ where
                 reason: "upstream returned empty event-stream".to_string(),
             })
             .await;
+        }
+
+        if should_buffer_codex_reasoning_guard {
+            let mut raw = Vec::new();
+
+            if let Some(chunk) = first_chunk.take() {
+                raw.extend_from_slice(chunk.as_ref());
+                if raw.len() > MAX_NON_SSE_BODY_BYTES {
+                    let error_code = GatewayErrorCode::UpstreamBodyReadError.as_str();
+                    let decision = FailoverDecision::SwitchProvider;
+                    let outcome = format!(
+                        "stream_buffer_too_large: category={} code={} decision={} limit_bytes={}",
+                        ErrorCategory::SystemError.as_str(),
+                        error_code,
+                        decision.as_str(),
+                        MAX_NON_SSE_BODY_BYTES,
+                    );
+
+                    return record_system_failure_and_decide(RecordSystemFailureArgs {
+                        ctx,
+                        provider_ctx,
+                        attempt_ctx,
+                        loop_state: LoopState {
+                            attempts,
+                            failed_provider_ids,
+                            last_outcome,
+                            circuit_snapshot,
+                            abort_guard,
+                        },
+                        status: Some(status.as_u16()),
+                        error_code,
+                        decision,
+                        outcome,
+                        reason: format!(
+                            "event-stream body exceeded gateway buffer limit ({} bytes)",
+                            MAX_NON_SSE_BODY_BYTES
+                        ),
+                    })
+                    .await;
+                }
+            }
+
+            loop {
+                let next_chunk = match upstream_stream_idle_timeout {
+                    Some(total) => match tokio::time::timeout(total, resp.chunk()).await {
+                        Ok(Ok(chunk)) => chunk,
+                        Ok(Err(err)) => {
+                            let error_code = GatewayErrorCode::StreamError.as_str();
+                            let decision = if retry_index < max_attempts_per_provider {
+                                FailoverDecision::RetrySameProvider
+                            } else {
+                                FailoverDecision::SwitchProvider
+                            };
+                            let outcome = format!(
+                                "stream_buffer_read_error: category={} code={} decision={}",
+                                ErrorCategory::SystemError.as_str(),
+                                error_code,
+                                decision.as_str(),
+                            );
+
+                            return record_system_failure_and_decide(RecordSystemFailureArgs {
+                                ctx,
+                                provider_ctx,
+                                attempt_ctx,
+                                loop_state: LoopState {
+                                    attempts,
+                                    failed_provider_ids,
+                                    last_outcome,
+                                    circuit_snapshot,
+                                    abort_guard,
+                                },
+                                status: Some(status.as_u16()),
+                                error_code,
+                                decision,
+                                outcome,
+                                reason: format!("failed to buffer event-stream body: {err}"),
+                            })
+                            .await;
+                        }
+                        Err(_) => {
+                            let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
+                            let decision = FailoverDecision::SwitchProvider;
+                            let outcome = format!(
+                                "stream_buffer_idle_timeout: category={} code={} decision={} timeout_secs={}",
+                                ErrorCategory::SystemError.as_str(),
+                                error_code,
+                                decision.as_str(),
+                                upstream_stream_idle_timeout
+                                    .map(|value| value.as_secs())
+                                    .unwrap_or_default(),
+                            );
+
+                            return record_system_failure_and_decide(RecordSystemFailureArgs {
+                                ctx,
+                                provider_ctx,
+                                attempt_ctx,
+                                loop_state: LoopState {
+                                    attempts,
+                                    failed_provider_ids,
+                                    last_outcome,
+                                    circuit_snapshot,
+                                    abort_guard,
+                                },
+                                status: Some(status.as_u16()),
+                                error_code,
+                                decision,
+                                outcome,
+                                reason: "event-stream idle timeout while buffering".to_string(),
+                            })
+                            .await;
+                        }
+                    },
+                    None => match resp.chunk().await {
+                        Ok(chunk) => chunk,
+                        Err(err) => {
+                            let error_code = GatewayErrorCode::StreamError.as_str();
+                            let decision = if retry_index < max_attempts_per_provider {
+                                FailoverDecision::RetrySameProvider
+                            } else {
+                                FailoverDecision::SwitchProvider
+                            };
+                            let outcome = format!(
+                                "stream_buffer_read_error: category={} code={} decision={}",
+                                ErrorCategory::SystemError.as_str(),
+                                error_code,
+                                decision.as_str(),
+                            );
+
+                            return record_system_failure_and_decide(RecordSystemFailureArgs {
+                                ctx,
+                                provider_ctx,
+                                attempt_ctx,
+                                loop_state: LoopState {
+                                    attempts,
+                                    failed_provider_ids,
+                                    last_outcome,
+                                    circuit_snapshot,
+                                    abort_guard,
+                                },
+                                status: Some(status.as_u16()),
+                                error_code,
+                                decision,
+                                outcome,
+                                reason: format!("failed to buffer event-stream body: {err}"),
+                            })
+                            .await;
+                        }
+                    },
+                };
+
+                let Some(chunk) = next_chunk else {
+                    break;
+                };
+                raw.extend_from_slice(chunk.as_ref());
+                if raw.len() > MAX_NON_SSE_BODY_BYTES {
+                    let error_code = GatewayErrorCode::UpstreamBodyReadError.as_str();
+                    let decision = FailoverDecision::SwitchProvider;
+                    let outcome = format!(
+                        "stream_buffer_too_large: category={} code={} decision={} limit_bytes={}",
+                        ErrorCategory::SystemError.as_str(),
+                        error_code,
+                        decision.as_str(),
+                        MAX_NON_SSE_BODY_BYTES,
+                    );
+
+                    return record_system_failure_and_decide(RecordSystemFailureArgs {
+                        ctx,
+                        provider_ctx,
+                        attempt_ctx,
+                        loop_state: LoopState {
+                            attempts,
+                            failed_provider_ids,
+                            last_outcome,
+                            circuit_snapshot,
+                            abort_guard,
+                        },
+                        status: Some(status.as_u16()),
+                        error_code,
+                        decision,
+                        outcome,
+                        reason: format!(
+                            "event-stream body exceeded gateway buffer limit ({} bytes)",
+                            MAX_NON_SSE_BODY_BYTES
+                        ),
+                    })
+                    .await;
+                }
+            }
+
+            let raw = if has_gzip_content_encoding(&response_headers) {
+                let mut headers_for_decode = response_headers.clone();
+                let decoded = maybe_gunzip_response_body_bytes_with_limit(
+                    Bytes::from(raw),
+                    &mut headers_for_decode,
+                    MAX_NON_SSE_BODY_BYTES,
+                );
+                response_headers = headers_for_decode;
+                decoded
+            } else {
+                Bytes::from(raw)
+            };
+
+            let raw =
+                if enable_response_fixer && !has_non_identity_content_encoding(&response_headers) {
+                    response_headers.remove(header::CONTENT_LENGTH);
+                    response_headers.insert(
+                        "x-cch-response-fixer",
+                        HeaderValue::from_static("processed"),
+                    );
+                    let fixer_outcome =
+                        response_fixer::process_non_stream(raw, response_fixer_stream_config);
+                    if let Some(setting) = fixer_outcome.special_setting {
+                        response_fixer::push_special_setting(&common.special_settings, setting);
+                    }
+                    fixer_outcome.body
+                } else {
+                    raw
+                };
+
+            let aggregated = match protocol_bridge::stream::aggregate_responses_event_stream(
+                raw.as_ref(),
+            ) {
+                Ok(value) => value,
+                Err(err) => {
+                    let error_code = GatewayErrorCode::InternalError.as_str();
+                    let decision = FailoverDecision::SwitchProvider;
+                    let outcome = format!(
+                            "codex_event_stream_aggregate_error: category={} code={} decision={} err={err}",
+                            ErrorCategory::SystemError.as_str(),
+                            error_code,
+                            decision.as_str(),
+                        );
+
+                    return record_system_failure_and_decide_no_cooldown(RecordSystemFailureArgs {
+                        ctx,
+                        provider_ctx,
+                        attempt_ctx,
+                        loop_state: LoopState {
+                            attempts,
+                            failed_provider_ids,
+                            last_outcome,
+                            circuit_snapshot,
+                            abort_guard,
+                        },
+                        status: Some(status.as_u16()),
+                        error_code,
+                        decision,
+                        outcome,
+                        reason: format!("failed to aggregate Codex responses event-stream: {err}"),
+                    })
+                    .await;
+                }
+            };
+
+            if let Some(matched) = codex_reasoning_guard::detect_from_json(
+                common.cli_key.as_str(),
+                &aggregated,
+                common.codex_reasoning_guard_compare_mode,
+                common.codex_reasoning_guard_reasoning_equals.as_slice(),
+            ) {
+                codex_reasoning_guard::push_special_setting(
+                    &common.special_settings,
+                    provider_id,
+                    provider_ctx_owned.provider_name_base.as_str(),
+                    retry_index,
+                    &matched,
+                );
+                codex_reasoning_guard::record_guard_retry_attempt(
+                    attempts,
+                    provider_id,
+                    provider_ctx_owned.provider_name_base.as_str(),
+                    provider_ctx_owned.provider_base_url_base.as_str(),
+                    provider_index,
+                    retry_index,
+                    session_reuse,
+                    attempt_started_ms,
+                    attempt_started.elapsed().as_millis(),
+                    circuit_before.state.as_str(),
+                    circuit_before.failure_count,
+                    circuit_before.failure_threshold,
+                    &matched,
+                );
+                emit_attempt_event_and_log(
+                    ctx,
+                    provider_ctx,
+                    attempt_ctx,
+                    "codex_reasoning_guard_retry".to_string(),
+                    Some(StatusCode::BAD_GATEWAY.as_u16()),
+                    AttemptCircuitFields {
+                        state_before: Some(circuit_before.state.as_str()),
+                        state_after: Some(circuit_before.state.as_str()),
+                        failure_count: Some(circuit_before.failure_count),
+                        failure_threshold: Some(circuit_before.failure_threshold),
+                    },
+                )
+                .await;
+                retry_state.codex_reasoning_guard_hits =
+                    retry_state.codex_reasoning_guard_hits.saturating_add(1);
+                retry_state.allow_next_retry_beyond_max_attempts = true;
+                return LoopControl::ContinueRetry;
+            }
+
+            let outcome = "success".to_string();
+            attempts.push(FailoverAttempt {
+                provider_id,
+                provider_name: provider_ctx_owned.provider_name_base.clone(),
+                base_url: provider_ctx_owned.provider_base_url_base.clone(),
+                outcome: outcome.clone(),
+                status: Some(status.as_u16()),
+                provider_index: Some(provider_index),
+                retry_index: Some(retry_index),
+                session_reuse,
+                error_category: None,
+                error_code: None,
+                decision: Some("success"),
+                reason: None,
+                selection_method,
+                reason_code: Some(reason_code),
+                attempt_started_ms: Some(attempt_started_ms),
+                attempt_duration_ms: Some(attempt_started.elapsed().as_millis()),
+                circuit_state_before: Some(circuit_before.state.as_str()),
+                circuit_state_after: None,
+                circuit_failure_count: Some(circuit_before.failure_count),
+                circuit_failure_threshold: Some(circuit_before.failure_threshold),
+            });
+
+            emit_attempt_event_and_log_with_circuit_before(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                outcome,
+                Some(status.as_u16()),
+            )
+            .await;
+
+            codex_service_tier::append_result_if_detected(
+                common.cli_key.as_str(),
+                common.introspection_body.as_slice(),
+                Some(raw.as_ref()),
+                &common.special_settings,
+            );
+
+            let usage = usage::parse_usage_from_json_or_sse_bytes(common.cli_key.as_str(), &raw);
+            let usage_metrics = usage.as_ref().map(|u| u.metrics.clone());
+            let requested_model_for_log = common.requested_model.clone().or_else(|| {
+                if raw.is_empty() {
+                    None
+                } else {
+                    usage::parse_model_from_json_or_sse_bytes(common.cli_key.as_str(), &raw)
+                }
+            });
+
+            let now_unix = now_unix_seconds() as i64;
+            let change = provider_router::record_success_and_emit_transition(
+                provider_router::RecordCircuitArgs::from_state(
+                    common.state,
+                    common.trace_id.as_str(),
+                    common.cli_key.as_str(),
+                    provider_id,
+                    provider_ctx_owned.provider_name_base.as_str(),
+                    provider_ctx_owned.provider_base_url_base.as_str(),
+                    now_unix,
+                ),
+            );
+            if let Some(last) = attempts.last_mut() {
+                last.circuit_state_after = Some(change.after.state.as_str());
+                last.circuit_failure_count = Some(change.after.failure_count);
+                last.circuit_failure_threshold = Some(change.after.failure_threshold);
+            }
+            if let Some(session_id) = common.session_id.as_deref() {
+                common.state.session.bind_success(
+                    &common.cli_key,
+                    session_id,
+                    provider_id,
+                    common.effective_sort_mode_id,
+                    now_unix,
+                );
+            }
+
+            let duration_ms = started.elapsed().as_millis();
+            emit_request_event_and_enqueue_request_log(
+                RequestEndArgs::from_context(RequestEndContextArgs {
+                    deps: RequestEndDeps::new(
+                        &common.state.app,
+                        &common.state.db,
+                        &common.state.log_tx,
+                        &common.state.plugin_pipeline,
+                    ),
+                    trace_id: common.trace_id.as_str(),
+                    cli_key: common.cli_key.as_str(),
+                    method: common.method_hint.as_str(),
+                    path: common.forwarded_path.as_str(),
+                    observe: common.observe,
+                    query: common.query.as_deref(),
+                    excluded_from_stats: false,
+                    duration_ms,
+                    attempts: attempts.as_slice(),
+                    special_settings_json: response_fixer::special_settings_json(
+                        &common.special_settings,
+                    ),
+                    session_id: common.session_id.clone(),
+                    requested_model: requested_model_for_log,
+                    created_at_ms: common.created_at_ms,
+                    created_at: common.created_at,
+                })
+                .with_completion(RequestCompletion::success(
+                    status.as_u16(),
+                    Some(duration_ms),
+                    usage_metrics,
+                    None,
+                    usage,
+                )),
+            )
+            .await;
+
+            let mut builder = Response::builder().status(status);
+            for (k, v) in response_headers.iter() {
+                builder = builder.header(k, v);
+            }
+            builder = builder.header("x-trace-id", common.trace_id.as_str());
+            abort_guard.disarm();
+            return LoopControl::Return(match builder.body(Body::from(raw)) {
+                Ok(r) => r,
+                Err(_) => {
+                    let mut fallback = (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        GatewayErrorCode::ResponseBuildError.as_str(),
+                    )
+                        .into_response();
+                    fallback.headers_mut().insert(
+                        "x-trace-id",
+                        HeaderValue::from_str(common.trace_id.as_str())
+                            .unwrap_or(HeaderValue::from_static("unknown")),
+                    );
+                    fallback
+                }
+            });
         }
 
         let outcome = "success".to_string();

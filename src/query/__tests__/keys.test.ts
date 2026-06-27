@@ -41,6 +41,10 @@ describe("query/keys", () => {
     expect(requestLogsKeys.lists()).toEqual(["requestLogs", "list"]);
     expect(requestLogsKeys.listAll(10)).toEqual(["requestLogs", "list", "all", 10]);
     expect(requestLogsKeys.detail(1)).toEqual(["requestLogs", "detail", 1]);
+    expect(requestLogsKeys.codexReasoningGuardStats()).toEqual([
+      "requestLogs",
+      "codexReasoningGuardStats",
+    ]);
     expect(requestLogsKeys.attemptsByTrace("trace-1", 10)).toEqual([
       "requestLogs",
       "attempts",

@@ -158,6 +158,33 @@ describe("components/home/HomeLogShared", () => {
     expect(guard.providerFallbackText).toBe("CLI 守卫");
     expect(guard.summary).toContain("CLI 代理守卫");
 
+    const reasoningGuard = buildRequestLogAuditMeta({
+      cli_key: "codex",
+      path: "/v1/responses",
+      status: 200,
+      special_settings_json: JSON.stringify([
+        {
+          type: "codex_reasoning_guard",
+          compareMode: "equals",
+          compareModeSymbol: "==",
+          matchedRuleValue: 516,
+          reasoningTokens: 516,
+        },
+        {
+          type: "codex_reasoning_guard",
+          compareMode: "less_than_or_equal",
+          compareModeSymbol: "<=",
+          matchedRuleValue: 516,
+          reasoningTokens: 300,
+        },
+      ]),
+    });
+    expect(reasoningGuard.tags.map((tag) => tag.label)).toContain("降智命中 2 <= 516");
+    expect(reasoningGuard.tags[0]?.title).toContain("规则 <= 516");
+    expect(reasoningGuard.summary).toBe(
+      "本次请求命中了 2 次 Codex 降智拦截（规则 <= 516），并在同一 provider 上继续重试。"
+    );
+
     const clientAbort = buildRequestLogAuditMeta({
       cli_key: "claude",
       path: "/v1/messages",

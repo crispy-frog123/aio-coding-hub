@@ -16,7 +16,16 @@ import {
   type CodexConfigTomlValidationResult,
   type SimpleCliInfo,
 } from "../../../services/cli/cliManager";
-import type { AppSettings, CodexHomeMode } from "../../../services/settings/settings";
+import type {
+  AppSettings,
+  CodexHomeMode,
+  CodexReasoningGuardCompareMode,
+} from "../../../services/settings/settings";
+import {
+  MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN,
+  MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE,
+} from "../../../services/settings/settingsValidation";
+import type { CodexReasoningGuardStats } from "../../../services/gateway/requestLogs";
 import { normalizeCustomCodexHome, buildConfigTomlPath } from "../../../utils/codexPaths";
 import { isWindowsRuntime } from "../../../utils/platform";
 import { cn } from "../../../utils/cn";
@@ -127,12 +136,24 @@ export type CliManagerCodexTabProps = {
   codexInfo: SimpleCliInfo | null;
   codexConfig: CodexConfigState | null;
   codexConfigToml: CodexConfigTomlState | null;
+  codexReasoningGuardStats?: CodexReasoningGuardStats | null;
+  codexReasoningGuardStatsLoading?: boolean;
   appSettings?: AppSettings | null;
   codexHomeSettingsSaving?: boolean;
   refreshCodex: () => Promise<void> | void;
   openCodexConfigDir: () => Promise<void> | void;
   persistCodexConfig: (patch: CodexConfigPatch) => Promise<void> | void;
   persistCodexConfigToml: (toml: string) => Promise<boolean> | boolean;
+  persistCodexReasoningGuardSettings?: (
+    patch: Partial<
+      Pick<
+        AppSettings,
+        | "codex_reasoning_guard_enabled"
+        | "codex_reasoning_guard_compare_mode"
+        | "codex_reasoning_guard_reasoning_equals"
+      >
+    >
+  ) => Promise<boolean> | boolean;
   persistCodexHomeSettings?: (
     codexHomeMode: CodexHomeMode,
     codexHomeOverride: string
@@ -186,12 +207,15 @@ export function CliManagerCodexTab({
   codexInfo,
   codexConfig,
   codexConfigToml,
+  codexReasoningGuardStats,
+  codexReasoningGuardStatsLoading = false,
   appSettings,
   codexHomeSettingsSaving = false,
   refreshCodex,
   openCodexConfigDir,
   persistCodexConfig,
   persistCodexConfigToml,
+  persistCodexReasoningGuardSettings,
   persistCodexHomeSettings,
   persistCodexOauthCompatibleProxyMode,
   pickCodexHomeDirectory,
@@ -209,6 +233,12 @@ export function CliManagerCodexTab({
   const [customHomeText, setCustomHomeText] = useState("");
   const [configLocationError, setConfigLocationError] = useState<string | null>(null);
   const [selectingCodexHomeDir, setSelectingCodexHomeDir] = useState(false);
+  const [codexReasoningGuardValuesText, setCodexReasoningGuardValuesText] = useState("");
+  const [codexReasoningGuardCompareMode, setCodexReasoningGuardCompareMode] =
+    useState<CodexReasoningGuardCompareMode>("equals");
+  const [codexReasoningGuardValuesError, setCodexReasoningGuardValuesError] = useState<
+    string | null
+  >(null);
 
   const [tomlAdvancedOpen, setTomlAdvancedOpen] = useState(false);
   const [tomlEditEnabled, setTomlEditEnabled] = useState(false);
@@ -270,6 +300,16 @@ export function CliManagerCodexTab({
     setConfigLocationError(null);
   }, [appSettings?.codex_home_mode, appSettings?.codex_home_override]);
 
+  useEffect(() => {
+    const values = appSettings?.codex_reasoning_guard_reasoning_equals ?? [516];
+    setCodexReasoningGuardValuesText(values.join(", "));
+    setCodexReasoningGuardCompareMode(appSettings?.codex_reasoning_guard_compare_mode ?? "equals");
+    setCodexReasoningGuardValuesError(null);
+  }, [
+    appSettings?.codex_reasoning_guard_compare_mode,
+    appSettings?.codex_reasoning_guard_reasoning_equals,
+  ]);
+
   function readSavedConfigLocationState() {
     const savedOverride = appSettings?.codex_home_override?.trim() ?? "";
     const savedMode =
@@ -289,8 +329,11 @@ export function CliManagerCodexTab({
   const tomlBusy = codexConfigTomlLoading || codexConfigTomlSaving;
   const configLocationBusy = saving || codexHomeSettingsSaving;
   const configLocationControlsDisabled = configLocationBusy || selectingCodexHomeDir;
+  const commonSettingsControlsDisabled = codexHomeSettingsSaving || !appSettings;
   const proxyModeControlsDisabled =
-    codexHomeSettingsSaving || !appSettings || !persistCodexOauthCompatibleProxyMode;
+    commonSettingsControlsDisabled || !persistCodexOauthCompatibleProxyMode;
+  const reasoningGuardControlsDisabled =
+    commonSettingsControlsDisabled || !persistCodexReasoningGuardSettings;
 
   async function refreshCodexStatus() {
     try {
@@ -588,6 +631,80 @@ export function CliManagerCodexTab({
       }
     } finally {
       setSelectingCodexHomeDir(false);
+    }
+  }
+
+  function parseCodexReasoningGuardValues(raw: string):
+    | { ok: true; values: number[] }
+    | {
+        ok: false;
+        message: string;
+      } {
+    const parts = raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (parts.length === 0) {
+      return { ok: false, message: "至少填写一个 reasoning_tokens 值。" };
+    }
+    if (parts.length > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN) {
+      return {
+        ok: false,
+        message: `最多支持 ${MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} 个值。`,
+      };
+    }
+
+    const values: number[] = [];
+    for (const part of parts) {
+      if (!/^\d+$/u.test(part)) {
+        return { ok: false, message: "只支持非负整数，多个值请用逗号分隔。" };
+      }
+      const next = Number(part);
+      if (
+        !Number.isSafeInteger(next) ||
+        next < 0 ||
+        next > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE
+      ) {
+        return {
+          ok: false,
+          message: `取值范围必须在 0 到 ${MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE} 之间。`,
+        };
+      }
+      values.push(next);
+    }
+
+    return { ok: true, values };
+  }
+
+  async function persistCodexReasoningGuardValues(raw: string) {
+    if (!appSettings) return;
+    if (!persistCodexReasoningGuardSettings) return;
+    const parsed = parseCodexReasoningGuardValues(raw);
+    if (!parsed.ok) {
+      setCodexReasoningGuardValuesError(parsed.message);
+      return;
+    }
+    setCodexReasoningGuardValuesError(null);
+    setCodexReasoningGuardValuesText(parsed.values.join(", "));
+    const saved = await persistCodexReasoningGuardSettings({
+      codex_reasoning_guard_reasoning_equals: parsed.values,
+    });
+    if (!saved) {
+      setCodexReasoningGuardValuesText(
+        (appSettings.codex_reasoning_guard_reasoning_equals ?? [516]).join(", ")
+      );
+    }
+  }
+
+  async function persistCodexReasoningGuardCompareMode(nextMode: CodexReasoningGuardCompareMode) {
+    if (!appSettings) return;
+    if (!persistCodexReasoningGuardSettings) return;
+    setCodexReasoningGuardCompareMode(nextMode);
+    const saved = await persistCodexReasoningGuardSettings({
+      codex_reasoning_guard_compare_mode: nextMode,
+    });
+    if (!saved) {
+      setCodexReasoningGuardCompareMode(appSettings.codex_reasoning_guard_compare_mode ?? "equals");
     }
   }
 
@@ -945,6 +1062,115 @@ export function CliManagerCodexTab({
                     }
                     disabled={proxyModeControlsDisabled}
                   />
+                </div>
+              </div>
+            ) : null}
+
+            {appSettings ? (
+              <div className="rounded-xl border border-border/80 bg-white/80 p-4 dark:border-border dark:bg-card/20">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">降智拦截</div>
+                      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        命中指定的 <span className="font-mono">reasoning_tokens</span>{" "}
+                        时，不把结果直接回给 Codex，而是在当前 provider 上继续重试，并且不计入熔断。
+                      </div>
+                    </div>
+                    <Switch
+                      aria-label="切换 Codex 降智拦截"
+                      checked={appSettings.codex_reasoning_guard_enabled}
+                      onCheckedChange={(checked) =>
+                        void persistCodexReasoningGuardSettings?.({
+                          codex_reasoning_guard_enabled: checked,
+                        })
+                      }
+                      disabled={reasoningGuardControlsDisabled}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border border-border/70 bg-secondary/70 p-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        命中请求数
+                      </div>
+                      <div className="mt-1 text-2xl font-semibold text-foreground">
+                        {codexReasoningGuardStatsLoading
+                          ? "..."
+                          : String(codexReasoningGuardStats?.hit_request_count ?? 0)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-secondary/70 p-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        命中次数
+                      </div>
+                      <div className="mt-1 text-2xl font-semibold text-foreground">
+                        {codexReasoningGuardStatsLoading
+                          ? "..."
+                          : String(codexReasoningGuardStats?.hit_attempt_count ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 bg-secondary/80 p-3 dark:border-border dark:bg-secondary/80">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                      <label className="flex-1 text-xs font-medium text-secondary-foreground">
+                        <span className="block">reasoning_tokens 规则值</span>
+                        <Input
+                          value={codexReasoningGuardValuesText}
+                          onChange={(e) => {
+                            setCodexReasoningGuardValuesText(e.currentTarget.value);
+                            if (codexReasoningGuardValuesError) {
+                              const parsed = parseCodexReasoningGuardValues(e.currentTarget.value);
+                              setCodexReasoningGuardValuesError(parsed.ok ? null : parsed.message);
+                            }
+                          }}
+                          onBlur={() =>
+                            void persistCodexReasoningGuardValues(codexReasoningGuardValuesText)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
+                          placeholder="516"
+                          className={cn(
+                            "mt-3 font-mono text-xs",
+                            codexReasoningGuardValuesError &&
+                              "border-rose-300 focus-visible:ring-rose-200 dark:border-rose-700"
+                          )}
+                          disabled={reasoningGuardControlsDisabled}
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-secondary-foreground md:w-[180px]">
+                        <span className="block">比较方式</span>
+                        <Select
+                          value={codexReasoningGuardCompareMode}
+                          onChange={(e) =>
+                            void persistCodexReasoningGuardCompareMode(
+                              e.currentTarget.value as CodexReasoningGuardCompareMode
+                            )
+                          }
+                          disabled={reasoningGuardControlsDisabled}
+                          className="mt-3 font-mono text-xs"
+                        >
+                          <option value="equals">等于 (==)</option>
+                          <option value="less_than_or_equal">小于等于 (&lt;=)</option>
+                        </Select>
+                      </label>
+                    </div>
+                    <div
+                      className={cn(
+                        "mt-2 text-[11px] leading-relaxed",
+                        codexReasoningGuardValuesError
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {codexReasoningGuardValuesError ??
+                        (codexReasoningGuardCompareMode === "less_than_or_equal"
+                          ? "多个值请用英文逗号分隔。命中条件为 reasoning_tokens 小于等于任一规则值；若有多个阈值，会优先匹配更贴近的较小阈值。"
+                          : "多个值请用英文逗号分隔。默认规则是 516。命中后会在同一 provider 上继续重试。")}
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : null}

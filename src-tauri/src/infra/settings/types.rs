@@ -47,6 +47,14 @@ pub enum CodexHomeMode {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexReasoningGuardCompareMode {
+    #[default]
+    Equals,
+    LessThanOrEqual,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
 #[serde(default)]
 pub struct WslTargetCli {
@@ -95,6 +103,12 @@ pub struct AppSettings {
     // Codex CLI proxy OAuth compatible mode. When enabled, proxy takeover
     // manages config.toml only and leaves auth.json untouched.
     pub codex_oauth_compatible_proxy_mode: bool,
+    // Codex reasoning guard: detect degraded reasoning token signatures and
+    // retry the same provider without affecting circuit breaker state.
+    pub codex_reasoning_guard_enabled: bool,
+    #[serde(default)]
+    pub codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode,
+    pub codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub auto_start: bool,
     // Start with window hidden when auto-starting (silent startup).
     pub start_minimized: bool,
@@ -177,6 +191,10 @@ impl Default for AppSettings {
             codex_home_mode: CodexHomeMode::default(),
             codex_home_override: String::new(),
             codex_oauth_compatible_proxy_mode: DEFAULT_CODEX_OAUTH_COMPATIBLE_PROXY_MODE,
+            codex_reasoning_guard_enabled: DEFAULT_CODEX_REASONING_GUARD_ENABLED,
+            codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode::default(),
+            codex_reasoning_guard_reasoning_equals: DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS
+                .to_vec(),
             auto_start: false,
             start_minimized: false,
             tray_enabled: true,

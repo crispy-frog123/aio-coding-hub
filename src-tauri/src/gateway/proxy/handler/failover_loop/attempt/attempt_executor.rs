@@ -17,6 +17,8 @@ pub(super) struct RetryLoopState {
     pub(super) codex_previous_response_id_rectifier_retried: bool,
     pub(super) thinking_signature_rectifier_retried: bool,
     pub(super) thinking_budget_rectifier_retried: bool,
+    pub(super) allow_next_retry_beyond_max_attempts: bool,
+    pub(super) codex_reasoning_guard_hits: u32,
 }
 
 impl RetryLoopState {
@@ -27,6 +29,8 @@ impl RetryLoopState {
             codex_previous_response_id_rectifier_retried: false,
             thinking_signature_rectifier_retried: false,
             thinking_budget_rectifier_retried: false,
+            allow_next_retry_beyond_max_attempts: false,
+            codex_reasoning_guard_hits: 0,
         }
     }
 }

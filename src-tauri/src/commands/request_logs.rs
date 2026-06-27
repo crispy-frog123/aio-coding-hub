@@ -136,6 +136,20 @@ pub(crate) async fn request_attempt_logs_by_trace_id(
     .map_err(Into::into)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn request_logs_codex_reasoning_guard_stats(
+    app: tauri::AppHandle,
+    db_state: tauri::State<'_, DbInitState>,
+) -> Result<request_logs::CodexReasoningGuardStats, String> {
+    let db = ensure_db_ready(app, db_state.inner()).await?;
+    blocking::run("request_logs_codex_reasoning_guard_stats", move || {
+        request_logs::codex_reasoning_guard_stats(&db)
+    })
+    .await
+    .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{request_attempt_logs_limit, request_logs_limit};
