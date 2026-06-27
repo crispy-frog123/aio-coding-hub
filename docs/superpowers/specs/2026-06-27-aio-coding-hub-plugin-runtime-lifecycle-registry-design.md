@@ -2,6 +2,17 @@
 
 日期：2026-06-27
 
+## Status
+
+Superseded by `2026-06-27-aio-coding-hub-plugin-extension-host-platform-design.md`.
+
+This document captured an earlier runtime-lifecycle design that still treated
+`declarativeRules` as the public community plugin path. The branch has not been
+released, and the product direction has changed: the plugin platform should be
+Extension Host first, with UI, provider, protocol bridge, gateway, command, and
+diagnostic contribution points. The lifecycle ideas in this document remain
+useful only as a subsystem inside the new Extension Host platform.
+
 ## Summary
 
 本阶段聚焦插件宿主稳定性，新增 host-owned Runtime Lifecycle Registry。它不是新的插件 API，也不是新的插件语言入口，而是把插件运行资源、缓存、健康状态、失败熔断和销毁路径收口到一个内部生命周期边界。
