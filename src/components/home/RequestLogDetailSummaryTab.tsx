@@ -7,13 +7,14 @@ import {
   formatDurationMs,
   formatTokensPerSecond,
   formatUsd,
-  sanitizeTtfbMs,
+  resolveTtfbDisplayMetrics,
 } from "../../utils/formatters";
 import { RequestLogErrorObservationCard } from "./RequestLogErrorObservationCard";
 import {
   buildRequestLogAuditMeta,
   computeStatusBadge,
   FastModeBadge,
+  hasCodexReasoningGuardSpecialSetting,
   hasPriorityServiceTierSpecialSetting,
 } from "./HomeLogShared";
 
@@ -40,6 +41,12 @@ export function RequestLogDetailSummaryTab({
   const isPriorityServiceTier =
     selectedLog.cli_key === "codex" &&
     hasPriorityServiceTierSpecialSetting(selectedLog.special_settings_json);
+  const ttfbMetrics = resolveTtfbDisplayMetrics(
+    selectedLog.ttfb_ms,
+    selectedLog.visible_ttfb_ms ?? null,
+    displayDurationMs,
+    hasCodexReasoningGuardSpecialSetting(selectedLog.special_settings_json)
+  );
 
   return (
     <div className="space-y-3">
@@ -97,18 +104,29 @@ export function RequestLogDetailSummaryTab({
             <MetricCard label="总耗时" value={formatDurationMs(displayDurationMs)} />
             <MetricCard
               label="TTFB"
-              value={(() => {
-                const ttfbMs = sanitizeTtfbMs(selectedLog.ttfb_ms, displayDurationMs);
-                return ttfbMs != null ? formatDurationMs(ttfbMs) : "—";
-              })()}
+              value={
+                ttfbMetrics.providerTtfbMs != null
+                  ? formatDurationMs(ttfbMetrics.providerTtfbMs)
+                  : "—"
+              }
             />
+            {ttfbMetrics.showVisibleTtfb ? (
+              <MetricCard
+                label="可见首字"
+                value={
+                  ttfbMetrics.visibleTtfbMs != null
+                    ? formatDurationMs(ttfbMetrics.visibleTtfbMs)
+                    : "—"
+                }
+              />
+            ) : null}
             <MetricCard
               label="速率"
               value={(() => {
                 const rate = computeOutputTokensPerSecond(
                   selectedLog.output_tokens,
                   displayDurationMs,
-                  sanitizeTtfbMs(selectedLog.ttfb_ms, displayDurationMs)
+                  ttfbMetrics.providerTtfbMs
                 );
                 return rate != null ? formatTokensPerSecond(rate) : "—";
               })()}

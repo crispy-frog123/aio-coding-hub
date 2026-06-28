@@ -213,7 +213,7 @@ where
             }
             Poll::Ready(Some(Ok(chunk))) => {
                 if self.first_byte_ms.is_none() {
-                    self.first_byte_ms = Some(self.ctx.started.elapsed().as_millis());
+                    self.first_byte_ms = Some(self.ctx.attempt_started.elapsed().as_millis());
                 }
                 // Reuse existing Box allocation via Sleep::reset() to avoid heap churn per chunk
                 if let Some(d) = self.idle_timeout {
@@ -313,6 +313,7 @@ where
             &self.ctx,
             StreamRequestCompletion::from_error_code(
                 error_code,
+                self.first_byte_ms,
                 self.first_byte_ms,
                 requested_model,
                 usage_metrics,
@@ -729,6 +730,7 @@ where
             StreamRequestCompletion::from_error_code(
                 effective_error_code,
                 self.first_byte_ms,
+                self.first_byte_ms,
                 requested_model,
                 usage_metrics,
                 usage,
@@ -773,7 +775,7 @@ where
             }
             Poll::Ready(Some(Ok(chunk))) => {
                 if this.first_byte_ms.is_none() {
-                    this.first_byte_ms = Some(this.ctx.started.elapsed().as_millis());
+                    this.first_byte_ms = Some(this.ctx.attempt_started.elapsed().as_millis());
                 }
                 if !this.truncated {
                     let bytes = chunk.as_ref();
@@ -870,6 +872,7 @@ mod tests {
             error_category: None,
             error_code: None,
             started: Instant::now(),
+            attempt_started: Instant::now(),
             attempts: Vec::new(),
             attempts_json: "[]".to_string(),
             requested_model: None,

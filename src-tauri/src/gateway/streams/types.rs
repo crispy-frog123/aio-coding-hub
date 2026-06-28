@@ -28,6 +28,7 @@ pub(in crate::gateway) struct StreamFinalizeCtx<R: tauri::Runtime = tauri::Wry> 
     pub(in crate::gateway) error_category: Option<&'static str>,
     pub(in crate::gateway) error_code: Option<&'static str>,
     pub(in crate::gateway) started: Instant,
+    pub(in crate::gateway) attempt_started: Instant,
     pub(in crate::gateway) attempts: Vec<FailoverAttempt>,
     pub(in crate::gateway) attempts_json: String,
     pub(in crate::gateway) requested_model: Option<String>,

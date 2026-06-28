@@ -112,6 +112,7 @@ export function RequestLogDetailDialog({
       selectedLog.cost_usd != null ||
       selectedLog.duration_ms != null ||
       selectedLog.ttfb_ms != null ||
+      selectedLog.visible_ttfb_ms != null ||
       (isInProgress && liveTrace != null));
 
   return (

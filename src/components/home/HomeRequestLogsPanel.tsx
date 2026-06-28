@@ -39,7 +39,7 @@ import {
   formatTokensPerSecond,
   formatTokensPerSecondShort,
   formatUsd,
-  sanitizeTtfbMs,
+  resolveTtfbDisplayMetrics,
 } from "../../utils/formatters";
 import {
   buildRequestLogAuditMeta,
@@ -51,6 +51,7 @@ import {
   FolderBadge,
   FreeBadge,
   getErrorCodeLabel,
+  hasCodexReasoningGuardSpecialSetting,
   hasPriorityServiceTierSpecialSetting,
   resolveClaudeModelMappingFromSpecialSettings,
   resolveLiveTraceDurationMs,
@@ -166,7 +167,13 @@ const RequestLogCard = memo(function RequestLogCard({
   const cliTone = cliBadgeToneStatic(log.cli_key);
   const compactTextClass = compactMode ? "whitespace-normal break-all" : "truncate";
 
-  const ttfbMs = sanitizeTtfbMs(log.ttfb_ms, displayDurationMs);
+  const ttfbMetrics = resolveTtfbDisplayMetrics(
+    log.ttfb_ms,
+    log.visible_ttfb_ms ?? null,
+    displayDurationMs,
+    hasCodexReasoningGuardSpecialSetting(log.special_settings_json)
+  );
+  const ttfbMs = ttfbMetrics.providerTtfbMs;
   const outputTokensPerSecond = computeOutputTokensPerSecond(
     log.output_tokens,
     displayDurationMs,
@@ -412,8 +419,21 @@ const RequestLogCard = memo(function RequestLogCard({
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/75 select-none shrink-0">
                     首字
                   </span>
-                  <span className="font-mono tabular-nums text-xs font-semibold text-foreground/90 truncate">
-                    {ttfbMs != null ? formatDurationMs(ttfbMs) : "—"}
+                  <span
+                    className="font-mono tabular-nums text-xs font-semibold text-foreground/90 truncate"
+                    title={
+                      ttfbMetrics.showVisibleTtfb &&
+                      ttfbMs != null &&
+                      ttfbMetrics.visibleTtfbMs != null
+                        ? `首字 ${formatDurationMs(ttfbMs)} / 可见首字 ${formatDurationMs(ttfbMetrics.visibleTtfbMs)}`
+                        : undefined
+                    }
+                  >
+                    {ttfbMs != null
+                      ? ttfbMetrics.showVisibleTtfb && ttfbMetrics.visibleTtfbMs != null
+                        ? `${formatDurationMs(ttfbMs)} / ${formatDurationMs(ttfbMetrics.visibleTtfbMs)}`
+                        : formatDurationMs(ttfbMs)
+                      : "—"}
                   </span>
                 </div>
                 <div

@@ -10,6 +10,7 @@ use crate::gateway::response_fixer;
 pub(super) struct StreamRequestCompletion {
     pub(super) error_code: Option<&'static str>,
     pub(super) ttfb_ms: Option<u128>,
+    pub(super) visible_ttfb_ms: Option<u128>,
     pub(super) requested_model: Option<String>,
     pub(super) usage_metrics: Option<crate::usage::UsageMetrics>,
     pub(super) usage: Option<crate::usage::UsageExtract>,
@@ -18,6 +19,7 @@ pub(super) struct StreamRequestCompletion {
 impl StreamRequestCompletion {
     pub(super) fn success(
         ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
         requested_model: Option<String>,
         usage_metrics: Option<crate::usage::UsageMetrics>,
         usage: Option<crate::usage::UsageExtract>,
@@ -25,6 +27,7 @@ impl StreamRequestCompletion {
         Self {
             error_code: None,
             ttfb_ms,
+            visible_ttfb_ms,
             requested_model,
             usage_metrics,
             usage,
@@ -34,6 +37,7 @@ impl StreamRequestCompletion {
     pub(super) fn failure(
         error_code: &'static str,
         ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
         requested_model: Option<String>,
         usage_metrics: Option<crate::usage::UsageMetrics>,
         usage: Option<crate::usage::UsageExtract>,
@@ -41,6 +45,7 @@ impl StreamRequestCompletion {
         Self {
             error_code: Some(error_code),
             ttfb_ms,
+            visible_ttfb_ms,
             requested_model,
             usage_metrics,
             usage,
@@ -50,13 +55,27 @@ impl StreamRequestCompletion {
     pub(super) fn from_error_code(
         error_code: Option<&'static str>,
         ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
         requested_model: Option<String>,
         usage_metrics: Option<crate::usage::UsageMetrics>,
         usage: Option<crate::usage::UsageExtract>,
     ) -> Self {
         match error_code {
-            Some(code) => Self::failure(code, ttfb_ms, requested_model, usage_metrics, usage),
-            None => Self::success(ttfb_ms, requested_model, usage_metrics, usage),
+            Some(code) => Self::failure(
+                code,
+                ttfb_ms,
+                visible_ttfb_ms,
+                requested_model,
+                usage_metrics,
+                usage,
+            ),
+            None => Self::success(
+                ttfb_ms,
+                visible_ttfb_ms,
+                requested_model,
+                usage_metrics,
+                usage,
+            ),
         }
     }
 }
@@ -157,6 +176,7 @@ pub(super) fn emit_request_event_and_spawn_request_log<R: tauri::Runtime>(
         completion.error_code,
         duration_ms,
         completion.ttfb_ms,
+        completion.visible_ttfb_ms,
         attempts,
         attempts_json,
         completion.requested_model,
@@ -169,6 +189,7 @@ pub(super) fn emit_request_event_and_spawn_request_log<R: tauri::Runtime>(
         &ctx.app,
         effective_error_category,
         completion.ttfb_ms,
+        completion.visible_ttfb_ms,
         attempts,
         completion.usage_metrics,
     );
@@ -189,11 +210,17 @@ mod tests {
 
     #[test]
     fn stream_request_completion_builds_success_without_error_code() {
-        let completion =
-            StreamRequestCompletion::success(Some(8), Some("gpt-5".to_string()), None, None);
+        let completion = StreamRequestCompletion::success(
+            Some(8),
+            Some(21),
+            Some("gpt-5".to_string()),
+            None,
+            None,
+        );
 
         assert!(completion.error_code.is_none());
         assert_eq!(completion.ttfb_ms, Some(8));
+        assert_eq!(completion.visible_ttfb_ms, Some(21));
         assert_eq!(completion.requested_model.as_deref(), Some("gpt-5"));
     }
 
@@ -203,6 +230,7 @@ mod tests {
         let completion = StreamRequestCompletion::failure(
             GatewayErrorCode::StreamError.as_str(),
             Some(12),
+            Some(44),
             Some("gpt-5".to_string()),
             Some(usage_metrics),
             None,
@@ -213,6 +241,7 @@ mod tests {
             Some(GatewayErrorCode::StreamError.as_str())
         );
         assert_eq!(completion.ttfb_ms, Some(12));
+        assert_eq!(completion.visible_ttfb_ms, Some(44));
         assert_eq!(completion.requested_model.as_deref(), Some("gpt-5"));
         assert!(completion.usage_metrics.is_some());
         assert!(completion.usage.is_none());

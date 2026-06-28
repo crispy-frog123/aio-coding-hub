@@ -531,6 +531,7 @@ fn insert_batch_once(
 		  error_code,
 		  duration_ms,
 		  ttfb_ms,
+		  visible_ttfb_ms,
 		  attempts_json,
 		  input_tokens,
 		  output_tokens,
@@ -548,7 +549,7 @@ fn insert_batch_once(
 		  final_provider_id,
 		  provider_chain_json,
 		  error_details_json
-		) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+		) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)
 		ON CONFLICT(trace_id) DO UPDATE SET
 		  method = excluded.method,
 		  path = excluded.path,
@@ -559,6 +560,7 @@ fn insert_batch_once(
 	  error_code = excluded.error_code,
 	  duration_ms = excluded.duration_ms,
 	  ttfb_ms = excluded.ttfb_ms,
+	  visible_ttfb_ms = excluded.visible_ttfb_ms,
 	  attempts_json = excluded.attempts_json,
 	  input_tokens = excluded.input_tokens,
 	  output_tokens = excluded.output_tokens,
@@ -694,6 +696,7 @@ fn insert_batch_once(
                 item.error_code,
                 item.duration_ms,
                 item.ttfb_ms,
+                item.visible_ttfb_ms,
                 item.attempts_json,
                 item.input_tokens,
                 item.output_tokens,
@@ -836,6 +839,7 @@ mod tests {
             error_code: None,
             duration_ms: 10,
             ttfb_ms: Some(5),
+            visible_ttfb_ms: Some(5),
             attempts_json: "[]".to_string(),
             input_tokens: None,
             output_tokens: None,

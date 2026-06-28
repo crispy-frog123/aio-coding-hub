@@ -249,9 +249,10 @@ impl NonStreamBodyReadError {
 async fn read_non_stream_body_with_limit(
     mut resp: reqwest::Response,
     started: Instant,
+    attempt_started: Instant,
     timeout: Option<std::time::Duration>,
     limit_bytes: usize,
-) -> Result<Bytes, NonStreamBodyReadError> {
+) -> Result<(Bytes, Option<u128>), NonStreamBodyReadError> {
     if resp
         .content_length()
         .is_some_and(|len| len > limit_bytes as u64)
@@ -265,6 +266,7 @@ async fn read_non_stream_body_with_limit(
         .unwrap_or_default()
         .min(limit_bytes);
     let mut out = Vec::with_capacity(capacity);
+    let mut first_byte_ms = None;
 
     loop {
         let chunk_result = match timeout.and_then(|total| total.checked_sub(started.elapsed())) {
@@ -281,8 +283,11 @@ async fn read_non_stream_body_with_limit(
         }?;
 
         let Some(chunk) = chunk_result else {
-            return Ok(Bytes::from(out));
+            return Ok((Bytes::from(out), first_byte_ms));
         };
+        if first_byte_ms.is_none() {
+            first_byte_ms = Some(attempt_started.elapsed().as_millis());
+        }
         if chunk.len() > limit_bytes.saturating_sub(out.len()) {
             return Err(NonStreamBodyReadError::TooLarge);
         }
@@ -463,6 +468,7 @@ where
                     status.as_u16(),
                     None,
                     None,
+                    attempt_started,
                 );
 
                 if should_gunzip {
@@ -551,6 +557,7 @@ where
                     status.as_u16(),
                     None,
                     None,
+                    attempt_started,
                 );
 
                 if should_gunzip {
@@ -609,13 +616,14 @@ where
     let bytes_result = read_non_stream_body_with_limit(
         resp,
         started,
+        attempt_started,
         upstream_request_timeout_non_streaming,
         MAX_NON_SSE_BODY_BYTES,
     )
     .await;
 
-    let mut body_bytes = match bytes_result {
-        Ok(b) => {
+    let (mut body_bytes, provider_ttfb_ms) = match bytes_result {
+        Ok((b, first_byte_ms)) => {
             emit_gateway_debug_log_lazy(&state.app, || {
                 format!(
                     "[RESP_BODY] trace_id={} body({} bytes)={}",
@@ -624,7 +632,7 @@ where
                     lossy_utf8_preview(&b, MAX_DEBUG_BODY_PREVIEW_BYTES),
                 )
             });
-            b
+            (b, first_byte_ms)
         }
         Err(kind) => {
             let error_code = kind.error_code();
@@ -1065,11 +1073,12 @@ where
                 created_at_ms,
                 created_at,
             })
-            .with_completion(RequestCompletion::failure_with_ttfb(
+            .with_completion(RequestCompletion::failure_with_visible_ttfb(
                 StatusCode::BAD_GATEWAY.as_u16(),
                 Some(ErrorCategory::ProviderError.as_str()),
                 error_code,
-                duration_ms,
+                provider_ttfb_ms,
+                Some(duration_ms),
             )),
         )
         .await;
@@ -1232,8 +1241,9 @@ where
             created_at_ms,
             created_at,
         })
-        .with_completion(RequestCompletion::success(
+        .with_completion(RequestCompletion::success_with_visible_ttfb(
             status.as_u16(),
+            provider_ttfb_ms,
             Some(duration_ms),
             usage_metrics,
             None,
@@ -1330,6 +1340,7 @@ mod tests {
         let err = read_non_stream_body_with_limit(
             response,
             Instant::now(),
+            Instant::now(),
             Some(Duration::from_secs(2)),
             limit,
         )
@@ -1348,6 +1359,7 @@ mod tests {
 
         let err = read_non_stream_body_with_limit(
             response,
+            Instant::now(),
             Instant::now(),
             Some(Duration::from_secs(2)),
             limit,

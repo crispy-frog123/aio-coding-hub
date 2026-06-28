@@ -127,6 +127,7 @@ fn request_log_insert_from_args(
         error_code,
         duration_ms,
         ttfb_ms,
+        visible_ttfb_ms,
         attempts_json,
         requested_model,
         created_at_ms,
@@ -153,6 +154,12 @@ fn request_log_insert_from_args(
         }
         Some(v.min(i64::MAX as u128) as i64)
     });
+    let visible_ttfb_ms = visible_ttfb_ms.and_then(|v| {
+        if v > duration_ms as u128 {
+            return None;
+        }
+        Some(v.min(i64::MAX as u128) as i64)
+    });
 
     Some(request_logs::RequestLogInsert {
         trace_id,
@@ -170,6 +177,7 @@ fn request_log_insert_from_args(
         error_code: error_code.map(str::to_string),
         duration_ms,
         ttfb_ms,
+        visible_ttfb_ms,
         attempts_json: bound_attempts_json(attempts_json),
         input_tokens: metrics.input_tokens,
         output_tokens: metrics.output_tokens,
@@ -644,6 +652,7 @@ WHERE trace_id = ?1
             error_code: None,
             duration_ms: 10,
             ttfb_ms: None,
+            visible_ttfb_ms: None,
             attempts_json: "[]".to_string(),
             requested_model: None,
             created_at_ms: 0,

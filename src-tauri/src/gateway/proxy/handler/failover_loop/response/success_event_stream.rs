@@ -110,9 +110,10 @@ where
                 } else {
                     let remaining = total - elapsed;
                     match tokio::time::timeout(remaining, resp.chunk()).await {
-                        Ok(Ok(Some(chunk))) => {
-                            FirstChunkProbe::Ok(Some(chunk), Some(started.elapsed().as_millis()))
-                        }
+                        Ok(Ok(Some(chunk))) => FirstChunkProbe::Ok(
+                            Some(chunk),
+                            Some(attempt_started.elapsed().as_millis()),
+                        ),
                         Ok(Ok(None)) => FirstChunkProbe::Ok(None, None),
                         Ok(Err(err)) => FirstChunkProbe::ReadError(err),
                         Err(_) => FirstChunkProbe::Timeout,
@@ -391,6 +392,9 @@ where
                 let Some(chunk) = next_chunk else {
                     break;
                 };
+                if initial_first_byte_ms.is_none() {
+                    initial_first_byte_ms = Some(attempt_started.elapsed().as_millis());
+                }
                 raw.extend_from_slice(chunk.as_ref());
                 if raw.len() > MAX_NON_SSE_BODY_BYTES {
                     let error_code = GatewayErrorCode::UpstreamBodyReadError.as_str();
@@ -643,8 +647,9 @@ where
                     created_at_ms: common.created_at_ms,
                     created_at: common.created_at,
                 })
-                .with_completion(RequestCompletion::success(
+                .with_completion(RequestCompletion::success_with_visible_ttfb(
                     status.as_u16(),
+                    initial_first_byte_ms,
                     Some(duration_ms),
                     usage_metrics,
                     None,
@@ -725,6 +730,7 @@ where
             status.as_u16(),
             None,
             None,
+            attempt_started,
         );
 
         let should_gunzip = has_gzip_content_encoding(&response_headers);

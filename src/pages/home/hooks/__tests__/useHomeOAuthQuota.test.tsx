@@ -87,6 +87,7 @@ function makeRequestLog(
     error_code: partial.error_code ?? null,
     duration_ms: partial.duration_ms ?? 1000,
     ttfb_ms: partial.ttfb_ms ?? null,
+    visible_ttfb_ms: partial.visible_ttfb_ms ?? null,
     attempt_count: partial.attempt_count ?? 1,
     has_failover: partial.has_failover ?? false,
     start_provider_id: partial.start_provider_id ?? 0,

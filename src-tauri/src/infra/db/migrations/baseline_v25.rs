@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
   cache_creation_1h_input_tokens INTEGER,
   usage_json TEXT,
   ttfb_ms INTEGER,
+  visible_ttfb_ms INTEGER,
   requested_model TEXT,
   cost_usd_femto INTEGER,
   cost_multiplier REAL NOT NULL DEFAULT 1.0,

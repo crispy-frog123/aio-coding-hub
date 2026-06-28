@@ -2998,6 +2998,7 @@ export type RequestLogDetail = {
   error_code: string | null;
   duration_ms: number;
   ttfb_ms: number | null;
+  visible_ttfb_ms: number | null;
   attempts_json: string;
   input_tokens: number | null;
   output_tokens: number | null;
@@ -3047,6 +3048,7 @@ export type RequestLogSummary = {
   error_code: string | null;
   duration_ms: number;
   ttfb_ms: number | null;
+  visible_ttfb_ms: number | null;
   attempt_count: number;
   has_failover: boolean;
   start_provider_id: number;

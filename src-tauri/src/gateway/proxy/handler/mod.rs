@@ -70,6 +70,7 @@ fn build_in_progress_request_log_args<R: tauri::Runtime>(
         error_code: None,
         duration_ms: 0,
         ttfb_ms: None,
+        visible_ttfb_ms: None,
         attempts_json: "[]".to_string(),
         requested_model: ctx.requested_model.as_deref().map(str::to_string),
         created_at_ms: ctx.created_at_ms,

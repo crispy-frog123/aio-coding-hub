@@ -240,6 +240,7 @@ pub(super) fn build_stream_finalize_ctx<R: tauri::Runtime>(
     status: u16,
     error_category: Option<&'static str>,
     error_code: Option<&'static str>,
+    attempt_started: Instant,
 ) -> StreamFinalizeCtx<R> {
     let attempts_json = serde_json::to_string(attempts).unwrap_or_else(|_| "[]".to_string());
 
@@ -264,6 +265,7 @@ pub(super) fn build_stream_finalize_ctx<R: tauri::Runtime>(
         error_category,
         error_code,
         started: ctx.started,
+        attempt_started,
         attempts: attempts.to_vec(),
         attempts_json,
         requested_model: ctx.requested_model.clone(),

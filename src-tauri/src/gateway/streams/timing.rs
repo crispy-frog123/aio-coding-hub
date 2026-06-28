@@ -59,6 +59,7 @@ where
             StreamRequestCompletion::from_error_code(
                 error_code,
                 self.first_byte_ms,
+                self.first_byte_ms,
                 self.ctx.requested_model.clone(),
                 None,
                 None,
@@ -103,7 +104,7 @@ where
             }
             Poll::Ready(Some(Ok(chunk))) => {
                 if this.first_byte_ms.is_none() {
-                    this.first_byte_ms = Some(this.ctx.started.elapsed().as_millis());
+                    this.first_byte_ms = Some(this.ctx.attempt_started.elapsed().as_millis());
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }

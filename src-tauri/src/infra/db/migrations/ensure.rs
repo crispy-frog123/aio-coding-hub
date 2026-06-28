@@ -969,7 +969,7 @@ fn ensure_provider_stream_idle_timeout(conn: &mut Connection) -> Result<(), Stri
 }
 
 // ---------------------------------------------------------------------------
-// ensure_request_logs_extended_columns (provider_chain_json, error_details_json)
+// ensure_request_logs_extended_columns (provider_chain_json, error_details_json, visible_ttfb_ms)
 // ---------------------------------------------------------------------------
 
 fn ensure_request_logs_extended_columns(conn: &mut Connection) -> Result<(), String> {
@@ -995,6 +995,11 @@ fn ensure_request_logs_extended_columns(conn: &mut Connection) -> Result<(), Str
     if !column_exists(conn, "request_logs", "error_details_json")? {
         conn.execute_batch("ALTER TABLE request_logs ADD COLUMN error_details_json TEXT;")
             .map_err(|e| format!("failed to ensure request_logs.error_details_json: {e}"))?;
+    }
+
+    if !column_exists(conn, "request_logs", "visible_ttfb_ms")? {
+        conn.execute_batch("ALTER TABLE request_logs ADD COLUMN visible_ttfb_ms INTEGER;")
+            .map_err(|e| format!("failed to ensure request_logs.visible_ttfb_ms: {e}"))?;
     }
 
     Ok(())

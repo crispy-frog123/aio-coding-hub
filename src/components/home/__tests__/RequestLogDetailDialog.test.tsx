@@ -248,6 +248,7 @@ describe("home/RequestLogDetailDialog", () => {
         created_at: Math.floor(Date.now() / 1000),
         duration_ms: undefined,
         ttfb_ms: null,
+        visible_ttfb_ms: null,
         input_tokens: null,
         output_tokens: null,
         total_tokens: null,
@@ -684,6 +685,7 @@ describe("home/RequestLogDetailDialog", () => {
       selectedLog: createSelectedLog({
         duration_ms: undefined,
         ttfb_ms: null,
+        visible_ttfb_ms: null,
         cache_creation_input_tokens: 2,
         cache_creation_5m_input_tokens: null,
         cache_creation_1h_input_tokens: null,
@@ -695,6 +697,54 @@ describe("home/RequestLogDetailDialog", () => {
     expectMetricValue("缓存创建", "2");
     expectMetricValue("TTFB", "—");
     expectMetricValue("速率", "—");
+  });
+
+  it("shows visible TTFB only for reasoning-guard hits when it differs", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        duration_ms: 300,
+        ttfb_ms: 120,
+        visible_ttfb_ms: 240,
+        special_settings_json: JSON.stringify([
+          {
+            type: "codex_reasoning_guard",
+            compareModeSymbol: "<=",
+            matchedRuleValue: 516,
+            reasoningTokens: 516,
+          },
+        ]),
+      }),
+    });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expectMetricValue("TTFB", "120ms");
+    expectMetricValue("可见首字", "240ms");
+  });
+
+  it("does not show visible TTFB when values are equal even if guard is enabled", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        duration_ms: 300,
+        ttfb_ms: 180,
+        visible_ttfb_ms: 180,
+        special_settings_json: JSON.stringify([
+          {
+            type: "codex_reasoning_guard",
+            compareModeSymbol: "==",
+            matchedRuleValue: 516,
+            reasoningTokens: 516,
+          },
+        ]),
+      }),
+    });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expectMetricValue("TTFB", "180ms");
+    expect(screen.queryByText("可见首字")).not.toBeInTheDocument();
   });
 
   it("keeps zero-valued cache window metrics visible when they are the only cache source", () => {

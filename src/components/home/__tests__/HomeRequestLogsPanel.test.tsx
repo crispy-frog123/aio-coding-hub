@@ -227,6 +227,96 @@ describe("components/home/HomeRequestLogsPanel", () => {
     expect(screen.getByText("claude-sonnet → gpt-5.4")).toBeInTheDocument();
   });
 
+  it("shows dual TTFB only for reasoning-guard request logs", () => {
+    render(
+      <MemoryRouter>
+        <HomeRequestLogsPanel
+          showCustomTooltip={false}
+          compactModeOverride={false}
+          traces={[]}
+          requestLogs={makeRequestLogs([
+            {
+              id: 51,
+              trace_id: "t-guard-log",
+              cli_key: "codex",
+              method: "POST",
+              path: "/v1/responses",
+              requested_model: "gpt-5-codex",
+              status: 200,
+              error_code: null,
+              duration_ms: 300,
+              ttfb_ms: 120,
+              visible_ttfb_ms: 240,
+              special_settings_json: JSON.stringify([
+                {
+                  type: "codex_reasoning_guard",
+                  compareModeSymbol: "<=",
+                  matchedRuleValue: 516,
+                  reasoningTokens: 516,
+                },
+              ]),
+              attempt_count: 2,
+              has_failover: true,
+              start_provider_id: 1,
+              start_provider_name: "Provider A",
+              final_provider_id: 1,
+              final_provider_name: "Provider A",
+              route: [
+                createRequestLogRouteHop({
+                  provider_id: 1,
+                  provider_name: "Provider A",
+                  ok: true,
+                  status: 200,
+                }),
+              ],
+              session_reuse: false,
+              created_at: Math.floor(Date.now() / 1000),
+            },
+            {
+              id: 52,
+              trace_id: "t-normal-log",
+              cli_key: "codex",
+              method: "POST",
+              path: "/v1/responses",
+              requested_model: "gpt-5-codex",
+              status: 200,
+              error_code: null,
+              duration_ms: 300,
+              ttfb_ms: 180,
+              visible_ttfb_ms: 260,
+              attempt_count: 1,
+              has_failover: false,
+              start_provider_id: 2,
+              start_provider_name: "Provider B",
+              final_provider_id: 2,
+              final_provider_name: "Provider B",
+              route: [
+                createRequestLogRouteHop({
+                  provider_id: 2,
+                  provider_name: "Provider B",
+                  ok: true,
+                  status: 200,
+                }),
+              ],
+              session_reuse: false,
+              created_at: Math.floor(Date.now() / 1000),
+            },
+          ])}
+          requestLogsLoading={false}
+          requestLogsRefreshing={false}
+          requestLogsAvailable={true}
+          onRefreshRequestLogs={vi.fn()}
+          selectedLogId={null}
+          onSelectLogId={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("120ms / 240ms")).toBeInTheDocument();
+    expect(screen.getByText("180ms")).toBeInTheDocument();
+    expect(screen.queryByText("180ms / 260ms")).not.toBeInTheDocument();
+  });
+
   it("prefers the final provider mapping from historical request logs", () => {
     render(
       <MemoryRouter>

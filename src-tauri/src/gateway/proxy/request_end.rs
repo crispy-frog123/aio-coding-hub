@@ -42,7 +42,9 @@ pub(super) struct RequestCompletion {
     pub(super) error_category: Option<&'static str>,
     pub(super) error_code: Option<&'static str>,
     pub(super) event_ttfb_ms: Option<u128>,
+    pub(super) event_visible_ttfb_ms: Option<u128>,
     pub(super) log_ttfb_ms: Option<u128>,
+    pub(super) log_visible_ttfb_ms: Option<u128>,
     pub(super) usage_metrics: Option<crate::usage::UsageMetrics>,
     pub(super) log_usage_metrics: Option<crate::usage::UsageMetrics>,
     pub(super) usage: Option<crate::usage::UsageExtract>,
@@ -61,7 +63,31 @@ impl RequestCompletion {
             error_category: None,
             error_code: None,
             event_ttfb_ms: ttfb_ms,
+            event_visible_ttfb_ms: ttfb_ms,
             log_ttfb_ms: ttfb_ms,
+            log_visible_ttfb_ms: ttfb_ms,
+            usage_metrics,
+            log_usage_metrics,
+            usage,
+        }
+    }
+
+    pub(super) fn success_with_visible_ttfb(
+        status: u16,
+        ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
+        usage_metrics: Option<crate::usage::UsageMetrics>,
+        log_usage_metrics: Option<crate::usage::UsageMetrics>,
+        usage: Option<crate::usage::UsageExtract>,
+    ) -> Self {
+        Self {
+            status: Some(status),
+            error_category: None,
+            error_code: None,
+            event_ttfb_ms: ttfb_ms,
+            event_visible_ttfb_ms: visible_ttfb_ms,
+            log_ttfb_ms: ttfb_ms,
+            log_visible_ttfb_ms: visible_ttfb_ms,
             usage_metrics,
             log_usage_metrics,
             usage,
@@ -78,7 +104,9 @@ impl RequestCompletion {
             error_category,
             error_code: Some(error_code),
             event_ttfb_ms: None,
+            event_visible_ttfb_ms: None,
             log_ttfb_ms: None,
+            log_visible_ttfb_ms: None,
             usage_metrics: None,
             log_usage_metrics: None,
             usage: None,
@@ -93,8 +121,31 @@ impl RequestCompletion {
     ) -> Self {
         Self {
             event_ttfb_ms: Some(ttfb_ms),
+            event_visible_ttfb_ms: Some(ttfb_ms),
             log_ttfb_ms: Some(ttfb_ms),
+            log_visible_ttfb_ms: Some(ttfb_ms),
             ..Self::failure(status, error_category, error_code)
+        }
+    }
+
+    pub(super) fn failure_with_visible_ttfb(
+        status: u16,
+        error_category: Option<&'static str>,
+        error_code: &'static str,
+        ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
+    ) -> Self {
+        Self {
+            status: Some(status),
+            error_category,
+            error_code: Some(error_code),
+            event_ttfb_ms: ttfb_ms,
+            event_visible_ttfb_ms: visible_ttfb_ms,
+            log_ttfb_ms: ttfb_ms,
+            log_visible_ttfb_ms: visible_ttfb_ms,
+            usage_metrics: None,
+            log_usage_metrics: None,
+            usage: None,
         }
     }
 
@@ -104,7 +155,9 @@ impl RequestCompletion {
             error_category: Some(crate::gateway::proxy::ErrorCategory::ClientAbort.as_str()),
             error_code: Some(crate::gateway::proxy::GatewayErrorCode::RequestAborted.as_str()),
             event_ttfb_ms: None,
+            event_visible_ttfb_ms: None,
             log_ttfb_ms: None,
+            log_visible_ttfb_ms: None,
             usage_metrics: None,
             log_usage_metrics: None,
             usage: None,
@@ -144,7 +197,9 @@ pub(super) struct RequestEndArgs<'a, R: tauri::Runtime = tauri::Wry> {
     error_code: Option<&'static str>,
     duration_ms: u128,
     event_ttfb_ms: Option<u128>,
+    event_visible_ttfb_ms: Option<u128>,
     log_ttfb_ms: Option<u128>,
+    log_visible_ttfb_ms: Option<u128>,
     attempts: &'a [FailoverAttempt],
     special_settings_json: Option<String>,
     session_id: Option<String>,
@@ -172,7 +227,9 @@ impl<'a, R: tauri::Runtime> RequestEndArgs<'a, R> {
             error_code: None,
             duration_ms: context.duration_ms,
             event_ttfb_ms: None,
+            event_visible_ttfb_ms: None,
             log_ttfb_ms: None,
+            log_visible_ttfb_ms: None,
             attempts: context.attempts,
             special_settings_json: context.special_settings_json,
             session_id: context.session_id,
@@ -190,7 +247,9 @@ impl<'a, R: tauri::Runtime> RequestEndArgs<'a, R> {
         self.error_category = completion.error_category;
         self.error_code = completion.error_code;
         self.event_ttfb_ms = completion.event_ttfb_ms;
+        self.event_visible_ttfb_ms = completion.event_visible_ttfb_ms;
         self.log_ttfb_ms = completion.log_ttfb_ms;
+        self.log_visible_ttfb_ms = completion.log_visible_ttfb_ms;
         self.usage_metrics = completion.usage_metrics;
         self.log_usage_metrics = completion.log_usage_metrics;
         self.usage = completion.usage;
@@ -202,6 +261,7 @@ struct PreparedRequestEnd<'a, R: tauri::Runtime = tauri::Wry> {
     deps: RequestEndDeps<'a, R>,
     error_category: Option<&'static str>,
     event_ttfb_ms: Option<u128>,
+    event_visible_ttfb_ms: Option<u128>,
     attempts: Vec<FailoverAttempt>,
     usage_metrics: Option<crate::usage::UsageMetrics>,
     log_args: RequestLogEnqueueArgs,
@@ -220,6 +280,7 @@ struct RequestEndPayloadParts {
     error_code: Option<&'static str>,
     duration_ms: u128,
     ttfb_ms: Option<u128>,
+    visible_ttfb_ms: Option<u128>,
     attempts: Vec<FailoverAttempt>,
     attempts_json: Option<String>,
     requested_model: Option<String>,
@@ -588,6 +649,7 @@ fn build_request_end_payload(
         error_code,
         duration_ms,
         ttfb_ms,
+        visible_ttfb_ms,
         attempts,
         attempts_json,
         requested_model,
@@ -616,6 +678,7 @@ fn build_request_end_payload(
         error_code,
         duration_ms,
         ttfb_ms,
+        visible_ttfb_ms,
         attempts_json,
         requested_model,
         created_at_ms,
@@ -644,6 +707,7 @@ impl RequestLogEnqueueArgs {
         error_code: Option<&'static str>,
         duration_ms: u128,
         ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
         attempts: &[FailoverAttempt],
         requested_model: Option<String>,
         created_at_ms: i64,
@@ -669,6 +733,7 @@ impl RequestLogEnqueueArgs {
             error_code,
             duration_ms,
             ttfb_ms,
+            visible_ttfb_ms,
             attempts: attempts.to_vec(),
             attempts_json: None,
             requested_model,
@@ -695,6 +760,7 @@ impl RequestLogEnqueueArgs {
         error_code: Option<&'static str>,
         duration_ms: u128,
         ttfb_ms: Option<u128>,
+        visible_ttfb_ms: Option<u128>,
         attempts: Vec<FailoverAttempt>,
         attempts_json: String,
         requested_model: Option<String>,
@@ -716,6 +782,7 @@ impl RequestLogEnqueueArgs {
             error_code,
             duration_ms,
             ttfb_ms,
+            visible_ttfb_ms,
             attempts,
             attempts_json: Some(attempts_json),
             requested_model,
@@ -733,6 +800,7 @@ impl RequestLogEnqueueArgs {
         app: &tauri::AppHandle<R>,
         error_category: Option<&'static str>,
         event_ttfb_ms: Option<u128>,
+        event_visible_ttfb_ms: Option<u128>,
         attempts: Vec<FailoverAttempt>,
         usage_metrics: Option<crate::usage::UsageMetrics>,
     ) {
@@ -752,6 +820,7 @@ impl RequestLogEnqueueArgs {
             self.error_code,
             self.duration_ms,
             event_ttfb_ms,
+            event_visible_ttfb_ms,
             attempts,
             claude_model_mapping,
             usage_metrics,
@@ -775,6 +844,7 @@ fn prepare_request_end<R: tauri::Runtime>(
         args.error_code,
         args.duration_ms,
         args.log_ttfb_ms,
+        args.log_visible_ttfb_ms,
         args.attempts,
         args.requested_model,
         args.created_at_ms,
@@ -787,6 +857,7 @@ fn prepare_request_end<R: tauri::Runtime>(
         deps: args.deps,
         error_category: args.error_category,
         event_ttfb_ms: args.event_ttfb_ms,
+        event_visible_ttfb_ms: args.event_visible_ttfb_ms,
         attempts,
         usage_metrics: args.usage_metrics,
         log_args,
@@ -816,6 +887,7 @@ pub(super) async fn emit_request_event_and_enqueue_request_log<R: tauri::Runtime
         deps,
         error_category,
         event_ttfb_ms,
+        event_visible_ttfb_ms,
         attempts,
         usage_metrics,
         log_args,
@@ -825,6 +897,7 @@ pub(super) async fn emit_request_event_and_enqueue_request_log<R: tauri::Runtime
         deps.app,
         error_category,
         event_ttfb_ms,
+        event_visible_ttfb_ms,
         attempts,
         usage_metrics,
     );
@@ -862,6 +935,7 @@ pub(super) fn emit_request_event_and_spawn_request_log<R: tauri::Runtime>(
         deps,
         error_category,
         event_ttfb_ms,
+        event_visible_ttfb_ms,
         attempts,
         usage_metrics,
         log_args,
@@ -871,6 +945,7 @@ pub(super) fn emit_request_event_and_spawn_request_log<R: tauri::Runtime>(
         deps.app,
         error_category,
         event_ttfb_ms,
+        event_visible_ttfb_ms,
         attempts,
         usage_metrics,
     );
@@ -969,6 +1044,7 @@ mod tests {
             None,
             345,
             Some(12),
+            Some(12),
             &attempts,
             Some("claude-3-7".to_string()),
             100,
@@ -1004,6 +1080,7 @@ mod tests {
             Some(502),
             Some(GatewayErrorCode::UpstreamTimeout.as_str()),
             2_000,
+            None,
             None,
             &attempts,
             Some("claude-sonnet-4-5".to_string()),
@@ -1113,6 +1190,7 @@ mod tests {
             Some(502),
             Some(GatewayErrorCode::UpstreamTimeout.as_str()),
             2_000,
+            None,
             None,
             &attempts,
             Some("claude-sonnet-4-5".to_string()),
@@ -1266,6 +1344,7 @@ mod tests {
             200,
             Some(GatewayErrorCode::StreamAborted.as_str()),
             678,
+            Some(34),
             Some(34),
             attempts,
             "[{\"cached\":true}]".to_string(),

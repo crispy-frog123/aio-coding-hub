@@ -4,7 +4,9 @@ import type { RequestLogSummary } from "../../../services/gateway/requestLogs";
 import type { GatewayProviderCircuitStatus } from "../../../services/gateway/gateway";
 import type { CliKey } from "../../../services/providers/providers";
 
-function makeLog(overrides: Partial<RequestLogSummary> & { final_provider_id: number }): RequestLogSummary {
+function makeLog(
+  overrides: Partial<RequestLogSummary> & { final_provider_id: number }
+): RequestLogSummary {
   return {
     id: 1,
     trace_id: "t1",
@@ -19,6 +21,7 @@ function makeLog(overrides: Partial<RequestLogSummary> & { final_provider_id: nu
     error_code: null,
     duration_ms: 1000,
     ttfb_ms: null,
+    visible_ttfb_ms: null,
     attempt_count: 1,
     has_failover: false,
     start_provider_id: 1,
@@ -60,9 +63,30 @@ describe("buildAvailabilityTimeline", () => {
     const start = 0;
     const end = DAY_MS;
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "P1", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 2, final_provider_id: 1, final_provider_name: "P1", status: 500, created_at_ms: 2 * HOUR_MS, duration_ms: 200 }),
-      makeLog({ id: 3, final_provider_id: 2, final_provider_name: "P2", status: 200, created_at_ms: 3 * HOUR_MS, duration_ms: 300 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 2,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 500,
+        created_at_ms: 2 * HOUR_MS,
+        duration_ms: 200,
+      }),
+      makeLog({
+        id: 3,
+        final_provider_id: 2,
+        final_provider_name: "P2",
+        status: 200,
+        created_at_ms: 3 * HOUR_MS,
+        duration_ms: 300,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, null, start, end);
@@ -82,10 +106,38 @@ describe("buildAvailabilityTimeline", () => {
 
   it("sorts providers by totalRequests descending", () => {
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "Few", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 2, final_provider_id: 2, final_provider_name: "Many", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 3, final_provider_id: 2, final_provider_name: "Many", status: 200, created_at_ms: 2 * HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 4, final_provider_id: 2, final_provider_name: "Many", status: 200, created_at_ms: 3 * HOUR_MS, duration_ms: 100 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "Few",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 2,
+        final_provider_id: 2,
+        final_provider_name: "Many",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 3,
+        final_provider_id: 2,
+        final_provider_name: "Many",
+        status: 200,
+        created_at_ms: 2 * HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 4,
+        final_provider_id: 2,
+        final_provider_name: "Many",
+        status: 200,
+        created_at_ms: 3 * HOUR_MS,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, null, 0, DAY_MS);
@@ -97,9 +149,30 @@ describe("buildAvailabilityTimeline", () => {
     const start = 0;
     const end = HOUR_MS;
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "P1", status: 200, created_at_ms: 2 * 60_000, duration_ms: 100 }),
-      makeLog({ id: 2, final_provider_id: 1, final_provider_name: "P1", status: 200, created_at_ms: 3 * 60_000, duration_ms: 100 }),
-      makeLog({ id: 3, final_provider_id: 1, final_provider_name: "P1", status: 500, created_at_ms: 50 * 60_000, duration_ms: 100 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 200,
+        created_at_ms: 2 * 60_000,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 2,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 200,
+        created_at_ms: 3 * 60_000,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 3,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 500,
+        created_at_ms: 50 * 60_000,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, null, start, end);
@@ -125,8 +198,22 @@ describe("buildAvailabilityTimeline", () => {
     };
 
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "P1", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 2, final_provider_id: 2, final_provider_name: "P2", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 2,
+        final_provider_id: 2,
+        final_provider_name: "P2",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, circuitMap, 0, DAY_MS);
@@ -153,7 +240,14 @@ describe("buildAvailabilityTimeline", () => {
     );
 
     const fewLogs = [
-      makeLog({ id: 999, final_provider_id: 2, final_provider_name: "Sparse", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
+      makeLog({
+        id: 999,
+        final_provider_id: 2,
+        final_provider_name: "Sparse",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline([...manyLogs, ...fewLogs], null, start, end);
@@ -166,11 +260,46 @@ describe("buildAvailabilityTimeline", () => {
 
   it("treats 2xx and 3xx as success, 4xx and 5xx as failures", () => {
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "P", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 2, final_provider_id: 1, final_provider_name: "P", status: 301, created_at_ms: 2 * HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 3, final_provider_id: 1, final_provider_name: "P", status: 400, created_at_ms: 3 * HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 4, final_provider_id: 1, final_provider_name: "P", status: 500, created_at_ms: 4 * HOUR_MS, duration_ms: 100 }),
-      makeLog({ id: 5, final_provider_id: 1, final_provider_name: "P", status: null, created_at_ms: 5 * HOUR_MS, duration_ms: 100 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "P",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 2,
+        final_provider_id: 1,
+        final_provider_name: "P",
+        status: 301,
+        created_at_ms: 2 * HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 3,
+        final_provider_id: 1,
+        final_provider_name: "P",
+        status: 400,
+        created_at_ms: 3 * HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 4,
+        final_provider_id: 1,
+        final_provider_name: "P",
+        status: 500,
+        created_at_ms: 4 * HOUR_MS,
+        duration_ms: 100,
+      }),
+      makeLog({
+        id: 5,
+        final_provider_id: 1,
+        final_provider_name: "P",
+        status: null,
+        created_at_ms: 5 * HOUR_MS,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, null, 0, DAY_MS);
@@ -197,7 +326,14 @@ describe("buildAvailabilityTimeline", () => {
 
   it("generates correct number of buckets per provider", () => {
     const logs = [
-      makeLog({ id: 1, final_provider_id: 1, final_provider_name: "P1", status: 200, created_at_ms: HOUR_MS, duration_ms: 100 }),
+      makeLog({
+        id: 1,
+        final_provider_id: 1,
+        final_provider_name: "P1",
+        status: 200,
+        created_at_ms: HOUR_MS,
+        duration_ms: 100,
+      }),
     ];
 
     const result = buildAvailabilityTimeline(logs, null, 0, DAY_MS);

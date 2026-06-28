@@ -55,6 +55,23 @@ export type RequestLogAuditMeta = {
 
 export { hasClaudeModelMappingSpecialSetting, resolveClaudeModelMappingFromSpecialSettings };
 
+export function hasCodexReasoningGuardSpecialSetting(
+  specialSettingsJson: string | null | undefined
+): boolean {
+  return resolveCodexReasoningGuardSummary(specialSettingsJson).count > 0;
+}
+
+export function hasCodexReasoningGuardRetryAttempt(
+  attempts: Array<{ outcome?: string | null }> | null | undefined
+): boolean {
+  return (
+    attempts?.some((attempt) => {
+      const outcome = attempt.outcome?.trim().toLowerCase();
+      return !!outcome && outcome.includes("codex_reasoning_guard");
+    }) ?? false
+  );
+}
+
 export function formatClaudeModelMappingText(
   requestedModel: string | null | undefined,
   mapping: ClaudeModelMapping | null | undefined

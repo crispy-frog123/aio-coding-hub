@@ -31,6 +31,7 @@ export type GatewayRequestEvent = {
   error_code: string | null;
   duration_ms: number;
   ttfb_ms?: number | null;
+  visible_ttfb_ms?: number | null;
   attempts: GatewayAttempt[];
   input_tokens?: number | null;
   output_tokens?: number | null;
@@ -454,6 +455,7 @@ function normalizeGatewayRequestEvent(payload: unknown): GatewayRequestEvent | n
     isNullableString(payload.error_code) &&
     isNumber(payload.duration_ms) &&
     isNullableNumber(payload.ttfb_ms) &&
+    isNullableNumber(payload.visible_ttfb_ms) &&
     validAttempts.length === normalizedAttempts.length &&
     isNullableNumber(payload.input_tokens) &&
     isNullableNumber(payload.output_tokens) &&
@@ -478,6 +480,7 @@ function normalizeGatewayRequestEvent(payload: unknown): GatewayRequestEvent | n
       error_code: truncateNullableString(payload.error_code, EVENT_SHORT_TEXT_MAX_LENGTH) ?? null,
       duration_ms: payload.duration_ms,
       ttfb_ms: payload.ttfb_ms,
+      visible_ttfb_ms: payload.visible_ttfb_ms,
       attempts: validAttempts,
       input_tokens: payload.input_tokens,
       output_tokens: payload.output_tokens,
@@ -659,6 +662,7 @@ export async function listenGatewayEvents(): Promise<() => void> {
         error_code: payload.error_code,
         duration_ms: payload.duration_ms,
         ttfb_ms: payload.ttfb_ms ?? null,
+        visible_ttfb_ms: payload.visible_ttfb_ms ?? null,
         output_tokens_per_second: outputTokensPerSecond,
         input_tokens: payload.input_tokens,
         output_tokens: payload.output_tokens,

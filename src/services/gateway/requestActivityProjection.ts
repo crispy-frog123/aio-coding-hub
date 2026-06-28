@@ -90,6 +90,7 @@ function mergeTraceWithRequestLog(
     error_code: summary?.error_code ?? requestLog.error_code ?? null,
     duration_ms: summary?.duration_ms ?? requestLog.duration_ms ?? 0,
     ttfb_ms: summary?.ttfb_ms ?? requestLog.ttfb_ms ?? null,
+    visible_ttfb_ms: summary?.visible_ttfb_ms ?? requestLog.visible_ttfb_ms ?? null,
     attempts: summary?.attempts ?? [],
     input_tokens: summary?.input_tokens ?? requestLog.input_tokens ?? null,
     output_tokens: summary?.output_tokens ?? requestLog.output_tokens ?? null,

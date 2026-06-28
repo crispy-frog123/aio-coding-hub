@@ -17,7 +17,7 @@ import {
   formatTokensPerSecond,
   formatTokensPerSecondShort,
   formatUsd,
-  sanitizeTtfbMs,
+  resolveTtfbDisplayMetrics,
 } from "../../utils/formatters";
 import { Clock, Server, CheckCircle2, XCircle } from "lucide-react";
 import {
@@ -27,6 +27,7 @@ import {
   formatClaudeModelMappingText,
   FreeBadge,
   getErrorCodeLabel,
+  hasCodexReasoningGuardRetryAttempt,
   SessionReuseBadge,
 } from "./HomeLogShared";
 import { CliBrandIcon } from "./CliBrandIcon";
@@ -221,9 +222,19 @@ export const RealtimeTraceCards = memo(function RealtimeTraceCards({
           return { tokens: null as number | null, ttl: null as "5m" | "1h" | null };
         })();
 
-        const ttfbMs = trace.summary
-          ? sanitizeTtfbMs(trace.summary.ttfb_ms ?? null, trace.summary.duration_ms)
-          : null;
+        const ttfbMetrics = trace.summary
+          ? resolveTtfbDisplayMetrics(
+              trace.summary.ttfb_ms ?? null,
+              trace.summary.visible_ttfb_ms ?? null,
+              trace.summary.duration_ms,
+              hasCodexReasoningGuardRetryAttempt(trace.attempts)
+            )
+          : {
+              providerTtfbMs: null,
+              visibleTtfbMs: null,
+              showVisibleTtfb: false,
+            };
+        const ttfbMs = ttfbMetrics.providerTtfbMs;
 
         const effectiveInputTokens = computeEffectiveInputTokens(
           trace.cli_key,
@@ -488,8 +499,21 @@ export const RealtimeTraceCards = memo(function RealtimeTraceCards({
                         <span className="text-slate-400 dark:text-slate-500 font-medium shrink-0">
                           首字
                         </span>
-                        <span className="font-mono tabular-nums text-slate-700 dark:text-slate-200 font-semibold truncate">
-                          {ttfbMs != null ? formatDurationMs(ttfbMs) : "—"}
+                        <span
+                          className="font-mono tabular-nums text-slate-700 dark:text-slate-200 font-semibold truncate"
+                          title={
+                            ttfbMetrics.showVisibleTtfb &&
+                            ttfbMs != null &&
+                            ttfbMetrics.visibleTtfbMs != null
+                              ? `首字 ${formatDurationMs(ttfbMs)} / 可见首字 ${formatDurationMs(ttfbMetrics.visibleTtfbMs)}`
+                              : undefined
+                          }
+                        >
+                          {ttfbMs != null
+                            ? ttfbMetrics.showVisibleTtfb && ttfbMetrics.visibleTtfbMs != null
+                              ? `${formatDurationMs(ttfbMs)} / ${formatDurationMs(ttfbMetrics.visibleTtfbMs)}`
+                              : formatDurationMs(ttfbMs)
+                            : "—"}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 h-4" title="Cost">

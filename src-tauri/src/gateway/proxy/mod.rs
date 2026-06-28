@@ -146,6 +146,7 @@ pub(super) struct RequestLogEnqueueArgs {
     pub(super) error_code: Option<&'static str>,
     pub(super) duration_ms: u128,
     pub(super) ttfb_ms: Option<u128>,
+    pub(super) visible_ttfb_ms: Option<u128>,
     pub(super) attempts_json: String,
     pub(super) requested_model: Option<String>,
     pub(super) created_at_ms: i64,
