@@ -8,8 +8,10 @@ import {
   type ClaudeModelMapping,
 } from "../../services/gateway/claudeModelMapping";
 import {
+  formatCodexReasoningEffortSource,
   hasClaudeModelMappingSpecialSetting,
   parseRequestLogSpecialSettings,
+  resolveCodexReasoningEffort,
   resolveCodexReasoningGuardSummary,
   resolveClaudeModelMappingFromSpecialSettings,
 } from "../../services/gateway/requestLogSpecialSettings";
@@ -55,11 +57,61 @@ export type RequestLogAuditMeta = {
 };
 
 export { hasClaudeModelMappingSpecialSetting, resolveClaudeModelMappingFromSpecialSettings };
+export { formatCodexReasoningEffortSource, resolveCodexReasoningEffort };
 
 export function hasCodexReasoningGuardSpecialSetting(
   specialSettingsJson: string | null | undefined
 ): boolean {
   return resolveCodexReasoningGuardSummary(specialSettingsJson).count > 0;
+}
+
+function finiteJsonNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function resolveReasoningTokensFromJsonValue(value: unknown): number | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return (
+    finiteJsonNumber(
+      (record.output_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens
+    ) ??
+    finiteJsonNumber(
+      (record.outputTokensDetails as Record<string, unknown> | undefined)?.reasoningTokens
+    ) ??
+    finiteJsonNumber(
+      (record.outputTokensDetails as Record<string, unknown> | undefined)?.reasoningTokenCount
+    ) ??
+    finiteJsonNumber(
+      (record.completion_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens
+    ) ??
+    finiteJsonNumber(
+      (record.completionTokensDetails as Record<string, unknown> | undefined)?.reasoningTokens
+    ) ??
+    finiteJsonNumber(
+      (record.completionTokensDetails as Record<string, unknown> | undefined)?.reasoningTokenCount
+    ) ??
+    finiteJsonNumber(record.reasoning_tokens) ??
+    finiteJsonNumber(record.reasoningTokens) ??
+    finiteJsonNumber(record.reasoningTokenCount) ??
+    finiteJsonNumber(record.thinking_tokens) ??
+    finiteJsonNumber(record.thinkingTokens) ??
+    resolveReasoningTokensFromJsonValue(record.usage) ??
+    resolveReasoningTokensFromJsonValue(
+      (record.response as Record<string, unknown> | undefined)?.usage
+    )
+  );
+}
+
+export function resolveRequestLogUsageReasoningTokens(
+  usageJson: string | null | undefined
+): number | null {
+  if (!usageJson) return null;
+  try {
+    return resolveReasoningTokensFromJsonValue(JSON.parse(usageJson) as unknown);
+  } catch {
+    return null;
+  }
 }
 
 export function hasCodexReasoningGuardRetryAttempt(
@@ -84,6 +136,19 @@ export function formatClaudeModelMappingText(
 
   const fallback = requestedModel?.trim();
   return fallback || "未知";
+}
+
+export function formatRequestLogModelText(
+  cliKey: CliKey | string,
+  requestedModel: string | null | undefined,
+  specialSettingsJson?: string | null,
+  mapping?: ClaudeModelMapping | null
+) {
+  const modelText = formatClaudeModelMappingText(requestedModel, mapping);
+  if (cliKey !== "codex") return modelText;
+
+  const effort = resolveCodexReasoningEffort(requestedModel, specialSettingsJson).effort;
+  return `${modelText}-${effort}`;
 }
 
 type CodexServiceTierResultSetting = {

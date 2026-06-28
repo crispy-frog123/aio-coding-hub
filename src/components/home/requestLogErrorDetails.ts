@@ -243,6 +243,12 @@ export function resolveRequestLogErrorObservation(
   selectedLog: RequestLogDetail | null | undefined
 ): RequestLogErrorObservation | null {
   if (!selectedLog) return null;
+  const isCleanSuccess =
+    selectedLog.error_code == null &&
+    selectedLog.status != null &&
+    selectedLog.status >= 200 &&
+    selectedLog.status < 400;
+  if (isCleanSuccess) return null;
 
   const parsedJson = parseErrorDetailsJson(selectedLog.error_details_json);
   const gatewayErrorCode = parsedJson.gatewayErrorCode ?? selectedLog.error_code ?? null;

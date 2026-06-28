@@ -11,6 +11,7 @@ import {
   FastModeBadge,
   FolderBadge,
   formatClaudeModelMappingText,
+  formatRequestLogModelText,
   FreeBadge,
   getErrorCodeLabel,
   hasClaudeModelMappingSpecialSetting,
@@ -18,6 +19,7 @@ import {
   resolveClaudeModelMappingFromSpecialSettings,
   resolveLiveTraceDurationMs,
   resolveLiveTraceProvider,
+  resolveRequestLogUsageReasoningTokens,
   SessionReuseBadge,
 } from "../HomeLogShared";
 
@@ -108,6 +110,23 @@ describe("components/home/HomeLogShared", () => {
     ).toBe("claude-sonnet → gpt-5.4");
     expect(formatClaudeModelMappingText(" fallback-model ", null)).toBe("fallback-model");
     expect(formatClaudeModelMappingText("   ", null)).toBe("未知");
+    expect(formatRequestLogModelText("codex", "gpt-5.5", null)).toBe("gpt-5.5-medium");
+    expect(
+      formatRequestLogModelText(
+        "codex",
+        "gpt-5.5",
+        JSON.stringify([{ type: "codex_reasoning_effort", effort: "high" }])
+      )
+    ).toBe("gpt-5.5-high");
+    expect(
+      formatRequestLogModelText(
+        "codex",
+        "gpt-5.5",
+        JSON.stringify([{ type: "codex_reasoning_effort", rawEffort: "turbo" }])
+      )
+    ).toBe("gpt-5.5-unknown");
+    expect(formatRequestLogModelText("codex", "gpt-future", null)).toBe("gpt-future-unknown");
+    expect(formatRequestLogModelText("claude", "claude-sonnet", null)).toBe("claude-sonnet");
 
     expect(hasPriorityServiceTierSpecialSetting(null)).toBe(false);
     expect(hasPriorityServiceTierSpecialSetting("bad-json")).toBe(false);
@@ -252,6 +271,40 @@ describe("components/home/HomeLogShared", () => {
       text: "状态未知",
       title: "状态未知",
     });
+  });
+
+  it("resolves reasoning tokens from final usage json shapes", () => {
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          output_tokens_details: { reasoning_tokens: 321 },
+        })
+      )
+    ).toBe(321);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          usage: {
+            completion_tokens_details: { reasoning_tokens: 654 },
+          },
+        })
+      )
+    ).toBe(654);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          reasoning_tokens: 777,
+        })
+      )
+    ).toBe(777);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          outputTokensDetails: { reasoningTokens: 888 },
+        })
+      )
+    ).toBe(888);
+    expect(resolveRequestLogUsageReasoningTokens("not-json")).toBeNull();
   });
 
   it("covers malformed special settings and trace ordering edge cases", () => {

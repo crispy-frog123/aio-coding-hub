@@ -200,6 +200,80 @@ describe("home/RequestLogDetailDialog", () => {
     expectMetricValue("费用系数", "x1.50");
   });
 
+  it("shows Codex reasoning effort and source on the summary tab", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        requested_model: "gpt-5.5",
+        status: 200,
+        error_code: null,
+        special_settings_json: JSON.stringify([
+          { type: "codex_reasoning_effort", source: "request", effort: "high" },
+        ]),
+        usage_json: JSON.stringify({
+          output_tokens_details: {
+            reasoning_tokens: 256,
+          },
+        }),
+      }),
+    });
+    setTraceStoreState({ traces: [] });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expectMetricValue("思考等级", "high");
+    expectMetricValue("等级来源", "请求显式");
+  });
+
+  it("shows unknown Codex reasoning effort when no explicit or known default exists", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        requested_model: "gpt-future",
+        status: 200,
+        error_code: null,
+        special_settings_json: null,
+      }),
+    });
+    setTraceStoreState({ traces: [] });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expectMetricValue("思考等级", "unknown");
+    expectMetricValue("等级来源", "未知");
+  });
+
+  it("shows Codex reasoning effort even when token metrics are absent", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        requested_model: "gpt-5.5",
+        status: 200,
+        error_code: null,
+        duration_ms: undefined,
+        ttfb_ms: null,
+        visible_ttfb_ms: null,
+        input_tokens: null,
+        output_tokens: null,
+        total_tokens: null,
+        cache_read_input_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_creation_5m_input_tokens: null,
+        cache_creation_1h_input_tokens: null,
+        usage_json: null,
+        cost_usd: null,
+        special_settings_json: null,
+      }),
+    });
+    setTraceStoreState({ traces: [] });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expect(screen.getByText("关键指标")).toBeInTheDocument();
+    expectMetricValue("思考等级", "medium");
+    expectMetricValue("等级来源", "默认推断");
+  });
+
   it("falls back to raw usage_json when JSON parsing fails without rendering raw json section", () => {
     setRequestLogQueryState({ selectedLog: createSelectedLog({ usage_json: "not-json" }) });
     setTraceStoreState({ traces: [] });
@@ -272,7 +346,7 @@ describe("home/RequestLogDetailDialog", () => {
     expect(screen.getByText("最终供应商：未知")).toBeInTheDocument();
   });
 
-  it("shows thought token when it is the only token metric available", () => {
+  it("shows final usage reasoning token when it is the only token metric available", () => {
     setRequestLogQueryState({
       selectedLog: createSelectedLog({
         input_tokens: null,
@@ -286,6 +360,47 @@ describe("home/RequestLogDetailDialog", () => {
         duration_ms: undefined,
         ttfb_ms: null,
         visible_ttfb_ms: null,
+        usage_json: JSON.stringify({
+          output_tokens_details: {
+            reasoning_tokens: 516,
+          },
+        }),
+      }),
+    });
+    setTraceStoreState({ traces: [] });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expect(screen.getByText("关键指标")).toBeInTheDocument();
+    expectMetricValue("思考 Token", "516");
+  });
+
+  it("uses the final successful response metrics for Codex reasoning-guard retries", () => {
+    setRequestLogQueryState({
+      selectedLog: createSelectedLog({
+        cli_key: "codex",
+        status: 200,
+        error_code: null,
+        input_tokens: 19_755,
+        output_tokens: 662,
+        total_tokens: 20_417,
+        cache_read_input_tokens: 19_328,
+        cache_creation_input_tokens: null,
+        cache_creation_5m_input_tokens: null,
+        cache_creation_1h_input_tokens: null,
+        duration_ms: 30_080,
+        ttfb_ms: 1_720,
+        visible_ttfb_ms: 30_080,
+        cost_usd: 0.031659,
+        usage_json: JSON.stringify({
+          input_tokens: 19_755,
+          output_tokens: 662,
+          total_tokens: 20_417,
+          output_tokens_details: {
+            reasoning_tokens: 128,
+          },
+          cache_read_input_tokens: 19_328,
+        }),
         special_settings_json: JSON.stringify([
           {
             type: "codex_reasoning_guard",
@@ -295,14 +410,56 @@ describe("home/RequestLogDetailDialog", () => {
             reasoningTokens: 516,
           },
         ]),
+        error_details_json: JSON.stringify({
+          error_code: "GW_CODEX_REASONING_GUARD",
+          error_category: "SYSTEM_ERROR",
+          upstream_status: 200,
+          decision: "retry_same_provider",
+        }),
       }),
+      attemptLogs: [
+        {
+          id: 1,
+          trace_id: "trace-1",
+          cli_key: "codex",
+          attempt_index: 0,
+          provider_id: 12,
+          provider_name: "Codex Bridge",
+          base_url: "https://codex.example.com",
+          outcome: "codex_reasoning_guard_retry",
+          status: 502,
+          attempt_started_ms: 100,
+          attempt_duration_ms: 500,
+          created_at: 1000,
+        },
+        {
+          id: 2,
+          trace_id: "trace-1",
+          cli_key: "codex",
+          attempt_index: 1,
+          provider_id: 12,
+          provider_name: "Codex Bridge",
+          base_url: "https://codex.example.com",
+          outcome: "success",
+          status: 200,
+          attempt_started_ms: 700,
+          attempt_duration_ms: 1000,
+          created_at: 1001,
+        },
+      ],
     });
     setTraceStoreState({ traces: [] });
 
     render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
 
-    expect(screen.getByText("关键指标")).toBeInTheDocument();
-    expectMetricValue("思考 Token", "516");
+    expect(screen.queryByText("HTTP 200 响应异常")).not.toBeInTheDocument();
+    expect(screen.getByText("降智命中 == 516")).toBeInTheDocument();
+    expect(screen.getByText("200 成功")).toBeInTheDocument();
+    expect(screen.queryByText("200 切换后成功")).not.toBeInTheDocument();
+    expectMetricValue("输入 Token", "19755");
+    expectMetricValue("输出 Token", "662");
+    expectMetricValue("思考 Token", "128");
+    expectMetricValue("缓存读取", "19328");
   });
 
   it("shows failover success and prefers the 1h cache creation metric when present", () => {
@@ -372,6 +529,7 @@ describe("home/RequestLogDetailDialog", () => {
     // For 200 success, error observation should not produce a visible card
     // because resolveRequestLogErrorObservation returns null when status is OK and no error_code
     expect(screen.queryByText("上游服务返回服务端错误")).not.toBeInTheDocument();
+    expect(screen.queryByText("HTTP 502 响应异常")).not.toBeInTheDocument();
   });
 
   it("renders error observation card on summary tab for failed requests", () => {

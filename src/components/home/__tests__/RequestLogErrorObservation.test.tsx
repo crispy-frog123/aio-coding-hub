@@ -233,7 +233,7 @@ describe("components/home/RequestLogErrorObservation", () => {
 
   it("keeps raw details text for malformed, primitive, array, and empty object payloads", () => {
     const malformed = resolveRequestLogErrorObservation(
-      createRequestLogDetail({ error_details_json: "not-json", status: 200 })
+      createRequestLogDetail({ error_details_json: "not-json", status: 500 })
     );
     expect(malformed).toMatchObject({
       rawDetailsText: "not-json",
@@ -241,7 +241,7 @@ describe("components/home/RequestLogErrorObservation", () => {
     });
 
     const primitive = resolveRequestLogErrorObservation(
-      createRequestLogDetail({ error_details_json: '"plain"', status: 200 })
+      createRequestLogDetail({ error_details_json: '"plain"', status: 500 })
     );
     expect(primitive).toMatchObject({
       rawDetailsText: '"plain"',
@@ -249,7 +249,7 @@ describe("components/home/RequestLogErrorObservation", () => {
     });
 
     const arrayPayload = resolveRequestLogErrorObservation(
-      createRequestLogDetail({ error_details_json: "[]", status: 200 })
+      createRequestLogDetail({ error_details_json: "[]", status: 500 })
     );
     expect(arrayPayload).toMatchObject({
       rawDetailsText: "[]",
@@ -257,7 +257,7 @@ describe("components/home/RequestLogErrorObservation", () => {
     });
 
     const emptyObject = resolveRequestLogErrorObservation(
-      createRequestLogDetail({ error_details_json: "{}", status: 200 })
+      createRequestLogDetail({ error_details_json: "{}", status: 500 })
     );
     expect(emptyObject).toMatchObject({
       rawDetailsText: "{}",

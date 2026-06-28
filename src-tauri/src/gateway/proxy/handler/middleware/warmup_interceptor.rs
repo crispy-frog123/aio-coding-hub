@@ -170,6 +170,7 @@ pub(in crate::gateway::proxy::handler) fn warmup_log_usage_metrics() -> usage::U
         input_tokens: Some(0),
         output_tokens: Some(0),
         total_tokens: Some(0),
+        reasoning_tokens: Some(0),
         cache_read_input_tokens: Some(0),
         cache_creation_input_tokens: Some(0),
         cache_creation_5m_input_tokens: Some(0),

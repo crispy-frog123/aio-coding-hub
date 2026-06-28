@@ -13,12 +13,32 @@ fn parse_openai_chatcompletions_usage() {
 
 #[test]
 fn parse_openai_responses_usage_with_cached_tokens() {
-    let body = br#"{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":3}}}"#;
+    let body = br#"{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":3},"output_tokens_details":{"reasoning_tokens":5}}}"#;
     let extract = parse_usage_from_json_bytes(body).expect("should parse usage");
     assert_eq!(extract.metrics.input_tokens, Some(11));
     assert_eq!(extract.metrics.output_tokens, Some(7));
     assert_eq!(extract.metrics.total_tokens, Some(18));
+    assert_eq!(extract.metrics.reasoning_tokens, Some(5));
     assert_eq!(extract.metrics.cache_read_input_tokens, Some(3));
+    let usage_json: serde_json::Value =
+        serde_json::from_str(&extract.usage_json).expect("normalized usage json");
+    assert_eq!(
+        usage_json
+            .pointer("/output_tokens_details/reasoning_tokens")
+            .and_then(serde_json::Value::as_i64),
+        Some(5)
+    );
+}
+
+#[test]
+fn parse_reasoning_tokens_from_camel_case_usage_shapes() {
+    let body = br#"{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"outputTokensDetails":{"reasoningTokens":6}}}"#;
+    let extract = parse_usage_from_json_bytes(body).expect("should parse usage");
+    assert_eq!(extract.metrics.reasoning_tokens, Some(6));
+
+    let body = br#"{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"reasoningTokenCount":9}}"#;
+    let extract = parse_usage_from_json_bytes(body).expect("should parse usage");
+    assert_eq!(extract.metrics.reasoning_tokens, Some(9));
 }
 
 #[test]
@@ -28,6 +48,7 @@ fn parse_gemini_usage_metadata() {
     assert_eq!(extract.metrics.input_tokens, Some(8));
     assert_eq!(extract.metrics.output_tokens, Some(11));
     assert_eq!(extract.metrics.total_tokens, Some(19));
+    assert_eq!(extract.metrics.reasoning_tokens, Some(2));
     assert_eq!(extract.metrics.cache_read_input_tokens, Some(4));
 }
 
@@ -107,6 +128,24 @@ fn parse_codex_response_completed_marks_completion_seen() {
     assert_eq!(extract.metrics.input_tokens, Some(1));
     assert_eq!(extract.metrics.output_tokens, Some(2));
     assert_eq!(extract.metrics.total_tokens, Some(3));
+}
+
+#[test]
+fn parse_codex_sse_keeps_positive_reasoning_when_later_usage_reports_zero() {
+    let sse = b"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"total_tokens\":30,\"output_tokens_details\":{\"reasoning_tokens\":304}}}}\n\n\
+                data: {\"type\":\"response.done\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"total_tokens\":30,\"output_tokens_details\":{\"reasoning_tokens\":0}}}}\n\n";
+    let mut tracker = SseUsageTracker::new("codex");
+    tracker.ingest_chunk(sse);
+    let extract = tracker.finalize().expect("should parse usage");
+    assert_eq!(extract.metrics.reasoning_tokens, Some(304));
+    let usage_json: serde_json::Value =
+        serde_json::from_str(&extract.usage_json).expect("normalized usage json");
+    assert_eq!(
+        usage_json
+            .pointer("/output_tokens_details/reasoning_tokens")
+            .and_then(serde_json::Value::as_i64),
+        Some(304)
+    );
 }
 
 #[test]

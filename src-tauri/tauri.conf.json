@@ -37,7 +37,18 @@
     ],
     "resources": [
       "resources/plugins/official/privacy-filter/**/*"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "upgradeCode": "c1b4a027-411b-5de5-94b9-b6953c022c17",
+        "fragmentPaths": [
+          "wix/remove-stale-start-menu-shortcut.wxs"
+        ],
+        "componentRefs": [
+          "RemoveStaleStartMenuShortcut"
+        ]
+      }
+    }
   },
   "plugins": {
     "updater": {
