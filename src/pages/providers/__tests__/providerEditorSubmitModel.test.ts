@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../../services/gateway/upstreamRetryPolicy";
 import { DEFAULT_FORM_VALUES } from "../providerEditorUtils";
 import { buildProviderEditorUpsertInput } from "../providerEditorSubmitModel";
 import type { ProviderEditorPayloadContext } from "../providerEditorActionContext";
@@ -17,6 +18,8 @@ function makeContext(
     claudeModels: {},
     testModel: "",
     streamIdleTimeoutSeconds: "",
+    upstreamRetryPolicyOverrideEnabled: false,
+    upstreamRetryPolicyDraft: DEFAULT_UPSTREAM_RETRY_POLICY,
     apiKeyConfigured: false,
     isCodexGatewaySource: false,
     sourceProviderId: null,

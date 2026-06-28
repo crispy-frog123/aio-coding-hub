@@ -268,6 +268,12 @@ export const handlers = [
             ? input.streamIdleTimeoutSeconds
             : null
           : (existing?.stream_idle_timeout_seconds ?? null),
+      upstream_retry_policy_override:
+        input.upstreamRetryPolicyOverrideSpecified === true
+          ? input.upstreamRetryPolicyOverride == null
+            ? null
+            : (input.upstreamRetryPolicyOverride as ProviderSummary["upstream_retry_policy_override"])
+          : (existing?.upstream_retry_policy_override ?? null),
     };
 
     setProvidersState(

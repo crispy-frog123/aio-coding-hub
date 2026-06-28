@@ -11,7 +11,11 @@ import { logToConsole } from "../../services/consoleLog";
 import { openDesktopSinglePath } from "../../services/desktop/dialog";
 import { openDesktopPath } from "../../services/desktop/opener";
 import { type GatewayRectifierSettingsPatch } from "../../services/settings/settingsGatewayRectifier";
-import type { AppSettings, SensitiveStringUpdate } from "../../services/settings/settings";
+import type {
+  AppSettings,
+  SensitiveStringUpdate,
+  UpstreamRetryPolicy,
+} from "../../services/settings/settings";
 import {
   getSettingsReadProtection,
   SETTINGS_READONLY_MESSAGE,
@@ -22,6 +26,10 @@ import {
   useSettingsQuery,
 } from "../../query/settings";
 import { useProvidersListQuery } from "../../query/providers";
+import {
+  cloneUpstreamRetryPolicy,
+  DEFAULT_UPSTREAM_RETRY_POLICY,
+} from "../../services/gateway/upstreamRetryPolicy";
 import {
   useCliManagerClaudeInfoQuery,
   useCliManagerClaudeSettingsQuery,
@@ -101,6 +109,9 @@ export function useCliManagerPageDataModel() {
   const [circuitBreakerFailureThreshold, setCircuitBreakerFailureThreshold] = useState<number>(5);
   const [circuitBreakerOpenDurationMinutes, setCircuitBreakerOpenDurationMinutes] =
     useState<number>(30);
+  const [upstreamRetryPolicy, setUpstreamRetryPolicy] = useState<UpstreamRetryPolicy>(
+    DEFAULT_UPSTREAM_RETRY_POLICY
+  );
   const cacheAnomalyMonitorEnabled = appSettings?.enable_cache_anomaly_monitor ?? false;
   const taskCompleteNotifyEnabled = appSettings?.enable_task_complete_notify ?? true;
   const notificationSoundEnabled = appSettings?.enable_notification_sound ?? true;
@@ -192,6 +203,7 @@ export function useCliManagerPageDataModel() {
     setProviderBaseUrlPingCacheTtlSeconds(appSettings.provider_base_url_ping_cache_ttl_seconds);
     setCircuitBreakerFailureThreshold(appSettings.circuit_breaker_failure_threshold);
     setCircuitBreakerOpenDurationMinutes(appSettings.circuit_breaker_open_duration_minutes);
+    setUpstreamRetryPolicy(cloneUpstreamRetryPolicy(appSettings.upstream_retry_policy));
   }, [appSettings]);
 
   async function persistRectifier(patch: Partial<GatewayRectifierSettingsPatch>) {
@@ -367,6 +379,7 @@ export function useCliManagerPageDataModel() {
       );
       setCircuitBreakerFailureThreshold(updatedSettings.circuit_breaker_failure_threshold);
       setCircuitBreakerOpenDurationMinutes(updatedSettings.circuit_breaker_open_duration_minutes);
+      setUpstreamRetryPolicy(cloneUpstreamRetryPolicy(updatedSettings.upstream_retry_policy));
       toast("已保存");
       return updatedSettings;
     } catch (err) {
@@ -385,6 +398,7 @@ export function useCliManagerPageDataModel() {
       setProviderBaseUrlPingCacheTtlSeconds(prev.provider_base_url_ping_cache_ttl_seconds);
       setCircuitBreakerFailureThreshold(prev.circuit_breaker_failure_threshold);
       setCircuitBreakerOpenDurationMinutes(prev.circuit_breaker_open_duration_minutes);
+      setUpstreamRetryPolicy(cloneUpstreamRetryPolicy(prev.upstream_retry_policy));
       return null;
     }
   }
@@ -621,6 +635,8 @@ export function useCliManagerPageDataModel() {
       setCircuitBreakerFailureThreshold,
       circuitBreakerOpenDurationMinutes,
       setCircuitBreakerOpenDurationMinutes,
+      upstreamRetryPolicy,
+      setUpstreamRetryPolicy,
       blurOnEnter,
     },
     claudeTabProps: {

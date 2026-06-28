@@ -9,6 +9,7 @@ import type {
 } from "./providerEditorActionContext";
 import { normalizeBaseUrlRows } from "./baseUrl";
 import { resolveStreamIdleTimeoutSeconds } from "./providerEditorTimeout";
+import { validateUpstreamRetryPolicy } from "../../services/gateway/upstreamRetryPolicy";
 
 export function buildProviderEditorUpsertInput(
   ctx: ProviderEditorPayloadContext
@@ -52,6 +53,19 @@ export function buildProviderEditorUpsertInput(
         error: {
           kind: "message",
           message: "请输入 API Key",
+        },
+      };
+    }
+  }
+
+  if (ctx.upstreamRetryPolicyOverrideEnabled) {
+    const retryPolicyError = validateUpstreamRetryPolicy(ctx.upstreamRetryPolicyDraft);
+    if (retryPolicyError) {
+      return {
+        ok: false,
+        error: {
+          kind: "message",
+          message: retryPolicyError,
         },
       };
     }
@@ -133,6 +147,9 @@ export function buildProviderEditorUpsertInput(
     tags: ctx.tags,
     note: parsed.data.note,
     streamIdleTimeoutSeconds: parsedTimeout,
+    upstreamRetryPolicyOverride: ctx.upstreamRetryPolicyOverrideEnabled
+      ? ctx.upstreamRetryPolicyDraft
+      : null,
     ...(ctx.cliKey === "claude" ? { claudeModels: ctx.claudeModels } : {}),
     sourceProviderId:
       ctx.authMode === "cx2cc" && !ctx.isCodexGatewaySource ? ctx.sourceProviderId : null,

@@ -1,4 +1,4 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -18,7 +18,14 @@ import { SettingsRow } from "../../../ui/SettingsRow";
 import { Switch } from "../../../ui/Switch";
 import { NetworkSettingsCard } from "../NetworkSettingsCard";
 import { WslSettingsCard } from "../WslSettingsCard";
-import { Bell, Shield, TrendingDown, Globe } from "lucide-react";
+import { Bell, ChevronDown, Shield, TrendingDown, Globe } from "lucide-react";
+import type { UpstreamRetryPolicy } from "../../../services/settings/settings";
+import {
+  cloneUpstreamRetryPolicy,
+  validateUpstreamRetryPolicy,
+} from "../../../services/gateway/upstreamRetryPolicy";
+import { RetryPolicyFields } from "../../gateway/RetryPolicyFields";
+import { cn } from "../../../utils/cn";
 
 export type CliManagerAvailability = "checking" | "available" | "unavailable";
 
@@ -72,6 +79,9 @@ export type CliManagerGeneralTabProps = {
   circuitBreakerOpenDurationMinutes: number;
   setCircuitBreakerOpenDurationMinutes: (value: number) => void;
 
+  upstreamRetryPolicy: UpstreamRetryPolicy;
+  setUpstreamRetryPolicy: (value: UpstreamRetryPolicy) => void;
+
   blurOnEnter: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
 };
 
@@ -114,6 +124,8 @@ export function CliManagerGeneralTab({
   setCircuitBreakerFailureThreshold,
   circuitBreakerOpenDurationMinutes,
   setCircuitBreakerOpenDurationMinutes,
+  upstreamRetryPolicy,
+  setUpstreamRetryPolicy,
   blurOnEnter,
 }: CliManagerGeneralTabProps) {
   const navigate = useNavigate();
@@ -528,14 +540,12 @@ export function CliManagerGeneralTab({
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-white dark:bg-secondary p-5">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-1">
-                <Shield className="h-4 w-4 text-muted-foreground" />
-                熔断与重试
-              </h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                控制 Provider 失败后的冷却、重试与熔断行为。修改后建议重启网关以完全生效。
-              </p>
+            <CollapsibleSettingsCard
+              icon={<Shield className="h-5 w-5 text-white" />}
+              title="熔断与重试"
+              subtitle="控制 Provider 失败后的冷却、瞬时重试与熔断行为。"
+              iconClassName="bg-orange-500"
+            >
               <div className="divide-y divide-border">
                 <SettingsRow label="Provider 冷却" subtitle="单个 Provider 失败后的短暂冷却时间。">
                   <div className="flex items-center gap-2">
@@ -666,10 +676,93 @@ export function CliManagerGeneralTab({
                   </div>
                 </SettingsRow>
               </div>
-            </div>
+              <div className="mt-5 border-t border-border pt-5">
+                <RetryPolicyFields
+                  policy={upstreamRetryPolicy}
+                  disabled={commonSettingsDisabled}
+                  onChange={(next) => {
+                    setUpstreamRetryPolicy(next);
+                  }}
+                />
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={commonSettingsDisabled}
+                    onClick={async () => {
+                      if (!appSettings) return;
+                      const validationMessage = validateUpstreamRetryPolicy(upstreamRetryPolicy);
+                      if (validationMessage) {
+                        toast(validationMessage);
+                        return;
+                      }
+                      const updated = await onPersistCommonSettings({
+                        upstream_retry_policy: upstreamRetryPolicy,
+                      });
+                      if (updated) {
+                        setUpstreamRetryPolicy(
+                          cloneUpstreamRetryPolicy(updated.upstream_retry_policy)
+                        );
+                      }
+                    }}
+                  >
+                    保存重试策略
+                  </Button>
+                </div>
+              </div>
+            </CollapsibleSettingsCard>
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function CollapsibleSettingsCard({
+  icon,
+  iconClassName,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: ReactNode;
+  iconClassName?: string;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-white dark:bg-secondary">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition-colors hover:bg-secondary/50 dark:hover:bg-secondary/40"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <div className="flex min-w-0 items-center gap-4">
+          <div
+            className={cn(
+              "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
+              iconClassName
+            )}
+          >
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-foreground">{title}</div>
+            <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
+          </div>
+        </div>
+        <ChevronDown
+          className={cn(
+            "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open ? <div className="border-t border-border px-5 py-5">{children}</div> : null}
     </div>
   );
 }

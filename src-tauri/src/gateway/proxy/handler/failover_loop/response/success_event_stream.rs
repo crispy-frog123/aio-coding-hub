@@ -1,11 +1,29 @@
 //! Usage: Handle successful event-stream upstream responses inside `failover_loop::run`.
 
 use super::attempt_executor::RetryLoopState;
+use super::upstream_retry_policy::{
+    should_record_circuit_failure, transient_failure_decision, RetryPolicyMatch,
+};
 use super::*;
 use crate::gateway::proxy::gemini_oauth;
 use crate::gateway::proxy::protocol_bridge;
 use crate::gateway::proxy::provider_router;
 use std::time::Duration;
+
+fn stream_transport_decision(
+    kind: crate::settings::UpstreamTransportRetryKind,
+    policy: &crate::settings::UpstreamRetryPolicy,
+    retry_index: u32,
+    max_attempts_per_provider: u32,
+) -> (FailoverDecision, bool) {
+    transient_failure_decision(
+        false,
+        RetryPolicyMatch::Transport(kind),
+        policy,
+        retry_index,
+        max_attempts_per_provider,
+    )
+}
 
 pub(super) async fn handle_success_event_stream<R>(
     ctx: CommonCtx<'_, R>,
@@ -38,9 +56,9 @@ where
             }
         })
         .or(common.upstream_stream_idle_timeout);
-    let max_attempts_per_provider = common.max_attempts_per_provider;
     let enable_response_fixer = common.enable_response_fixer;
     let response_fixer_stream_config = common.response_fixer_stream_config;
+    let provider_max_attempts = provider_ctx_owned.provider_max_attempts;
 
     let provider_id = provider_ctx_owned.provider_id;
     let provider_index = provider_ctx_owned.provider_index;
@@ -134,11 +152,12 @@ where
             }
             FirstChunkProbe::ReadError(err) => {
                 let error_code = GatewayErrorCode::StreamError.as_str();
-                let decision = if retry_index < max_attempts_per_provider {
-                    FailoverDecision::RetrySameProvider
-                } else {
-                    FailoverDecision::SwitchProvider
-                };
+                let (decision, configured_retry) = stream_transport_decision(
+                    crate::settings::UpstreamTransportRetryKind::Read,
+                    &provider_ctx_owned.upstream_retry_policy,
+                    retry_index,
+                    provider_max_attempts,
+                );
 
                 let outcome = format!(
                     "stream_first_chunk_error: category={} code={} decision={} timeout_secs={}",
@@ -164,12 +183,21 @@ where
                     decision,
                     outcome,
                     reason: format!("first chunk read error (event-stream): {err}"),
+                    record_circuit_failure: should_record_circuit_failure(
+                        &provider_ctx_owned.upstream_retry_policy,
+                        configured_retry,
+                    ),
                 })
                 .await;
             }
             FirstChunkProbe::Timeout => {
                 let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
-                let decision = FailoverDecision::SwitchProvider;
+                let (decision, configured_retry) = stream_transport_decision(
+                    crate::settings::UpstreamTransportRetryKind::Timeout,
+                    &provider_ctx_owned.upstream_retry_policy,
+                    retry_index,
+                    provider_max_attempts,
+                );
 
                 let outcome = format!(
                     "stream_first_byte_timeout: category={} code={} decision={} timeout_secs={}",
@@ -195,6 +223,10 @@ where
                     decision,
                     outcome,
                     reason: "first byte timeout (event-stream)".to_string(),
+                    record_circuit_failure: should_record_circuit_failure(
+                        &provider_ctx_owned.upstream_retry_policy,
+                        configured_retry,
+                    ),
                 })
                 .await;
             }
@@ -207,11 +239,12 @@ where
             && probe_is_empty_event_stream
         {
             let error_code = GatewayErrorCode::StreamError.as_str();
-            let decision = if retry_index < max_attempts_per_provider {
-                FailoverDecision::RetrySameProvider
-            } else {
-                FailoverDecision::SwitchProvider
-            };
+            let (decision, configured_retry) = stream_transport_decision(
+                crate::settings::UpstreamTransportRetryKind::Read,
+                &provider_ctx_owned.upstream_retry_policy,
+                retry_index,
+                provider_max_attempts,
+            );
 
             let outcome = format!(
                 "stream_first_chunk_eof: category={} code={} decision={} timeout_secs={}",
@@ -237,6 +270,10 @@ where
                 decision,
                 outcome,
                 reason: "upstream returned empty event-stream".to_string(),
+                record_circuit_failure: should_record_circuit_failure(
+                    &provider_ctx_owned.upstream_retry_policy,
+                    configured_retry,
+                ),
             })
             .await;
         }
@@ -276,6 +313,7 @@ where
                             "event-stream body exceeded gateway buffer limit ({} bytes)",
                             MAX_NON_SSE_BODY_BYTES
                         ),
+                        record_circuit_failure: true,
                     })
                     .await;
                 }
@@ -287,11 +325,12 @@ where
                         Ok(Ok(chunk)) => chunk,
                         Ok(Err(err)) => {
                             let error_code = GatewayErrorCode::StreamError.as_str();
-                            let decision = if retry_index < max_attempts_per_provider {
-                                FailoverDecision::RetrySameProvider
-                            } else {
-                                FailoverDecision::SwitchProvider
-                            };
+                            let (decision, configured_retry) = stream_transport_decision(
+                                crate::settings::UpstreamTransportRetryKind::Read,
+                                &provider_ctx_owned.upstream_retry_policy,
+                                retry_index,
+                                provider_max_attempts,
+                            );
                             let outcome = format!(
                                 "stream_buffer_read_error: category={} code={} decision={}",
                                 ErrorCategory::SystemError.as_str(),
@@ -315,12 +354,21 @@ where
                                 decision,
                                 outcome,
                                 reason: format!("failed to buffer event-stream body: {err}"),
+                                record_circuit_failure: should_record_circuit_failure(
+                                    &provider_ctx_owned.upstream_retry_policy,
+                                    configured_retry,
+                                ),
                             })
                             .await;
                         }
                         Err(_) => {
                             let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
-                            let decision = FailoverDecision::SwitchProvider;
+                            let (decision, configured_retry) = stream_transport_decision(
+                                crate::settings::UpstreamTransportRetryKind::Timeout,
+                                &provider_ctx_owned.upstream_retry_policy,
+                                retry_index,
+                                provider_max_attempts,
+                            );
                             let outcome = format!(
                                 "stream_buffer_idle_timeout: category={} code={} decision={} timeout_secs={}",
                                 ErrorCategory::SystemError.as_str(),
@@ -347,6 +395,10 @@ where
                                 decision,
                                 outcome,
                                 reason: "event-stream idle timeout while buffering".to_string(),
+                                record_circuit_failure: should_record_circuit_failure(
+                                    &provider_ctx_owned.upstream_retry_policy,
+                                    configured_retry,
+                                ),
                             })
                             .await;
                         }
@@ -355,11 +407,12 @@ where
                         Ok(chunk) => chunk,
                         Err(err) => {
                             let error_code = GatewayErrorCode::StreamError.as_str();
-                            let decision = if retry_index < max_attempts_per_provider {
-                                FailoverDecision::RetrySameProvider
-                            } else {
-                                FailoverDecision::SwitchProvider
-                            };
+                            let (decision, configured_retry) = stream_transport_decision(
+                                crate::settings::UpstreamTransportRetryKind::Read,
+                                &provider_ctx_owned.upstream_retry_policy,
+                                retry_index,
+                                provider_max_attempts,
+                            );
                             let outcome = format!(
                                 "stream_buffer_read_error: category={} code={} decision={}",
                                 ErrorCategory::SystemError.as_str(),
@@ -383,6 +436,10 @@ where
                                 decision,
                                 outcome,
                                 reason: format!("failed to buffer event-stream body: {err}"),
+                                record_circuit_failure: should_record_circuit_failure(
+                                    &provider_ctx_owned.upstream_retry_policy,
+                                    configured_retry,
+                                ),
                             })
                             .await;
                         }
@@ -426,6 +483,7 @@ where
                             "event-stream body exceeded gateway buffer limit ({} bytes)",
                             MAX_NON_SSE_BODY_BYTES
                         ),
+                        record_circuit_failure: true,
                     })
                     .await;
                 }
@@ -491,6 +549,7 @@ where
                         decision,
                         outcome,
                         reason: format!("failed to aggregate Codex responses event-stream: {err}"),
+                        record_circuit_failure: true,
                     })
                     .await;
                 }

@@ -16,6 +16,8 @@ import {
   type ProviderOAuthStatusResult,
   type ProviderSummary as GeneratedProviderSummary,
   type ProviderUpsertInput as GeneratedProviderUpsertInput,
+  type UpstreamRetryPolicy,
+  type UpstreamTransportRetryKind,
 } from "../../generated/bindings";
 import {
   invokeGeneratedIpc,
@@ -41,6 +43,8 @@ export type {
   ProviderOAuthResetCodexQuotaResult,
   ProviderOAuthStartFlowResult,
   ProviderOAuthStatusResult,
+  UpstreamRetryPolicy,
+  UpstreamTransportRetryKind,
 };
 
 export type CliKey = "claude" | "codex" | "gemini";
@@ -100,6 +104,8 @@ type ProviderUpsertFieldMap = {
   sourceProviderId: "sourceProviderId";
   bridgeType: "bridgeType";
   streamIdleTimeoutSeconds: "streamIdleTimeoutSeconds";
+  upstreamRetryPolicyOverride: "upstreamRetryPolicyOverride";
+  upstreamRetryPolicyOverrideSpecified: "upstreamRetryPolicyOverrideSpecified";
 };
 
 type ProviderUpsertAuthority = RemapGeneratedKeys<
@@ -121,9 +127,10 @@ export type ProviderUpsertInput = Omit<
 
 type ProviderUpsertTransportInput = Omit<
   GeneratedProviderUpsertInput,
-  "streamIdleTimeoutSeconds"
+  "streamIdleTimeoutSeconds" | "upstreamRetryPolicyOverrideSpecified"
 > & {
   streamIdleTimeoutSeconds?: GeneratedProviderUpsertInput["streamIdleTimeoutSeconds"];
+  upstreamRetryPolicyOverrideSpecified?: GeneratedProviderUpsertInput["upstreamRetryPolicyOverrideSpecified"];
 };
 
 function toCliKey(value: string, label: string): CliKey {
@@ -189,16 +196,21 @@ function toProviderUpsertPayload(input: ProviderUpsertInput): ProviderUpsertTran
     note: input.note ?? null,
     sourceProviderId,
     bridgeType: input.bridgeType ?? null,
+    upstreamRetryPolicyOverride: null,
   } satisfies Omit<GeneratedProviderUpsertInput, "streamIdleTimeoutSeconds">;
 
+  const payload: ProviderUpsertTransportInput = { ...payloadBase };
+
   if (Object.prototype.hasOwnProperty.call(input, "streamIdleTimeoutSeconds")) {
-    return {
-      ...payloadBase,
-      streamIdleTimeoutSeconds: input.streamIdleTimeoutSeconds ?? 0,
-    } satisfies ProviderUpsertTransportInput;
+    payload.streamIdleTimeoutSeconds = input.streamIdleTimeoutSeconds ?? 0;
   }
 
-  return payloadBase;
+  if (Object.prototype.hasOwnProperty.call(input, "upstreamRetryPolicyOverride")) {
+    payload.upstreamRetryPolicyOverride = input.upstreamRetryPolicyOverride ?? null;
+    payload.upstreamRetryPolicyOverrideSpecified = true;
+  }
+
+  return payload;
 }
 
 function validateOrderedProviderIds(orderedProviderIds: number[]) {

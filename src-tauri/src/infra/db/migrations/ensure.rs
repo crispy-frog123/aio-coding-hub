@@ -24,6 +24,7 @@ pub(super) fn apply_ensure_patches(conn: &mut Connection) -> crate::shared::erro
     ensure_request_logs_extended_columns(conn)?;
     ensure_provider_stream_idle_timeout(conn)?;
     ensure_provider_availability_test_model(conn)?;
+    ensure_provider_upstream_retry_policy(conn)?;
     ensure_skills_update_columns(conn)?;
     ensure_plugin_tables(conn)?;
     Ok(())
@@ -994,6 +995,32 @@ fn ensure_provider_availability_test_model(conn: &mut Connection) -> Result<(), 
         )
         .map_err(|e| format!("failed to ensure providers.availability_test_model: {e}"))?;
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// ensure_provider_upstream_retry_policy
+// ---------------------------------------------------------------------------
+fn ensure_provider_upstream_retry_policy(conn: &mut Connection) -> Result<(), String> {
+    let providers_table_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='providers')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("failed to check providers table: {e}"))?;
+    if !providers_table_exists {
+        return Ok(());
+    }
+
+    if !column_exists(conn, "providers", "upstream_retry_policy_json")? {
+        conn.execute(
+            "ALTER TABLE providers ADD COLUMN upstream_retry_policy_json TEXT DEFAULT NULL;",
+            [],
+        )
+        .map_err(|e| format!("failed to ensure providers.upstream_retry_policy_json: {e}"))?;
+    }
+
     Ok(())
 }
 

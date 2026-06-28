@@ -1,4 +1,8 @@
-import type { ClaudeModels, ProviderSummary } from "../../services/providers/providers";
+import type {
+  ClaudeModels,
+  ProviderSummary,
+  UpstreamRetryPolicy,
+} from "../../services/providers/providers";
 
 const DUPLICATE_SUFFIX = " 副本";
 
@@ -24,6 +28,7 @@ export type ProviderEditorInitialValues = {
   source_provider_id: number | null;
   bridge_type: string | null;
   stream_idle_timeout_seconds: number | null;
+  upstream_retry_policy_override: UpstreamRetryPolicy | null;
 };
 
 function normalizeProviderName(name: string) {
@@ -80,5 +85,6 @@ export function buildDuplicatedProviderInitialValues(
     source_provider_id: provider.source_provider_id ?? null,
     bridge_type: provider.bridge_type ?? null,
     stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds ?? null,
+    upstream_retry_policy_override: provider.upstream_retry_policy_override ?? null,
   };
 }

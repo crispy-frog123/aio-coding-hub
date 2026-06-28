@@ -42,7 +42,6 @@ pub(super) struct CommonCtxArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) codex_reasoning_guard_reasoning_equals: &'a [i64],
     pub(super) codex_reasoning_guard_model_rules:
         &'a [crate::settings::CodexReasoningGuardModelRule],
-    pub(super) max_attempts_per_provider: u32,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -76,7 +75,6 @@ pub(super) struct CommonCtx<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) codex_reasoning_guard_reasoning_equals: &'a [i64],
     pub(super) codex_reasoning_guard_model_rules:
         &'a [crate::settings::CodexReasoningGuardModelRule],
-    pub(super) max_attempts_per_provider: u32,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -119,7 +117,6 @@ impl<'a, R: tauri::Runtime> CommonCtx<'a, R> {
             codex_reasoning_guard_compare_mode: args.codex_reasoning_guard_compare_mode,
             codex_reasoning_guard_reasoning_equals: args.codex_reasoning_guard_reasoning_equals,
             codex_reasoning_guard_model_rules: args.codex_reasoning_guard_model_rules,
-            max_attempts_per_provider: args.max_attempts_per_provider,
             enable_response_fixer: args.enable_response_fixer,
             response_fixer_stream_config: args.response_fixer_stream_config,
             response_fixer_non_stream_config: args.response_fixer_non_stream_config,
@@ -160,7 +157,6 @@ pub(super) struct CommonCtxOwned<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub(super) codex_reasoning_guard_model_rules:
         Vec<crate::settings::CodexReasoningGuardModelRule>,
-    pub(super) max_attempts_per_provider: u32,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -196,7 +192,6 @@ impl<'a, R: tauri::Runtime> From<CommonCtx<'a, R>> for CommonCtxOwned<'a, R> {
                 .codex_reasoning_guard_reasoning_equals
                 .to_vec(),
             codex_reasoning_guard_model_rules: ctx.codex_reasoning_guard_model_rules.to_vec(),
-            max_attempts_per_provider: ctx.max_attempts_per_provider,
             enable_response_fixer: ctx.enable_response_fixer,
             response_fixer_stream_config: ctx.response_fixer_stream_config,
             response_fixer_non_stream_config: ctx.response_fixer_non_stream_config,
@@ -213,7 +208,9 @@ pub(super) struct ProviderCtx<'a> {
     pub(super) auth_mode: &'a str,
     pub(super) provider_index: u32,
     pub(super) session_reuse: Option<bool>,
+    pub(super) provider_max_attempts: u32,
     pub(super) stream_idle_timeout_seconds: Option<u32>,
+    pub(super) upstream_retry_policy: &'a crate::settings::UpstreamRetryPolicy,
     pub(super) claude_model_mapping: Option<&'a ClaudeModelMapping>,
 }
 
@@ -224,7 +221,9 @@ pub(super) struct ProviderCtxOwned {
     pub(super) auth_mode: String,
     pub(super) provider_index: u32,
     pub(super) session_reuse: Option<bool>,
+    pub(super) provider_max_attempts: u32,
     pub(super) stream_idle_timeout_seconds: Option<u32>,
+    pub(super) upstream_retry_policy: crate::settings::UpstreamRetryPolicy,
 }
 
 impl<'a> From<ProviderCtx<'a>> for ProviderCtxOwned {
@@ -236,7 +235,9 @@ impl<'a> From<ProviderCtx<'a>> for ProviderCtxOwned {
             auth_mode: ctx.auth_mode.to_string(),
             provider_index: ctx.provider_index,
             session_reuse: ctx.session_reuse,
+            provider_max_attempts: ctx.provider_max_attempts,
             stream_idle_timeout_seconds: ctx.stream_idle_timeout_seconds,
+            upstream_retry_policy: ctx.upstream_retry_policy.clone(),
         }
     }
 }

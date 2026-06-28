@@ -36,6 +36,7 @@ pub(super) struct PreparedProvider {
     pub(super) circuit_snapshot: crate::circuit_breaker::CircuitSnapshot,
     pub(super) anthropic_stream_requested: bool,
     pub(super) stream_idle_timeout_seconds: Option<u32>,
+    pub(super) upstream_retry_policy: crate::settings::UpstreamRetryPolicy,
     pub(super) claude_model_mapping: Option<ClaudeModelMapping>,
 }
 
@@ -134,10 +135,16 @@ pub(super) async fn prepare_provider<R: tauri::Runtime>(
         }
     };
 
+    let upstream_retry_policy = provider
+        .upstream_retry_policy_override
+        .clone()
+        .unwrap_or_else(|| input.upstream_retry_policy.clone());
+
     let provider_max_attempts = provider_max_attempts_for_request(
         input.max_attempts_per_provider,
         provider.auth_mode == "oauth",
         codex_request_has_previous_response_id(input),
+        configured_transient_retry_budget(&upstream_retry_policy),
     );
 
     let mut provider_base_url_base = match provider_checks::resolve_base_url(
@@ -275,7 +282,9 @@ pub(super) async fn prepare_provider<R: tauri::Runtime>(
         auth_mode: provider.auth_mode.as_str(),
         provider_index,
         session_reuse,
+        provider_max_attempts,
         stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
+        upstream_retry_policy: &upstream_retry_policy,
         claude_model_mapping: None,
     };
 
@@ -346,6 +355,7 @@ pub(super) async fn prepare_provider<R: tauri::Runtime>(
         circuit_snapshot,
         anthropic_stream_requested,
         stream_idle_timeout_seconds: provider.stream_idle_timeout_seconds,
+        upstream_retry_policy,
         claude_model_mapping,
     }))
 }
@@ -374,15 +384,29 @@ fn provider_max_attempts_for_request(
     configured_max_attempts: u32,
     needs_oauth_reactive_refresh_retry: bool,
     needs_codex_previous_response_id_retry: bool,
+    configured_transient_retries: u32,
 ) -> u32 {
     let required_internal_retries = u32::from(needs_oauth_reactive_refresh_retry)
-        + u32::from(needs_codex_previous_response_id_retry);
+        + u32::from(needs_codex_previous_response_id_retry)
+        + configured_transient_retries;
     configured_max_attempts.max(1 + required_internal_retries)
+}
+
+fn configured_transient_retry_budget(policy: &crate::settings::UpstreamRetryPolicy) -> u32 {
+    if policy.enabled {
+        policy.max_retries
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{codex_body_has_previous_response_id, provider_max_attempts_for_request};
+    use super::{
+        codex_body_has_previous_response_id, configured_transient_retry_budget,
+        provider_max_attempts_for_request,
+    };
+    use crate::settings::UpstreamRetryPolicy;
 
     fn body(value: serde_json::Value) -> Vec<u8> {
         serde_json::to_vec(&value).expect("serialize body")
@@ -416,10 +440,27 @@ mod tests {
 
     #[test]
     fn provider_max_attempts_reserves_budget_for_internal_retries() {
-        assert_eq!(provider_max_attempts_for_request(1, false, false), 1);
-        assert_eq!(provider_max_attempts_for_request(1, true, false), 2);
-        assert_eq!(provider_max_attempts_for_request(1, false, true), 2);
-        assert_eq!(provider_max_attempts_for_request(1, true, true), 3);
-        assert_eq!(provider_max_attempts_for_request(5, true, true), 5);
+        assert_eq!(provider_max_attempts_for_request(1, false, false, 0), 1);
+        assert_eq!(provider_max_attempts_for_request(1, true, false, 0), 2);
+        assert_eq!(provider_max_attempts_for_request(1, false, true, 0), 2);
+        assert_eq!(provider_max_attempts_for_request(1, true, true, 0), 3);
+        assert_eq!(provider_max_attempts_for_request(5, true, true, 0), 5);
+    }
+
+    #[test]
+    fn provider_max_attempts_reserves_budget_for_configured_transient_retries() {
+        assert_eq!(provider_max_attempts_for_request(1, false, false, 1), 2);
+        assert_eq!(provider_max_attempts_for_request(1, true, true, 2), 5);
+    }
+
+    #[test]
+    fn provider_max_attempts_does_not_reserve_budget_for_disabled_transient_retries() {
+        let disabled = UpstreamRetryPolicy {
+            enabled: false,
+            max_retries: 5,
+            ..Default::default()
+        };
+
+        assert_eq!(configured_transient_retry_budget(&disabled), 0);
     }
 }

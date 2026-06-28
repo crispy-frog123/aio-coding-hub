@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../gateway/upstreamRetryPolicy";
 import {
   baseUrlPingMs,
   MAX_PROVIDER_ORDER_IDS,
@@ -97,6 +98,7 @@ function createProviderSummary(overrides: Partial<ProviderSummary> = {}): Provid
     bridge_type: null,
     availability_test_model: null,
     stream_idle_timeout_seconds: null,
+    upstream_retry_policy_override: null,
     api_key_configured: false,
     ...overrides,
   };
@@ -157,6 +159,91 @@ describe("services/providers/providers", () => {
         baseUrlMode: "order",
         limit5hUsd: null,
         dailyResetMode: "fixed",
+        upstreamRetryPolicyOverride: null,
+      })
+    );
+    expect(commands.providerUpsert).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        upstreamRetryPolicyOverrideSpecified: expect.anything(),
+      })
+    );
+  });
+
+  it("marks retry policy override as specified only when the caller submits it", async () => {
+    vi.mocked(commands.providerUpsert).mockResolvedValueOnce({
+      status: "ok",
+      data: createProviderSummary({
+        upstream_retry_policy_override: {
+          ...DEFAULT_UPSTREAM_RETRY_POLICY,
+          enabled: false,
+        },
+      }),
+    });
+
+    await providerUpsert({
+      providerId: 1,
+      cliKey: "claude",
+      name: "P1",
+      baseUrls: ["https://example.com"],
+      baseUrlMode: "order",
+      apiKey: null,
+      enabled: true,
+      costMultiplier: 1,
+      priority: null,
+      claudeModels: null,
+      limit5hUsd: null,
+      limitDailyUsd: null,
+      dailyResetMode: "fixed",
+      dailyResetTime: "00:00:00",
+      limitWeeklyUsd: null,
+      limitMonthlyUsd: null,
+      limitTotalUsd: null,
+      upstreamRetryPolicyOverride: {
+        ...DEFAULT_UPSTREAM_RETRY_POLICY,
+        enabled: false,
+      },
+    });
+
+    expect(commands.providerUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        upstreamRetryPolicyOverride: {
+          ...DEFAULT_UPSTREAM_RETRY_POLICY,
+          enabled: false,
+        },
+        upstreamRetryPolicyOverrideSpecified: true,
+      })
+    );
+
+    vi.mocked(commands.providerUpsert).mockResolvedValueOnce({
+      status: "ok",
+      data: createProviderSummary({ upstream_retry_policy_override: null }),
+    });
+
+    await providerUpsert({
+      providerId: 1,
+      cliKey: "claude",
+      name: "P1",
+      baseUrls: ["https://example.com"],
+      baseUrlMode: "order",
+      apiKey: null,
+      enabled: true,
+      costMultiplier: 1,
+      priority: null,
+      claudeModels: null,
+      limit5hUsd: null,
+      limitDailyUsd: null,
+      dailyResetMode: "fixed",
+      dailyResetTime: "00:00:00",
+      limitWeeklyUsd: null,
+      limitMonthlyUsd: null,
+      limitTotalUsd: null,
+      upstreamRetryPolicyOverride: null,
+    });
+
+    expect(commands.providerUpsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        upstreamRetryPolicyOverride: null,
+        upstreamRetryPolicyOverrideSpecified: true,
       })
     );
   });

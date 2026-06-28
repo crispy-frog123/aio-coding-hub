@@ -3,6 +3,7 @@
 use super::defaults::*;
 use super::types::{
     AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardModelRule,
+    UpstreamRetryPolicy,
 };
 use crate::shared::error::AppResult;
 use std::collections::HashSet;
@@ -163,6 +164,56 @@ pub(super) fn sanitize_failover_settings(settings: &mut AppSettings) -> bool {
     let max_attempts_for_providers = (MAX_FAILOVER_TOTAL_ATTEMPTS / providers).max(1);
     if settings.failover_max_attempts_per_provider > max_attempts_for_providers {
         settings.failover_max_attempts_per_provider = max_attempts_for_providers;
+        changed = true;
+    }
+
+    changed
+}
+
+pub fn sanitize_upstream_retry_policy(policy: &mut UpstreamRetryPolicy) -> bool {
+    let mut changed = false;
+
+    policy.status_codes.retain(|status| {
+        let keep = (400..=599).contains(status);
+        changed |= !keep;
+        keep
+    });
+    policy.status_codes.sort_unstable();
+    policy.status_codes.dedup();
+    if policy.status_codes.len() > MAX_UPSTREAM_RETRY_POLICY_STATUS_CODES {
+        policy
+            .status_codes
+            .truncate(MAX_UPSTREAM_RETRY_POLICY_STATUS_CODES);
+        changed = true;
+    }
+
+    let mut seen_transport_errors = HashSet::new();
+    policy.transport_errors.retain(|kind| {
+        let keep = seen_transport_errors.insert(*kind);
+        changed |= !keep;
+        keep
+    });
+    if policy.transport_errors.len() > MAX_UPSTREAM_RETRY_POLICY_TRANSPORT_ERRORS {
+        policy
+            .transport_errors
+            .truncate(MAX_UPSTREAM_RETRY_POLICY_TRANSPORT_ERRORS);
+        changed = true;
+    }
+
+    if policy.max_retries > MAX_UPSTREAM_RETRY_POLICY_MAX_RETRIES {
+        policy.max_retries = MAX_UPSTREAM_RETRY_POLICY_MAX_RETRIES;
+        changed = true;
+    }
+    if policy.backoff_ms > MAX_UPSTREAM_RETRY_POLICY_BACKOFF_MS {
+        policy.backoff_ms = MAX_UPSTREAM_RETRY_POLICY_BACKOFF_MS;
+        changed = true;
+    }
+
+    // Keep a disabled policy editable, but make an enabled empty policy useful.
+    if policy.enabled && policy.status_codes.is_empty() && policy.transport_errors.is_empty() {
+        let defaults = UpstreamRetryPolicy::default();
+        policy.status_codes = defaults.status_codes;
+        policy.transport_errors = defaults.transport_errors;
         changed = true;
     }
 
@@ -777,9 +828,24 @@ fn migrate_add_codex_provider_test_model(
     false
 }
 
+fn migrate_add_upstream_retry_policy(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    if !migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_UPSTREAM_RETRY_POLICY,
+    ) {
+        return false;
+    }
+
+    sanitize_upstream_retry_policy(&mut settings.upstream_retry_policy)
+}
+
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 32] = [
+const SETTINGS_MIGRATIONS: [SettingsMigration; 33] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -812,6 +878,7 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 32] = [
     migrate_update_releases_url_to_fork,
     migrate_add_codex_reasoning_guard_model_rules,
     migrate_add_codex_provider_test_model,
+    migrate_add_upstream_retry_policy,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {
@@ -830,6 +897,7 @@ pub(super) fn repair_settings(
     let mut repaired = apply_settings_migrations(settings, schema_version_present);
     repaired |= sanitize_log_retention_days(settings);
     repaired |= sanitize_failover_settings(settings);
+    repaired |= sanitize_upstream_retry_policy(&mut settings.upstream_retry_policy);
     repaired |= sanitize_circuit_breaker_settings(settings);
     repaired |= sanitize_provider_cooldown_seconds(settings);
     repaired |= sanitize_provider_base_url_ping_cache_ttl_seconds(settings);

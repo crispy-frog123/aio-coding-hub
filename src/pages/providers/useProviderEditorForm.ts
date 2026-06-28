@@ -5,6 +5,7 @@ import type {
   ClaudeModels,
   ProviderOAuthDeviceCodeStartResult,
   ProviderSummary,
+  UpstreamRetryPolicy,
 } from "../../services/providers/providers";
 import type { ProviderEditorDialogFormInput } from "../../schemas/providerEditorDialog";
 import type { BaseUrlRow, ProviderBaseUrlMode } from "./types";
@@ -42,6 +43,7 @@ import { runProviderEditorSave } from "./providerEditorSaveRunner";
 import { useProviderEditorEffects } from "./useProviderEditorEffects";
 import { providerOAuthCancelDeviceFlow } from "../../services/providers/providers";
 import { logToConsole } from "../../services/consoleLog";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../services/gateway/upstreamRetryPolicy";
 
 export function useProviderEditorForm(props: ProviderEditorDialogProps) {
   const { open, onOpenChange, onSaved, codexProviders = [] } = props;
@@ -67,6 +69,11 @@ export function useProviderEditorForm(props: ProviderEditorDialogProps) {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [streamIdleTimeoutSeconds, setStreamIdleTimeoutSeconds] = useState("");
+  const [upstreamRetryPolicyOverrideEnabled, setUpstreamRetryPolicyOverrideEnabled] =
+    useState(false);
+  const [upstreamRetryPolicyDraft, setUpstreamRetryPolicyDraft] = useState<UpstreamRetryPolicy>(
+    DEFAULT_UPSTREAM_RETRY_POLICY
+  );
   const [saving, setSaving] = useState(false);
   const [copyingApiKey, setCopyingApiKey] = useState(false);
 
@@ -228,6 +235,8 @@ export function useProviderEditorForm(props: ProviderEditorDialogProps) {
     setTags,
     setTagInput,
     setStreamIdleTimeoutSeconds,
+    setUpstreamRetryPolicyOverrideEnabled,
+    setUpstreamRetryPolicyDraft,
     setAuthMode,
     setCx2ccSourceValue,
     setOauthStatus,
@@ -264,6 +273,8 @@ export function useProviderEditorForm(props: ProviderEditorDialogProps) {
       claudeModels,
       testModel,
       streamIdleTimeoutSeconds,
+      upstreamRetryPolicyOverrideEnabled,
+      upstreamRetryPolicyDraft,
       apiKeyConfigured,
       isCodexGatewaySource,
       sourceProviderId,
@@ -281,6 +292,8 @@ export function useProviderEditorForm(props: ProviderEditorDialogProps) {
       claudeModels,
       testModel,
       streamIdleTimeoutSeconds,
+      upstreamRetryPolicyOverrideEnabled,
+      upstreamRetryPolicyDraft,
       apiKeyConfigured,
       isCodexGatewaySource,
       sourceProviderId,
@@ -442,6 +455,10 @@ export function useProviderEditorForm(props: ProviderEditorDialogProps) {
     claudeModelCount,
     streamIdleTimeoutSeconds,
     setStreamIdleTimeoutSeconds,
+    upstreamRetryPolicyOverrideEnabled,
+    setUpstreamRetryPolicyOverrideEnabled,
+    upstreamRetryPolicyDraft,
+    setUpstreamRetryPolicyDraft,
     oauthStatus,
     oauthLoading,
     oauthDeviceFlow,

@@ -74,7 +74,9 @@ where
         auth_mode: prepared.auth_mode.as_str(),
         provider_index: prepared.provider_index,
         session_reuse: prepared.session_reuse,
+        provider_max_attempts: prepared.provider_max_attempts,
         stream_idle_timeout_seconds: prepared.stream_idle_timeout_seconds,
+        upstream_retry_policy: &prepared.upstream_retry_policy,
         claude_model_mapping: prepared.claude_model_mapping.as_ref(),
     };
 
@@ -175,7 +177,9 @@ where
         auth_mode: prepared.auth_mode.as_str(),
         provider_index: prepared.provider_index,
         session_reuse: prepared.session_reuse,
+        provider_max_attempts: prepared.provider_max_attempts,
         stream_idle_timeout_seconds: prepared.stream_idle_timeout_seconds,
+        upstream_retry_policy: &prepared.upstream_retry_policy,
         claude_model_mapping: prepared.claude_model_mapping.as_ref(),
     };
 

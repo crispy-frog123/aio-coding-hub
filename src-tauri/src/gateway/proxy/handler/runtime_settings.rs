@@ -26,6 +26,7 @@ pub(super) struct HandlerRuntimeSettings {
     pub(super) enable_claude_metadata_user_id_injection: bool,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
+    pub(super) upstream_retry_policy: settings::UpstreamRetryPolicy,
     pub(super) provider_cooldown_secs: i64,
     pub(super) upstream_first_byte_timeout_secs: u32,
     pub(super) upstream_stream_idle_timeout_secs: u32,
@@ -135,6 +136,9 @@ pub(super) fn handler_runtime_settings(
             && !is_claude_count_tokens,
         max_attempts_per_provider,
         max_providers_to_try,
+        upstream_retry_policy: settings_cfg
+            .map(|cfg| cfg.upstream_retry_policy.clone())
+            .unwrap_or_default(),
         provider_cooldown_secs: settings_cfg
             .map(|cfg| cfg.provider_cooldown_seconds as i64)
             .unwrap_or(settings::DEFAULT_PROVIDER_COOLDOWN_SECONDS as i64),

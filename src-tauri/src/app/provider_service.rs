@@ -31,6 +31,9 @@ pub(crate) struct ProviderUpsertInput {
     pub source_provider_id: Option<i64>,
     pub bridge_type: Option<String>,
     pub stream_idle_timeout_seconds: Option<u32>,
+    pub upstream_retry_policy_override: Option<crate::settings::UpstreamRetryPolicy>,
+    #[serde(default)]
+    pub upstream_retry_policy_override_specified: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -101,7 +104,8 @@ fn provider_runtime_reset_decision(
         || previous.auth_mode != next.auth_mode
         || submitted_api_key_changed(previous_api_key, submitted_api_key)
         || previous.source_provider_id != next.source_provider_id
-        || previous.bridge_type != next.bridge_type;
+        || previous.bridge_type != next.bridge_type
+        || previous.upstream_retry_policy_override != next.upstream_retry_policy_override;
 
     ProviderRuntimeResetDecision {
         clear_route_runtime_state: sensitive_config_changed,
@@ -151,6 +155,8 @@ pub(crate) async fn provider_upsert(
         source_provider_id,
         bridge_type,
         stream_idle_timeout_seconds,
+        upstream_retry_policy_override,
+        upstream_retry_policy_override_specified,
     } = input;
 
     let is_create = provider_id.is_none();
@@ -198,6 +204,8 @@ pub(crate) async fn provider_upsert(
                 source_provider_id,
                 bridge_type,
                 stream_idle_timeout_seconds,
+                upstream_retry_policy_override,
+                upstream_retry_policy_override_specified,
             },
         )?;
 
@@ -291,6 +299,8 @@ pub(crate) async fn provider_duplicate(
                 source_provider_id: source.source_provider_id,
                 bridge_type: source.bridge_type.clone(),
                 stream_idle_timeout_seconds: source.stream_idle_timeout_seconds,
+                upstream_retry_policy_override: source.upstream_retry_policy_override.clone(),
+                upstream_retry_policy_override_specified: true,
             },
         )
     })
@@ -549,6 +559,7 @@ mod tests {
             source_provider_id: None,
             bridge_type: None,
             stream_idle_timeout_seconds: None,
+            upstream_retry_policy_override: None,
             api_key_configured: true,
         };
 
@@ -634,6 +645,7 @@ mod tests {
             source_provider_id: None,
             bridge_type: None,
             stream_idle_timeout_seconds: None,
+            upstream_retry_policy_override: None,
             api_key_configured: true,
         };
 

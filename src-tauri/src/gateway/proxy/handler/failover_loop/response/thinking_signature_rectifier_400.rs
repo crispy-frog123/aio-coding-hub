@@ -53,7 +53,6 @@ pub(super) async fn handle_thinking_rectifiers_400<R: tauri::Runtime>(
         requested_model,
         special_settings,
         provider_cooldown_secs,
-        max_attempts_per_provider,
         enable_response_fixer,
         response_fixer_non_stream_config,
         ..
@@ -65,6 +64,7 @@ pub(super) async fn handle_thinking_rectifiers_400<R: tauri::Runtime>(
         provider_base_url_base,
         provider_index,
         session_reuse,
+        provider_max_attempts,
         ..
     } = ProviderCtxOwned::from(provider_ctx);
 
@@ -304,7 +304,7 @@ pub(super) async fn handle_thinking_rectifiers_400<R: tauri::Runtime>(
         }
 
         if matches!(decision, FailoverDecision::RetrySameProvider)
-            && retry_index >= max_attempts_per_provider
+            && retry_index >= provider_max_attempts
         {
             decision = FailoverDecision::SwitchProvider;
         }

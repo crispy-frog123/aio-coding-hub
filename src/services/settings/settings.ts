@@ -10,6 +10,8 @@ import {
   type SettingsMutationRuntime as GeneratedSettingsMutationRuntime,
   type SettingsUpdate as GeneratedSettingsUpdate,
   type SettingsView as GeneratedAppSettings,
+  type UpstreamRetryPolicy,
+  type UpstreamTransportRetryKind,
   type WslHostAddressMode,
   type WslTargetCli,
 } from "../../generated/bindings";
@@ -24,6 +26,8 @@ export type {
   GatewayListenMode,
   HomeUsagePeriod,
   SensitiveStringUpdate,
+  UpstreamRetryPolicy,
+  UpstreamTransportRetryKind,
   WslHostAddressMode,
   WslTargetCli,
 };
@@ -79,6 +83,7 @@ const SETTINGS_VIEW_TO_UPDATE_FIELD_MAP = {
   updateReleasesUrl: "update_releases_url",
   failoverMaxAttemptsPerProvider: "failover_max_attempts_per_provider",
   failoverMaxProvidersToTry: "failover_max_providers_to_try",
+  upstreamRetryPolicy: "upstream_retry_policy",
   circuitBreakerFailureThreshold: "circuit_breaker_failure_threshold",
   circuitBreakerOpenDurationMinutes: "circuit_breaker_open_duration_minutes",
   wslAutoConfig: "wsl_auto_config",
@@ -207,6 +212,7 @@ function toGeneratedSettingsUpdate(input: SettingsSetInput): GeneratedSettingsUp
     verboseProviderError: input.verboseProviderError ?? null,
     failoverMaxAttemptsPerProvider: input.failoverMaxAttemptsPerProvider,
     failoverMaxProvidersToTry: input.failoverMaxProvidersToTry,
+    upstreamRetryPolicy: input.upstreamRetryPolicy ?? null,
     circuitBreakerFailureThreshold: input.circuitBreakerFailureThreshold ?? null,
     circuitBreakerOpenDurationMinutes: input.circuitBreakerOpenDurationMinutes ?? null,
     updateReleasesUrl: input.updateReleasesUrl ?? null,

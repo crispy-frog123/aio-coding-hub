@@ -70,6 +70,7 @@ pub(crate) struct SettingsUpdate {
     pub verbose_provider_error: Option<bool>,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
+    pub upstream_retry_policy: Option<settings::UpstreamRetryPolicy>,
     pub circuit_breaker_failure_threshold: Option<u32>,
     pub circuit_breaker_open_duration_minutes: Option<u32>,
     pub update_releases_url: Option<String>,
@@ -168,6 +169,7 @@ pub(crate) struct SettingsView {
     pub update_releases_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
+    pub upstream_retry_policy: settings::UpstreamRetryPolicy,
     pub circuit_breaker_failure_threshold: u32,
     pub circuit_breaker_open_duration_minutes: u32,
     pub enable_circuit_breaker_notice: bool,
@@ -296,6 +298,7 @@ impl From<&settings::AppSettings> for SettingsView {
             update_releases_url: value.update_releases_url.clone(),
             failover_max_attempts_per_provider: value.failover_max_attempts_per_provider,
             failover_max_providers_to_try: value.failover_max_providers_to_try,
+            upstream_retry_policy: value.upstream_retry_policy.clone(),
             circuit_breaker_failure_threshold: value.circuit_breaker_failure_threshold,
             circuit_breaker_open_duration_minutes: value.circuit_breaker_open_duration_minutes,
             enable_circuit_breaker_notice: value.enable_circuit_breaker_notice,
@@ -583,6 +586,7 @@ pub(crate) async fn settings_set_impl(
         verbose_provider_error,
         failover_max_attempts_per_provider,
         failover_max_providers_to_try,
+        upstream_retry_policy,
         circuit_breaker_failure_threshold,
         circuit_breaker_open_duration_minutes,
         update_releases_url,
@@ -771,6 +775,9 @@ pub(crate) async fn settings_set_impl(
                 .unwrap_or(previous.response_fixer_fix_truncated_json);
             let verbose_provider_error =
                 verbose_provider_error.unwrap_or(previous.verbose_provider_error);
+            let mut upstream_retry_policy =
+                upstream_retry_policy.unwrap_or(previous.upstream_retry_policy.clone());
+            settings::sanitize_upstream_retry_policy(&mut upstream_retry_policy);
             let circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
                 .unwrap_or(previous.circuit_breaker_failure_threshold);
             let circuit_breaker_open_duration_minutes = circuit_breaker_open_duration_minutes
@@ -816,6 +823,7 @@ pub(crate) async fn settings_set_impl(
                 update_releases_url,
                 failover_max_attempts_per_provider,
                 failover_max_providers_to_try,
+                upstream_retry_policy,
                 circuit_breaker_failure_threshold,
                 circuit_breaker_open_duration_minutes,
                 enable_circuit_breaker_notice: previous.enable_circuit_breaker_notice,

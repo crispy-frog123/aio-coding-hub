@@ -2958,6 +2958,7 @@ export type ProviderSummary = {
   source_provider_id: number | null;
   bridge_type: string | null;
   stream_idle_timeout_seconds: number | null;
+  upstream_retry_policy_override: UpstreamRetryPolicy | null;
   api_key_configured: boolean;
 };
 export type ProviderUpsertInput = {
@@ -2985,6 +2986,8 @@ export type ProviderUpsertInput = {
   sourceProviderId: number | null;
   bridgeType: string | null;
   streamIdleTimeoutSeconds: number | null;
+  upstreamRetryPolicyOverride: UpstreamRetryPolicy | null;
+  upstreamRetryPolicyOverrideSpecified?: boolean;
 };
 export type RequestAttemptLog = {
   id: number;
@@ -3137,6 +3140,7 @@ export type SettingsUpdate = {
   verboseProviderError: boolean | null;
   failoverMaxAttemptsPerProvider: number;
   failoverMaxProvidersToTry: number;
+  upstreamRetryPolicy: UpstreamRetryPolicy | null;
   circuitBreakerFailureThreshold: number | null;
   circuitBreakerOpenDurationMinutes: number | null;
   updateReleasesUrl: string | null;
@@ -3203,6 +3207,7 @@ export type SettingsView = {
   update_releases_url: string;
   failover_max_attempts_per_provider: number;
   failover_max_providers_to_try: number;
+  upstream_retry_policy: UpstreamRetryPolicy;
   circuit_breaker_failure_threshold: number;
   circuit_breaker_open_duration_minutes: number;
   enable_circuit_breaker_notice: boolean;
@@ -3271,6 +3276,15 @@ export type SkillsPaths = { ssot_dir: string; repos_dir: string; cli_dir: string
 export type SortModeActiveRow = { cli_key: string; mode_id: number | null; updated_at: number };
 export type SortModeProviderRow = { provider_id: number; enabled: boolean };
 export type SortModeSummary = { id: number; name: string; created_at: number; updated_at: number };
+export type UpstreamRetryPolicy = {
+  enabled: boolean;
+  status_codes: number[];
+  transport_errors: UpstreamTransportRetryKind[];
+  max_retries: number;
+  backoff_ms: number;
+  counts_toward_circuit_breaker: boolean;
+};
+export type UpstreamTransportRetryKind = "connect" | "timeout" | "read";
 export type UsageDayDetailParams = {
   day: string;
   cliKey: string | null;

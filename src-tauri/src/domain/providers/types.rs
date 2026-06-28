@@ -84,6 +84,8 @@ pub struct ProviderUpsertParams {
     pub source_provider_id: Option<i64>,
     pub bridge_type: Option<String>,
     pub stream_idle_timeout_seconds: Option<u32>,
+    pub upstream_retry_policy_override: Option<crate::settings::UpstreamRetryPolicy>,
+    pub upstream_retry_policy_override_specified: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
@@ -228,6 +230,7 @@ pub struct ProviderSummary {
     pub source_provider_id: Option<i64>,
     pub bridge_type: Option<String>,
     pub stream_idle_timeout_seconds: Option<u32>,
+    pub upstream_retry_policy_override: Option<crate::settings::UpstreamRetryPolicy>,
     pub api_key_configured: bool,
 }
 
@@ -257,6 +260,7 @@ pub(crate) struct ProviderForGateway {
     #[allow(dead_code)] // Will be read when failover_loop uses bridge_type for dispatch.
     pub bridge_type: Option<String>,
     pub stream_idle_timeout_seconds: Option<u32>,
+    pub upstream_retry_policy_override: Option<crate::settings::UpstreamRetryPolicy>,
 }
 
 #[derive(Debug, Clone)]
@@ -305,6 +309,7 @@ pub(super) struct DecodedProviderRow {
     pub oauth_provider_type: Option<String>,
     pub source_provider_id: Option<i64>,
     pub bridge_type: Option<String>,
+    pub upstream_retry_policy_override: Option<crate::settings::UpstreamRetryPolicy>,
 }
 
 #[derive(Debug, Clone)]

@@ -16,6 +16,7 @@ pub(super) struct RecordSystemFailureArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) decision: FailoverDecision,
     pub(super) outcome: String,
     pub(super) reason: String,
+    pub(super) record_circuit_failure: bool,
 }
 
 pub(super) async fn record_system_failure_and_decide<R: tauri::Runtime>(
@@ -50,6 +51,7 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
         mut decision,
         mut outcome,
         reason,
+        record_circuit_failure,
     } = args;
     let ProviderCtx {
         provider_id,
@@ -89,7 +91,7 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
     let mut circuit_failure_count = Some(circuit_before.failure_count);
     let circuit_failure_threshold = Some(circuit_before.failure_threshold);
 
-    if !is_count_tokens {
+    if !is_count_tokens && record_circuit_failure {
         let change = provider_router::record_failure_and_emit_transition(
             provider_router::RecordCircuitArgs::from_state(
                 ctx.state,

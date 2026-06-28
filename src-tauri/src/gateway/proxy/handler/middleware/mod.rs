@@ -145,6 +145,7 @@ impl<R: tauri::Runtime> ProxyContext<R> {
             codex_reasoning_guard_model_rules: rs.codex_reasoning_guard_model_rules,
             max_attempts_per_provider: rs.max_attempts_per_provider,
             max_providers_to_try: rs.max_providers_to_try,
+            upstream_retry_policy: rs.upstream_retry_policy,
             provider_cooldown_secs: rs.provider_cooldown_secs,
             upstream_first_byte_timeout_secs: rs.upstream_first_byte_timeout_secs,
             upstream_stream_idle_timeout_secs: rs.upstream_stream_idle_timeout_secs,

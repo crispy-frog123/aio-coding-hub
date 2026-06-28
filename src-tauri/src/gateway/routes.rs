@@ -627,6 +627,8 @@ mod tests {
                 source_provider_id: None,
                 bridge_type: None,
                 stream_idle_timeout_seconds: None,
+                upstream_retry_policy_override: None,
+                upstream_retry_policy_override_specified: false,
             },
         )
         .expect("insert provider")
@@ -687,6 +689,8 @@ mod tests {
                 source_provider_id: None,
                 bridge_type: None,
                 stream_idle_timeout_seconds: None,
+                upstream_retry_policy_override: None,
+                upstream_retry_policy_override_specified: false,
             },
         )
         .expect("insert oauth provider")
@@ -723,6 +727,8 @@ mod tests {
                 source_provider_id: Some(source_provider_id),
                 bridge_type: Some("cx2cc".to_string()),
                 stream_idle_timeout_seconds: None,
+                upstream_retry_policy_override: None,
+                upstream_retry_policy_override_specified: false,
             },
         )
         .expect("insert cx2cc bridge provider")

@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { toast } from "sonner";
 import { CACHE_ANOMALY_MONITOR_GUIDE_COPY } from "../../../../services/gateway/cacheAnomalyMonitorConfig";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../../../services/gateway/upstreamRetryPolicy";
 import type { GatewayRectifierSettingsPatch } from "../../../../services/settings/settingsGatewayRectifier";
 import { createTestAppSettings } from "../../../../test/fixtures/settings";
 import { CliManagerGeneralTab, type CliManagerGeneralTabProps } from "../GeneralTab";
@@ -106,6 +107,8 @@ function createDefaultTabProps(overrides: DefaultPropsOverrides = {}) {
     setCircuitBreakerFailureThreshold: vi.fn(),
     circuitBreakerOpenDurationMinutes: 30,
     setCircuitBreakerOpenDurationMinutes: vi.fn(),
+    upstreamRetryPolicy: DEFAULT_UPSTREAM_RETRY_POLICY,
+    setUpstreamRetryPolicy: vi.fn(),
     blurOnEnter: vi.fn(),
   };
 }
@@ -152,6 +155,8 @@ describe("cli-manager/GeneralTab", () => {
         setCircuitBreakerFailureThreshold={vi.fn()}
         circuitBreakerOpenDurationMinutes={30}
         setCircuitBreakerOpenDurationMinutes={vi.fn()}
+        upstreamRetryPolicy={DEFAULT_UPSTREAM_RETRY_POLICY}
+        setUpstreamRetryPolicy={vi.fn()}
         blurOnEnter={vi.fn()}
       />
     );
@@ -224,6 +229,8 @@ describe("cli-manager/GeneralTab", () => {
         setCircuitBreakerFailureThreshold={setCircuitBreakerFailureThreshold}
         circuitBreakerOpenDurationMinutes={30}
         setCircuitBreakerOpenDurationMinutes={setCircuitBreakerOpenDurationMinutes}
+        upstreamRetryPolicy={DEFAULT_UPSTREAM_RETRY_POLICY}
+        setUpstreamRetryPolicy={vi.fn()}
         blurOnEnter={blurOnEnter}
       />
     );
@@ -248,6 +255,7 @@ describe("cli-manager/GeneralTab", () => {
     expect(screen.getByText(CACHE_ANOMALY_MONITOR_GUIDE_COPY.thresholds)).toBeInTheDocument();
 
     // Inputs: change + blur should validate and persist (or toast on invalid)
+    fireEvent.click(screen.getByRole("button", { name: /熔断与重试/ }));
     const inputs = screen.getAllByRole("spinbutton");
     expect(inputs.length).toBeGreaterThan(6);
 
@@ -291,6 +299,43 @@ describe("cli-manager/GeneralTab", () => {
     expect(setCircuitBreakerOpenDurationMinutes).toHaveBeenCalled();
   });
 
+  it("keeps retry policy details collapsed until opened and persists the global policy", async () => {
+    const upstreamRetryPolicy = {
+      ...DEFAULT_UPSTREAM_RETRY_POLICY,
+      max_retries: 2,
+      backoff_ms: 250,
+    };
+    const onPersistCommonSettings = vi
+      .fn()
+      .mockResolvedValue(createTestAppSettings({ upstream_retry_policy: upstreamRetryPolicy }));
+    const setUpstreamRetryPolicy = vi.fn();
+
+    renderTab(
+      <CliManagerGeneralTab
+        {...createDefaultTabProps({
+          appSettings: createTestAppSettings({ upstream_retry_policy: upstreamRetryPolicy }),
+          onPersistCommonSettings,
+        })}
+        upstreamRetryPolicy={upstreamRetryPolicy}
+        setUpstreamRetryPolicy={setUpstreamRetryPolicy}
+      />
+    );
+
+    expect(screen.queryByText("HTTP 状态码")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /熔断与重试/ }));
+    expect(screen.getByText("HTTP 状态码")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存重试策略" }));
+
+    await waitFor(() =>
+      expect(onPersistCommonSettings).toHaveBeenCalledWith({
+        upstream_retry_policy: upstreamRetryPolicy,
+      })
+    );
+    expect(setUpstreamRetryPolicy).toHaveBeenCalledWith(upstreamRetryPolicy);
+  });
+
   it("shows readonly banner and disables settings controls", () => {
     renderTab(
       <CliManagerGeneralTab
@@ -332,6 +377,8 @@ describe("cli-manager/GeneralTab", () => {
         setCircuitBreakerFailureThreshold={vi.fn()}
         circuitBreakerOpenDurationMinutes={30}
         setCircuitBreakerOpenDurationMinutes={vi.fn()}
+        upstreamRetryPolicy={DEFAULT_UPSTREAM_RETRY_POLICY}
+        setUpstreamRetryPolicy={vi.fn()}
         blurOnEnter={vi.fn()}
       />
     );

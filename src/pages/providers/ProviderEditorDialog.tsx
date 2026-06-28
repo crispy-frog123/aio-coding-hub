@@ -1,4 +1,9 @@
-import type { CliKey, ProviderSummary } from "../../services/providers/providers";
+import { ChevronDown } from "lucide-react";
+import type {
+  CliKey,
+  ProviderSummary,
+  UpstreamRetryPolicy,
+} from "../../services/providers/providers";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { FormField } from "../../ui/FormField";
@@ -12,6 +17,8 @@ import { Cx2ccSection } from "./Cx2ccSection";
 import { ApiKeySection } from "./ApiKeySection";
 import { LimitsSection } from "./LimitsSection";
 import { ClaudeModelSection } from "./ClaudeModelSection";
+import { RetryPolicyFields } from "../../components/gateway/RetryPolicyFields";
+import { cn } from "../../utils/cn";
 
 type ProviderEditorDialogBaseProps = {
   open: boolean;
@@ -104,6 +111,8 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
           />
         </FormField>
 
+        <ProviderRetryPolicySection form={f} />
+
         <LimitsSection form={f} />
         <ClaudeModelSection form={f} />
 
@@ -127,5 +136,50 @@ export function ProviderEditorDialog(props: ProviderEditorDialogProps) {
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function ProviderRetryPolicySection({ form }: { form: ReturnType<typeof useProviderEditorForm> }) {
+  const enabled = form.upstreamRetryPolicyOverrideEnabled;
+  const policy = form.upstreamRetryPolicyDraft;
+
+  function updatePolicy(next: UpstreamRetryPolicy) {
+    form.setUpstreamRetryPolicyDraft(next);
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-white dark:bg-secondary">
+      <div className="flex w-full items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-secondary/50 dark:hover:bg-secondary/40">
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left"
+          onClick={() => form.setUpstreamRetryPolicyOverrideEnabled(!enabled)}
+          aria-expanded={enabled}
+        >
+          <div className="text-sm font-semibold text-foreground">覆盖全局重试策略</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            关闭时继承全局；开启后当前供应商使用自己的瞬时错误重试规则。
+          </div>
+        </button>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={enabled}
+            onCheckedChange={(checked) => form.setUpstreamRetryPolicyOverrideEnabled(checked)}
+            disabled={form.saving}
+          />
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              enabled && "rotate-180"
+            )}
+          />
+        </div>
+      </div>
+      {enabled ? (
+        <div className="space-y-4 border-t border-border px-4 py-4">
+          <RetryPolicyFields policy={policy} disabled={form.saving} onChange={updatePolicy} />
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -9,6 +9,10 @@ use super::context::{
     MAX_NON_SSE_BODY_BYTES,
 };
 use super::thinking_signature_rectifier_400;
+use super::upstream_retry_policy::{
+    retry_policy_backoff_delay, should_record_circuit_failure, transient_failure_decision,
+    RetryPolicyMatch,
+};
 use super::{emit_attempt_event_and_log, AttemptCircuitFields};
 use super::{
     emit_gateway_log, emit_request_event_and_enqueue_request_log, RequestCompletion,
@@ -40,40 +44,64 @@ use axum::http::{header, HeaderValue};
 fn upstream_error_decision(
     is_count_tokens: bool,
     base_decision: FailoverDecision,
+    status: reqwest::StatusCode,
+    policy: &crate::settings::UpstreamRetryPolicy,
     retry_index: u32,
     max_attempts_per_provider: u32,
-) -> FailoverDecision {
+) -> (FailoverDecision, bool) {
     if is_count_tokens {
-        return FailoverDecision::Abort;
+        return (FailoverDecision::Abort, false);
+    }
+
+    let (configured_decision, configured_retry) = transient_failure_decision(
+        is_count_tokens,
+        RetryPolicyMatch::HttpStatus(status.as_u16()),
+        policy,
+        retry_index,
+        max_attempts_per_provider,
+    );
+    if configured_retry || matches!(configured_decision, FailoverDecision::Abort) {
+        return (configured_decision, configured_retry);
     }
 
     if matches!(base_decision, FailoverDecision::RetrySameProvider)
         && retry_index >= max_attempts_per_provider
     {
-        return FailoverDecision::SwitchProvider;
+        return (FailoverDecision::SwitchProvider, false);
     }
 
-    base_decision
+    (base_decision, false)
 }
 
 fn reqwest_error_decision(
     is_count_tokens: bool,
-    is_connect: bool,
+    transport_kind: crate::settings::UpstreamTransportRetryKind,
+    policy: &crate::settings::UpstreamRetryPolicy,
     retry_index: u32,
     max_attempts_per_provider: u32,
-) -> FailoverDecision {
+) -> (FailoverDecision, bool) {
     if is_count_tokens {
-        return FailoverDecision::Abort;
+        return (FailoverDecision::Abort, false);
     }
 
-    if is_connect {
-        return FailoverDecision::SwitchProvider;
-    }
+    transient_failure_decision(
+        is_count_tokens,
+        RetryPolicyMatch::Transport(transport_kind),
+        policy,
+        retry_index,
+        max_attempts_per_provider,
+    )
+}
 
-    if retry_index < max_attempts_per_provider {
-        FailoverDecision::RetrySameProvider
+fn classify_transport_retry_kind(
+    err: &reqwest::Error,
+) -> crate::settings::UpstreamTransportRetryKind {
+    if err.is_connect() {
+        crate::settings::UpstreamTransportRetryKind::Connect
+    } else if err.is_timeout() {
+        crate::settings::UpstreamTransportRetryKind::Timeout
     } else {
-        FailoverDecision::SwitchProvider
+        crate::settings::UpstreamTransportRetryKind::Read
     }
 }
 
@@ -289,7 +317,6 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
     let mut resp = Some(resp);
 
     let state = ctx.state;
-    let max_attempts_per_provider = ctx.max_attempts_per_provider;
     let provider_cooldown_secs = ctx.provider_cooldown_secs;
 
     let ProviderCtx {
@@ -299,6 +326,8 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
         auth_mode,
         provider_index,
         session_reuse,
+        provider_max_attempts,
+        upstream_retry_policy,
         ..
     } = provider_ctx;
 
@@ -322,11 +351,13 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
 
     let (base_category, error_code, base_decision) = classify_upstream_status(status);
     let mut category = base_category;
-    let mut decision = upstream_error_decision(
+    let (mut decision, configured_retry) = upstream_error_decision(
         is_count_tokens,
         base_decision,
+        status,
+        upstream_retry_policy,
         retry_index,
-        max_attempts_per_provider,
+        provider_max_attempts,
     );
 
     let mut abort_body_bytes: Option<Bytes> = None;
@@ -484,6 +515,7 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
     if !is_count_tokens
         && matches!(category, ErrorCategory::ProviderError)
         && !oauth_quota_exhausted
+        && should_record_circuit_failure(upstream_retry_policy, configured_retry)
     {
         let change = provider_router::record_failure_and_emit_transition(
             provider_router::RecordCircuitArgs::from_state(
@@ -588,7 +620,9 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
 
     match decision {
         FailoverDecision::RetrySameProvider => {
-            if let Some(delay) = retry_backoff_delay(status, retry_index) {
+            if let Some(delay) = retry_policy_backoff_delay(upstream_retry_policy)
+                .or_else(|| retry_backoff_delay(status, retry_index))
+            {
                 tokio::time::sleep(delay).await;
             }
             LoopControl::ContinueRetry
@@ -781,13 +815,14 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
     );
     let is_count_tokens =
         is_claude_count_tokens_request(ctx.cli_key.as_str(), ctx.forwarded_path.as_str());
-    let is_connect = err.is_connect();
+    let transport_kind = classify_transport_retry_kind(&err);
     let (_, error_code) = classify_reqwest_error(&err);
-    let decision = reqwest_error_decision(
+    let (decision, configured_retry) = reqwest_error_decision(
         is_count_tokens,
-        is_connect,
+        transport_kind,
+        provider_ctx.upstream_retry_policy,
         attempt_ctx.retry_index,
-        ctx.max_attempts_per_provider,
+        provider_ctx.provider_max_attempts,
     );
     let outcome = format!(
         "request_error: category={} code={} decision={} err={err}",
@@ -795,11 +830,7 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
         error_code,
         decision.as_str(),
     );
-    let reason = if is_connect {
-        "reqwest connect error"
-    } else {
-        "reqwest error"
-    };
+    let reason = format!("reqwest {transport_kind:?} error");
 
     if is_count_tokens {
         return record_system_failure_and_decide_no_cooldown(RecordSystemFailureArgs {
@@ -811,7 +842,8 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
             error_code,
             decision,
             outcome,
-            reason: reason.to_string(),
+            reason: reason.clone(),
+            record_circuit_failure: true,
         })
         .await;
     }
@@ -825,7 +857,11 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
         error_code,
         decision,
         outcome,
-        reason: reason.to_string(),
+        reason,
+        record_circuit_failure: should_record_circuit_failure(
+            provider_ctx.upstream_retry_policy,
+            configured_retry,
+        ),
     })
     .await
 }
@@ -838,6 +874,7 @@ mod tests {
         reqwest_error_decision, retry_after_reset_at, should_scan_codex_previous_response_id_error,
         upstream_error_decision, FailoverDecision,
     };
+    use crate::settings::{UpstreamRetryPolicy, UpstreamTransportRetryKind};
     use axum::body::Bytes;
     use axum::http::{header, HeaderMap, HeaderValue};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -873,30 +910,109 @@ mod tests {
 
     #[test]
     fn upstream_error_decision_aborts_for_count_tokens() {
-        let decision = upstream_error_decision(true, FailoverDecision::RetrySameProvider, 1, 5);
+        let (decision, configured_retry) = upstream_error_decision(
+            true,
+            FailoverDecision::RetrySameProvider,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(decision, FailoverDecision::Abort));
+        assert!(!configured_retry);
     }
 
     #[test]
     fn upstream_error_decision_keeps_base_decision_before_retry_limit() {
-        let decision = upstream_error_decision(false, FailoverDecision::RetrySameProvider, 1, 5);
+        let (decision, configured_retry) = upstream_error_decision(
+            false,
+            FailoverDecision::RetrySameProvider,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(decision, FailoverDecision::RetrySameProvider));
+        assert!(!configured_retry);
     }
 
     #[test]
     fn upstream_error_decision_switches_after_retry_limit() {
-        let decision = upstream_error_decision(false, FailoverDecision::RetrySameProvider, 5, 5);
+        let (decision, configured_retry) = upstream_error_decision(
+            false,
+            FailoverDecision::RetrySameProvider,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            &UpstreamRetryPolicy::default(),
+            5,
+            5,
+        );
         assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
     }
 
     #[test]
     fn upstream_error_decision_keeps_switch_and_abort_decisions() {
-        let switch_decision =
-            upstream_error_decision(false, FailoverDecision::SwitchProvider, 1, 5);
+        let (switch_decision, switch_configured_retry) = upstream_error_decision(
+            false,
+            FailoverDecision::SwitchProvider,
+            reqwest::StatusCode::UNAUTHORIZED,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(switch_decision, FailoverDecision::SwitchProvider));
+        assert!(!switch_configured_retry);
 
-        let abort_decision = upstream_error_decision(false, FailoverDecision::Abort, 1, 5);
+        let (abort_decision, abort_configured_retry) = upstream_error_decision(
+            false,
+            FailoverDecision::Abort,
+            reqwest::StatusCode::OK,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(abort_decision, FailoverDecision::Abort));
+        assert!(!abort_configured_retry);
+    }
+
+    #[test]
+    fn upstream_error_decision_retries_configured_502_503_504_once() {
+        for status in [
+            reqwest::StatusCode::BAD_GATEWAY,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            reqwest::StatusCode::GATEWAY_TIMEOUT,
+        ] {
+            let (decision, configured_retry) = upstream_error_decision(
+                false,
+                FailoverDecision::SwitchProvider,
+                status,
+                &UpstreamRetryPolicy::default(),
+                1,
+                2,
+            );
+            assert!(matches!(decision, FailoverDecision::RetrySameProvider));
+            assert!(configured_retry);
+        }
+    }
+
+    #[test]
+    fn upstream_error_decision_respects_disabled_provider_override() {
+        let policy = UpstreamRetryPolicy {
+            enabled: false,
+            ..Default::default()
+        };
+
+        let (decision, configured_retry) = upstream_error_decision(
+            false,
+            FailoverDecision::SwitchProvider,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            &policy,
+            1,
+            2,
+        );
+
+        assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
     }
 
     #[tokio::test]
@@ -1006,25 +1122,64 @@ mod tests {
 
     #[test]
     fn reqwest_error_decision_aborts_count_tokens_even_for_connect_errors() {
-        let decision = reqwest_error_decision(true, true, 1, 5);
+        let (decision, configured_retry) = reqwest_error_decision(
+            true,
+            UpstreamTransportRetryKind::Connect,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(decision, FailoverDecision::Abort));
+        assert!(!configured_retry);
     }
 
     #[test]
-    fn reqwest_error_decision_switches_non_count_tokens_connect_errors() {
-        let decision = reqwest_error_decision(false, true, 1, 5);
-        assert!(matches!(decision, FailoverDecision::SwitchProvider));
-    }
-
-    #[test]
-    fn reqwest_error_decision_retries_non_connect_errors_before_limit() {
-        let decision = reqwest_error_decision(false, false, 1, 5);
+    fn reqwest_error_decision_retries_configured_connect_errors() {
+        let (decision, configured_retry) = reqwest_error_decision(
+            false,
+            UpstreamTransportRetryKind::Connect,
+            &UpstreamRetryPolicy::default(),
+            1,
+            5,
+        );
         assert!(matches!(decision, FailoverDecision::RetrySameProvider));
+        assert!(configured_retry);
     }
 
     #[test]
-    fn reqwest_error_decision_switches_non_connect_errors_at_limit() {
-        let decision = reqwest_error_decision(false, false, 5, 5);
+    fn reqwest_error_decision_switches_unconfigured_transport_errors() {
+        let policy = UpstreamRetryPolicy {
+            transport_errors: vec![],
+            ..Default::default()
+        };
+        let (decision, configured_retry) =
+            reqwest_error_decision(false, UpstreamTransportRetryKind::Read, &policy, 1, 5);
         assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
+    }
+
+    #[test]
+    fn reqwest_error_decision_respects_disabled_transport_policy() {
+        let policy = UpstreamRetryPolicy {
+            enabled: false,
+            ..Default::default()
+        };
+        let (decision, configured_retry) =
+            reqwest_error_decision(false, UpstreamTransportRetryKind::Connect, &policy, 1, 5);
+        assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
+    }
+
+    #[test]
+    fn reqwest_error_decision_switches_configured_transport_errors_at_limit() {
+        let (decision, configured_retry) = reqwest_error_decision(
+            false,
+            UpstreamTransportRetryKind::Read,
+            &UpstreamRetryPolicy::default(),
+            5,
+            5,
+        );
+        assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
     }
 }

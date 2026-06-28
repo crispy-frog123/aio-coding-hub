@@ -477,6 +477,49 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
     if settings.failover_max_providers_to_try == 0 {
         return Err("SEC_INVALID_INPUT: failover_max_providers_to_try must be >= 1".into());
     }
+    if settings.upstream_retry_policy.status_codes.len() > MAX_UPSTREAM_RETRY_POLICY_STATUS_CODES {
+        return Err(format!(
+            "SEC_INVALID_INPUT: upstream_retry_policy.status_codes must contain <= {MAX_UPSTREAM_RETRY_POLICY_STATUS_CODES} entries"
+        )
+        .into());
+    }
+    if settings
+        .upstream_retry_policy
+        .status_codes
+        .iter()
+        .any(|status| !(400..=599).contains(status))
+    {
+        return Err(
+            "SEC_INVALID_INPUT: upstream_retry_policy.status_codes must be within [400, 599]"
+                .into(),
+        );
+    }
+    if settings.upstream_retry_policy.transport_errors.len()
+        > MAX_UPSTREAM_RETRY_POLICY_TRANSPORT_ERRORS
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: upstream_retry_policy.transport_errors must contain <= {MAX_UPSTREAM_RETRY_POLICY_TRANSPORT_ERRORS} entries"
+        )
+        .into());
+    }
+    if settings.upstream_retry_policy.max_retries > MAX_UPSTREAM_RETRY_POLICY_MAX_RETRIES {
+        return Err(format!(
+            "SEC_INVALID_INPUT: upstream_retry_policy.max_retries must be <= {MAX_UPSTREAM_RETRY_POLICY_MAX_RETRIES}"
+        )
+        .into());
+    }
+    if settings.upstream_retry_policy.backoff_ms > MAX_UPSTREAM_RETRY_POLICY_BACKOFF_MS {
+        return Err(format!(
+            "SEC_INVALID_INPUT: upstream_retry_policy.backoff_ms must be <= {MAX_UPSTREAM_RETRY_POLICY_BACKOFF_MS}"
+        )
+        .into());
+    }
+    if settings.upstream_retry_policy.enabled
+        && settings.upstream_retry_policy.status_codes.is_empty()
+        && settings.upstream_retry_policy.transport_errors.is_empty()
+    {
+        return Err("SEC_INVALID_INPUT: upstream_retry_policy must include at least one status code or transport error when enabled".into());
+    }
     if settings.failover_max_attempts_per_provider > MAX_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER {
         return Err(format!(
             "SEC_INVALID_INPUT: failover_max_attempts_per_provider must be <= {MAX_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER}"

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { ProviderSummary } from "../../../services/providers/providers";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../../services/gateway/upstreamRetryPolicy";
 import { DEFAULT_FORM_VALUES } from "../providerEditorUtils";
 import { runProviderEditorSave } from "../providerEditorSaveRunner";
 import type { SaveActionContext } from "../providerEditorActionContext";
@@ -38,6 +39,7 @@ function makeSavedProvider(partial: Partial<ProviderSummary> = {}): ProviderSumm
     source_provider_id: partial.source_provider_id ?? null,
     bridge_type: partial.bridge_type ?? null,
     stream_idle_timeout_seconds: partial.stream_idle_timeout_seconds ?? null,
+    upstream_retry_policy_override: partial.upstream_retry_policy_override ?? null,
     availability_test_model: partial.availability_test_model ?? null,
     api_key_configured: partial.api_key_configured ?? true,
   };
@@ -65,6 +67,8 @@ function makeContext(overrides: Partial<SaveActionContext> = {}): SaveActionCont
     claudeModels: {},
     testModel: "",
     streamIdleTimeoutSeconds: "",
+    upstreamRetryPolicyOverrideEnabled: false,
+    upstreamRetryPolicyDraft: DEFAULT_UPSTREAM_RETRY_POLICY,
     apiKeyConfigured: false,
     isCodexGatewaySource: false,
     sourceProviderId: null,

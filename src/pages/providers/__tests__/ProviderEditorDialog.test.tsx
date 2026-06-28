@@ -7,6 +7,7 @@ import { ProviderEditorDialog } from "../ProviderEditorDialog";
 import { copyText } from "../../../services/clipboard";
 import { logToConsole } from "../../../services/consoleLog";
 import { openDesktopUrl } from "../../../services/desktop/opener";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../../services/gateway/upstreamRetryPolicy";
 import {
   providerCopyApiKeyToClipboard,
   providerDelete,
@@ -25,6 +26,7 @@ import {
   type ProviderOAuthStatusResult,
   type ProviderSummary,
 } from "../../../services/providers/providers";
+import type { UpstreamRetryPolicy } from "../../../services/settings/settings";
 import { createTestQueryClient } from "../../../test/utils/reactQuery";
 import type { ProviderEditorInitialValues } from "../providerDuplicate";
 
@@ -87,6 +89,7 @@ function makeProvider(partial: Partial<ProviderSummary> = {}): ProviderSummary {
     api_key_configured: partial.api_key_configured ?? false,
     ...partial,
     stream_idle_timeout_seconds: partial.stream_idle_timeout_seconds ?? null,
+    upstream_retry_policy_override: partial.upstream_retry_policy_override ?? null,
   };
 }
 
@@ -116,6 +119,7 @@ function makeInitialValues(
     bridge_type: null,
     ...partial,
     stream_idle_timeout_seconds: partial.stream_idle_timeout_seconds ?? null,
+    upstream_retry_policy_override: partial.upstream_retry_policy_override ?? null,
   };
 }
 
@@ -468,6 +472,110 @@ describe("pages/providers/ProviderEditorDialog", () => {
 
     expect(vi.mocked(providerUpsert)).not.toHaveBeenCalled();
     expect(vi.mocked(toast)).toHaveBeenCalledWith("流式空闲超时必须为 0-3600 秒");
+  });
+
+  it("keeps retry policy override details collapsed until enabled and saves the override", async () => {
+    const savedOverride: UpstreamRetryPolicy = {
+      ...DEFAULT_UPSTREAM_RETRY_POLICY,
+      enabled: false,
+      max_retries: 2,
+      backoff_ms: 250,
+    };
+    vi.mocked(providerUpsert).mockResolvedValue(
+      makeProvider({
+        id: 4,
+        cli_key: "claude",
+        name: "Retry Provider",
+        upstream_retry_policy_override: savedOverride,
+      })
+    );
+
+    render(
+      <ProviderEditorDialog
+        mode="create"
+        open={true}
+        cliKey="claude"
+        onSaved={vi.fn()}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = within(screen.getByRole("dialog"));
+
+    fireEvent.change(dialog.getByPlaceholderText("default"), {
+      target: { value: "Retry Provider" },
+    });
+    fireEvent.change(dialog.getByPlaceholderText("sk-…"), { target: { value: "sk-test" } });
+    fireEvent.change(dialog.getByPlaceholderText(/中转 endpoint/), {
+      target: { value: "https://example.com/v1" },
+    });
+
+    expect(dialog.queryByText("HTTP 状态码")).not.toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole("button", { name: /覆盖全局重试策略/ }));
+    expect(dialog.getByText("HTTP 状态码")).toBeInTheDocument();
+
+    const retryEnabledRow = dialog.getByText("启用瞬时错误重试").parentElement
+      ?.parentElement as HTMLElement;
+    fireEvent.click(within(retryEnabledRow).getByRole("switch"));
+
+    const retryPolicyFields = dialog
+      .getByText("启用瞬时错误重试")
+      .closest(".space-y-4") as HTMLElement;
+    const retryInputs = within(retryPolicyFields).getAllByRole("spinbutton");
+    fireEvent.change(retryInputs[0], { target: { value: "2" } });
+    fireEvent.change(retryInputs[1], { target: { value: "250" } });
+
+    fireEvent.click(dialog.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(providerUpsert)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          upstreamRetryPolicyOverride: savedOverride,
+        })
+      )
+    );
+  });
+
+  it("clears an existing retry policy override when the override section is disabled", async () => {
+    vi.mocked(providerUpsert).mockResolvedValue(
+      makeProvider({
+        id: 1,
+        cli_key: "claude",
+        name: "Existing",
+        upstream_retry_policy_override: null,
+      })
+    );
+
+    render(
+      <ProviderEditorDialog
+        mode="edit"
+        open={true}
+        provider={makeProvider({
+          api_key_configured: true,
+          upstream_retry_policy_override: DEFAULT_UPSTREAM_RETRY_POLICY,
+        })}
+        onSaved={vi.fn()}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("HTTP 状态码")).toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole("button", { name: /覆盖全局重试策略/ }));
+    expect(dialog.queryByText("HTTP 状态码")).not.toBeInTheDocument();
+
+    fireEvent.click(dialog.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(providerUpsert)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerId: 1,
+          upstreamRetryPolicyOverride: null,
+        })
+      )
+    );
   });
 
   it("prefills create mode from initial values and saves as a new provider", async () => {
@@ -840,7 +948,8 @@ describe("pages/providers/ProviderEditorDialog", () => {
     fireEvent.change(dialog.getByPlaceholderText("例如: 1000"), { target: { value: "2" } });
 
     // Toggle enabled switch (covers Switch onCheckedChange handler)
-    fireEvent.click(dialog.getByRole("switch"));
+    const enabledRow = dialog.getByText("启用", { selector: "span" }).parentElement as HTMLElement;
+    fireEvent.click(within(enabledRow).getByRole("switch"));
 
     // Drive Claude models onChange handlers
     fireEvent.click(dialog.getByText("Claude 模型映射"));

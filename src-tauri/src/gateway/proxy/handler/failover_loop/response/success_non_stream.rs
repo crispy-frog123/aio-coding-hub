@@ -1,6 +1,9 @@
 //! Usage: Handle successful non-SSE upstream responses inside `failover_loop::run`.
 
 use super::attempt_executor::RetryLoopState;
+use super::upstream_retry_policy::{
+    should_record_circuit_failure, transient_failure_decision, RetryPolicyMatch,
+};
 use super::*;
 use crate::domain::provider_oauth_limits;
 use crate::gateway::plugins::context::{GatewayPluginHookName, GatewayResponseHookInput};
@@ -224,14 +227,31 @@ impl NonStreamBodyReadError {
         }
     }
 
-    fn decision(self, retry_index: u32, max_attempts_per_provider: u32) -> FailoverDecision {
+    fn transport_retry_kind(self) -> Option<crate::settings::UpstreamTransportRetryKind> {
         match self {
-            Self::Timeout | Self::TooLarge => FailoverDecision::SwitchProvider,
-            Self::ReadError if retry_index < max_attempts_per_provider => {
-                FailoverDecision::RetrySameProvider
-            }
-            Self::ReadError => FailoverDecision::SwitchProvider,
+            Self::Timeout => Some(crate::settings::UpstreamTransportRetryKind::Timeout),
+            Self::ReadError => Some(crate::settings::UpstreamTransportRetryKind::Read),
+            Self::TooLarge => None,
         }
+    }
+
+    fn decision(
+        self,
+        policy: &crate::settings::UpstreamRetryPolicy,
+        retry_index: u32,
+        max_attempts_per_provider: u32,
+    ) -> (FailoverDecision, bool) {
+        let Some(kind) = self.transport_retry_kind() else {
+            return (FailoverDecision::SwitchProvider, false);
+        };
+
+        transient_failure_decision(
+            false,
+            RetryPolicyMatch::Transport(kind),
+            policy,
+            retry_index,
+            max_attempts_per_provider,
+        )
     }
 
     fn reason(self, limit_bytes: usize) -> String {
@@ -377,9 +397,9 @@ where
     let created_at_ms = common.created_at_ms;
     let created_at = common.created_at;
     let upstream_request_timeout_non_streaming = common.upstream_request_timeout_non_streaming;
-    let max_attempts_per_provider = common.max_attempts_per_provider;
     let enable_response_fixer = common.enable_response_fixer;
     let response_fixer_non_stream_config = common.response_fixer_non_stream_config;
+    let provider_max_attempts = provider_ctx_owned.provider_max_attempts;
 
     let provider_id = provider_ctx_owned.provider_id;
     let provider_index = provider_ctx_owned.provider_index;
@@ -636,7 +656,11 @@ where
         }
         Err(kind) => {
             let error_code = kind.error_code();
-            let decision = kind.decision(retry_index, max_attempts_per_provider);
+            let (decision, configured_retry) = kind.decision(
+                provider_ctx.upstream_retry_policy,
+                retry_index,
+                provider_max_attempts,
+            );
 
             let outcome = format!(
                 "upstream_body_error: category={} code={} decision={} kind={kind}",
@@ -662,6 +686,10 @@ where
                 decision,
                 outcome,
                 reason: kind.reason(MAX_NON_SSE_BODY_BYTES),
+                record_circuit_failure: should_record_circuit_failure(
+                    provider_ctx.upstream_retry_policy,
+                    configured_retry,
+                ),
             })
             .await;
         }
@@ -710,6 +738,7 @@ where
                     decision,
                     outcome,
                     reason: format!("cx2cc event-stream aggregation failed: {err}"),
+                    record_circuit_failure: true,
                 })
                 .await;
             }
@@ -865,6 +894,7 @@ where
                 decision,
                 outcome,
                 reason: format!("cx2cc response translation failed: {err}"),
+                record_circuit_failure: true,
             })
             .await;
         }

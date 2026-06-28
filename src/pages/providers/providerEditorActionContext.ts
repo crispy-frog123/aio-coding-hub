@@ -5,6 +5,7 @@ import type {
   ProviderOAuthStatusResult,
   ProviderUpsertInput,
   ProviderSummary,
+  UpstreamRetryPolicy,
 } from "../../services/providers/providers";
 import type { ProviderEditorDialogFormInput } from "../../schemas/providerEditorDialog";
 import type { BaseUrlRow, ProviderBaseUrlMode } from "./types";
@@ -55,6 +56,8 @@ export type FormActionContext = {
   claudeModels: ClaudeModels;
   testModel: string;
   streamIdleTimeoutSeconds: string;
+  upstreamRetryPolicyOverrideEnabled: boolean;
+  upstreamRetryPolicyDraft: UpstreamRetryPolicy;
   apiKeyConfigured: boolean;
   apiKeyValue: string;
   form: {
@@ -78,6 +81,8 @@ export type ProviderEditorPayloadContext = {
   claudeModels: ClaudeModels;
   testModel: string;
   streamIdleTimeoutSeconds: string;
+  upstreamRetryPolicyOverrideEnabled: boolean;
+  upstreamRetryPolicyDraft: UpstreamRetryPolicy;
   apiKeyConfigured: boolean;
   isCodexGatewaySource: boolean;
   sourceProviderId: number | null;

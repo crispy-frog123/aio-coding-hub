@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { providerUpsert } from "../providers";
+import { DEFAULT_UPSTREAM_RETRY_POLICY } from "../../gateway/upstreamRetryPolicy";
 import { getProvidersState, setProvidersState } from "../../../test/msw/state";
 import { setTauriRuntime } from "../../../test/utils/tauriRuntime";
 
@@ -97,5 +98,58 @@ describe("services/providers via MSW bridge", () => {
       streamIdleTimeoutSeconds: null,
     });
     expect(cleared?.stream_idle_timeout_seconds).toBeNull();
+  });
+
+  it("persists, preserves, and clears retry policy overrides through the bridge", async () => {
+    const baseInput = {
+      cliKey: "claude" as const,
+      name: "Retry Provider",
+      baseUrls: ["https://api.example.com"],
+      baseUrlMode: "order" as const,
+      authMode: "api_key" as const,
+      apiKey: "sk-test",
+      enabled: true,
+      costMultiplier: 1,
+      priority: 1,
+      claudeModels: null,
+      limit5hUsd: null,
+      limitDailyUsd: null,
+      dailyResetMode: "fixed" as const,
+      dailyResetTime: "00:00:00",
+      limitWeeklyUsd: null,
+      limitMonthlyUsd: null,
+      limitTotalUsd: null,
+      tags: [],
+      note: "",
+    };
+    const disabledOverride = {
+      ...DEFAULT_UPSTREAM_RETRY_POLICY,
+      enabled: false,
+    };
+
+    const created = await providerUpsert({
+      ...baseInput,
+      upstreamRetryPolicyOverride: disabledOverride,
+    });
+    expect(created?.upstream_retry_policy_override).toEqual(disabledOverride);
+
+    const preserved = await providerUpsert({
+      ...baseInput,
+      providerId: created?.id,
+      name: "Retry Provider Updated",
+      apiKey: undefined,
+    });
+    expect(preserved?.upstream_retry_policy_override).toEqual(disabledOverride);
+
+    const cleared = await providerUpsert({
+      ...baseInput,
+      providerId: created?.id,
+      name: "Retry Provider Cleared",
+      apiKey: undefined,
+      upstreamRetryPolicyOverride: null,
+    });
+    expect(cleared?.upstream_retry_policy_override).toBeNull();
+
+    expect(getProvidersState("claude")[0]?.upstream_retry_policy_override).toBeNull();
   });
 });

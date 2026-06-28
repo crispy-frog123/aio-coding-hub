@@ -396,6 +396,8 @@ INSERT INTO provider_oauth_limit_snapshots(
                 source_provider_id: None,
                 bridge_type: None,
                 stream_idle_timeout_seconds: None,
+                upstream_retry_policy_override: None,
+                upstream_retry_policy_override_specified: false,
             },
         )
         .expect("insert provider")

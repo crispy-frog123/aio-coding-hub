@@ -438,6 +438,8 @@ fn default_provider_params(name: &str) -> ProviderUpsertParams {
         source_provider_id: None,
         bridge_type: None,
         stream_idle_timeout_seconds: None,
+        upstream_retry_policy_override: None,
+        upstream_retry_policy_override_specified: false,
     }
 }
 
@@ -480,6 +482,39 @@ fn upsert_oauth_provider_drops_submitted_base_urls() {
 
     let saved = upsert(&db, params).expect("save oauth provider");
     assert!(saved.base_urls.is_empty());
+}
+
+#[test]
+fn invalid_retry_policy_override_json_disables_override_instead_of_inheriting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("providers_invalid_retry_override.db");
+    let db = crate::db::init_for_tests(&db_path).expect("init db");
+
+    let saved =
+        upsert(&db, default_provider_params("invalid-retry-override")).expect("save provider");
+    {
+        let conn = db.open_connection().expect("open db");
+        conn.execute(
+            "UPDATE providers SET upstream_retry_policy_json = ?1 WHERE id = ?2",
+            rusqlite::params!["not json", saved.id],
+        )
+        .expect("seed invalid retry override");
+    }
+
+    let conn = db.open_connection().expect("open db");
+    let summary = get_by_id(&conn, saved.id).expect("read provider");
+    let override_policy = summary
+        .upstream_retry_policy_override
+        .expect("invalid override should remain explicit");
+    assert!(!override_policy.enabled);
+
+    let gateway_provider =
+        list_enabled_for_gateway_using_active_mode(&db, "claude").expect("list gateway providers");
+    let override_policy = gateway_provider.providers[0]
+        .upstream_retry_policy_override
+        .as_ref()
+        .expect("gateway provider should keep explicit disabled override");
+    assert!(!override_policy.enabled);
 }
 
 #[test]
@@ -654,6 +689,8 @@ fn create_oauth_provider_for_cas_test(db: &crate::db::Db, name: &str) -> i64 {
             source_provider_id: None,
             bridge_type: None,
             stream_idle_timeout_seconds: None,
+            upstream_retry_policy_override: None,
+            upstream_retry_policy_override_specified: false,
         },
     )
     .expect("create oauth provider")

@@ -61,6 +61,7 @@ function makeProvider(overrides: Partial<ProviderSummary> = {}): ProviderSummary
     api_key_configured: overrides.api_key_configured ?? false,
     ...overrides,
     stream_idle_timeout_seconds: overrides.stream_idle_timeout_seconds ?? null,
+    upstream_retry_policy_override: overrides.upstream_retry_policy_override ?? null,
   };
 }
 

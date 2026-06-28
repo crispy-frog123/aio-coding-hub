@@ -1,14 +1,24 @@
 //! Usage: Handle upstream send timeout inside `failover_loop::run`.
 
+use super::upstream_retry_policy::{
+    should_record_circuit_failure, transient_failure_decision, RetryPolicyMatch,
+};
 use super::*;
 use crate::gateway::proxy::is_claude_count_tokens_request;
 
-fn timeout_decision(is_count_tokens: bool) -> FailoverDecision {
-    if is_count_tokens {
-        return FailoverDecision::Abort;
-    }
-
-    FailoverDecision::SwitchProvider
+fn timeout_decision(
+    is_count_tokens: bool,
+    policy: &crate::settings::UpstreamRetryPolicy,
+    retry_index: u32,
+    max_attempts_per_provider: u32,
+) -> (FailoverDecision, bool) {
+    transient_failure_decision(
+        is_count_tokens,
+        RetryPolicyMatch::Transport(crate::settings::UpstreamTransportRetryKind::Timeout),
+        policy,
+        retry_index,
+        max_attempts_per_provider,
+    )
 }
 
 pub(super) async fn handle_timeout<R: tauri::Runtime>(
@@ -20,7 +30,12 @@ pub(super) async fn handle_timeout<R: tauri::Runtime>(
     let is_count_tokens =
         is_claude_count_tokens_request(ctx.cli_key.as_str(), ctx.forwarded_path.as_str());
     let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
-    let decision = timeout_decision(is_count_tokens);
+    let (decision, configured_retry) = timeout_decision(
+        is_count_tokens,
+        provider_ctx.upstream_retry_policy,
+        attempt_ctx.retry_index,
+        provider_ctx.provider_max_attempts,
+    );
 
     let outcome = format!(
         "request_timeout: category={} code={} decision={} timeout_secs={}",
@@ -41,6 +56,7 @@ pub(super) async fn handle_timeout<R: tauri::Runtime>(
             decision,
             outcome,
             reason: "request timeout".to_string(),
+            record_circuit_failure: true,
         })
         .await;
     }
@@ -55,6 +71,10 @@ pub(super) async fn handle_timeout<R: tauri::Runtime>(
         decision,
         outcome,
         reason: "request timeout".to_string(),
+        record_circuit_failure: should_record_circuit_failure(
+            provider_ctx.upstream_retry_policy,
+            configured_retry,
+        ),
     })
     .await
 }
@@ -62,22 +82,40 @@ pub(super) async fn handle_timeout<R: tauri::Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{timeout_decision, FailoverDecision};
+    use crate::settings::UpstreamRetryPolicy;
 
     #[test]
     fn timeout_decision_aborts_for_count_tokens() {
-        let decision = timeout_decision(true);
+        let (decision, configured_retry) =
+            timeout_decision(true, &UpstreamRetryPolicy::default(), 1, 5);
         assert!(matches!(decision, FailoverDecision::Abort));
+        assert!(!configured_retry);
     }
 
     #[test]
-    fn timeout_decision_switches_for_regular_requests_before_retry_limit() {
-        let decision = timeout_decision(false);
-        assert!(matches!(decision, FailoverDecision::SwitchProvider));
+    fn timeout_decision_retries_configured_timeout_before_limit() {
+        let (decision, configured_retry) =
+            timeout_decision(false, &UpstreamRetryPolicy::default(), 1, 5);
+        assert!(matches!(decision, FailoverDecision::RetrySameProvider));
+        assert!(configured_retry);
     }
 
     #[test]
-    fn timeout_decision_switches_for_regular_requests_after_retry_limit() {
-        let decision = timeout_decision(false);
+    fn timeout_decision_switches_when_timeout_not_configured() {
+        let policy = UpstreamRetryPolicy {
+            transport_errors: vec![],
+            ..Default::default()
+        };
+        let (decision, configured_retry) = timeout_decision(false, &policy, 1, 5);
         assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
+    }
+
+    #[test]
+    fn timeout_decision_switches_configured_timeout_at_limit() {
+        let (decision, configured_retry) =
+            timeout_decision(false, &UpstreamRetryPolicy::default(), 5, 5);
+        assert!(matches!(decision, FailoverDecision::SwitchProvider));
+        assert!(!configured_retry);
     }
 }

@@ -6,6 +6,7 @@ import {
   type ProviderOAuthStatusResult,
   type ClaudeModels,
   type ProviderSummary,
+  type UpstreamRetryPolicy,
 } from "../../services/providers/providers";
 import type { GatewayStatus } from "../../services/gateway/gateway";
 import type { AppSettings } from "../../services/settings/settings";
@@ -24,6 +25,10 @@ import {
   deriveAuthMode,
   deriveCx2ccSourceValue,
 } from "./providerEditorUtils";
+import {
+  cloneUpstreamRetryPolicy,
+  DEFAULT_UPSTREAM_RETRY_POLICY,
+} from "../../services/gateway/upstreamRetryPolicy";
 
 export type EffectDeps = {
   open: boolean;
@@ -51,6 +56,8 @@ export type EffectDeps = {
   setTags: React.Dispatch<React.SetStateAction<string[]>>;
   setTagInput: (v: string) => void;
   setStreamIdleTimeoutSeconds: (v: string) => void;
+  setUpstreamRetryPolicyOverrideEnabled: (v: boolean) => void;
+  setUpstreamRetryPolicyDraft: (v: UpstreamRetryPolicy) => void;
   setAuthMode: (v: "api_key" | "oauth" | "cx2cc") => void;
   setCx2ccSourceValue: (v: string) => void;
   setOauthStatus: (v: ProviderOAuthStatusResult | null) => void;
@@ -97,6 +104,8 @@ export function useProviderEditorEffects(d: EffectDeps) {
     setTags,
     setTagInput,
     setStreamIdleTimeoutSeconds,
+    setUpstreamRetryPolicyOverrideEnabled,
+    setUpstreamRetryPolicyDraft,
     setAuthMode,
     setCx2ccSourceValue,
     setOauthStatus,
@@ -140,6 +149,14 @@ export function useProviderEditorEffects(d: EffectDeps) {
       setTags(createInitialValues?.tags ?? []);
       setTagInput("");
       setStreamIdleTimeoutSeconds(valueOrEmpty(createInitialValues?.stream_idle_timeout_seconds));
+      setUpstreamRetryPolicyOverrideEnabled(
+        createInitialValues?.upstream_retry_policy_override != null
+      );
+      setUpstreamRetryPolicyDraft(
+        cloneUpstreamRetryPolicy(
+          createInitialValues?.upstream_retry_policy_override ?? DEFAULT_UPSTREAM_RETRY_POLICY
+        )
+      );
       setCx2ccSourceValue(deriveCx2ccSourceValue(createInitialValues));
       setAuthMode(
         deriveCx2ccSourceValue(createInitialValues)
@@ -172,6 +189,12 @@ export function useProviderEditorEffects(d: EffectDeps) {
     setTags(snapshot.tags ?? []);
     setTagInput("");
     setStreamIdleTimeoutSeconds(valueOrEmpty(snapshot.stream_idle_timeout_seconds));
+    setUpstreamRetryPolicyOverrideEnabled(snapshot.upstream_retry_policy_override != null);
+    setUpstreamRetryPolicyDraft(
+      cloneUpstreamRetryPolicy(
+        snapshot.upstream_retry_policy_override ?? DEFAULT_UPSTREAM_RETRY_POLICY
+      )
+    );
     reset({
       name: snapshot.name,
       api_key: "",
@@ -214,6 +237,8 @@ export function useProviderEditorEffects(d: EffectDeps) {
     setOauthStatus,
     setPingingAll,
     setStreamIdleTimeoutSeconds,
+    setUpstreamRetryPolicyDraft,
+    setUpstreamRetryPolicyOverrideEnabled,
     setTagInput,
     setTags,
   ]);

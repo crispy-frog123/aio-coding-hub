@@ -54,6 +54,8 @@ mod retry_engine;
 mod send;
 #[path = "attempt/send_timeout.rs"]
 mod send_timeout;
+#[path = "attempt/upstream_retry_policy.rs"]
+mod upstream_retry_policy;
 
 // --- response/ : upstream response handling & finalization ---
 #[path = "response/codex_reasoning_guard.rs"]
@@ -198,7 +200,6 @@ where
         codex_reasoning_guard_compare_mode: input.codex_reasoning_guard_compare_mode,
         codex_reasoning_guard_reasoning_equals: &input.codex_reasoning_guard_reasoning_equals,
         codex_reasoning_guard_model_rules: &input.codex_reasoning_guard_model_rules,
-        max_attempts_per_provider: input.max_attempts_per_provider,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,
         response_fixer_non_stream_config: input.response_fixer_non_stream_config,

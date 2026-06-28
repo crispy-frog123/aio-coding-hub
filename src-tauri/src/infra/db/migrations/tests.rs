@@ -41,6 +41,7 @@ CREATE TABLE providers (
   source_provider_id INTEGER,
   bridge_type TEXT,
   stream_idle_timeout_seconds INTEGER,
+  upstream_retry_policy_json TEXT,
   UNIQUE(cli_key, name)
 );
 "#,

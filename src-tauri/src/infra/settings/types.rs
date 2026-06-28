@@ -59,6 +59,42 @@ pub enum CodexReasoningGuardCompareMode {
     LessThanOrEqual,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamTransportRetryKind {
+    Connect,
+    Timeout,
+    Read,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(default)]
+pub struct UpstreamRetryPolicy {
+    pub enabled: bool,
+    pub status_codes: Vec<u16>,
+    pub transport_errors: Vec<UpstreamTransportRetryKind>,
+    pub max_retries: u32,
+    pub backoff_ms: u32,
+    pub counts_toward_circuit_breaker: bool,
+}
+
+impl Default for UpstreamRetryPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            status_codes: vec![502, 503, 504],
+            transport_errors: vec![
+                UpstreamTransportRetryKind::Connect,
+                UpstreamTransportRetryKind::Timeout,
+                UpstreamTransportRetryKind::Read,
+            ],
+            max_retries: 1,
+            backoff_ms: 100,
+            counts_toward_circuit_breaker: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct CodexReasoningGuardModelRule {
@@ -151,6 +187,8 @@ pub struct AppSettings {
     pub update_releases_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
+    #[serde(default)]
+    pub upstream_retry_policy: UpstreamRetryPolicy,
     pub circuit_breaker_failure_threshold: u32,
     pub circuit_breaker_open_duration_minutes: u32,
     // Circuit breaker notice toggle (default disabled).
@@ -239,6 +277,7 @@ impl Default for AppSettings {
             update_releases_url: DEFAULT_UPDATE_RELEASES_URL.to_string(),
             failover_max_attempts_per_provider: DEFAULT_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER,
             failover_max_providers_to_try: DEFAULT_FAILOVER_MAX_PROVIDERS_TO_TRY,
+            upstream_retry_policy: UpstreamRetryPolicy::default(),
             circuit_breaker_failure_threshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
             circuit_breaker_open_duration_minutes: DEFAULT_CIRCUIT_BREAKER_OPEN_DURATION_MINUTES,
             enable_circuit_breaker_notice: DEFAULT_ENABLE_CIRCUIT_BREAKER_NOTICE,
