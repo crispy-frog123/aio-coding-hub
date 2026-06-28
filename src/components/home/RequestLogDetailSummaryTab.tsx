@@ -16,6 +16,7 @@ import {
   FastModeBadge,
   hasCodexReasoningGuardSpecialSetting,
   hasPriorityServiceTierSpecialSetting,
+  resolveRequestLogUsageReasoningTokens,
 } from "./HomeLogShared";
 
 export type RequestLogDetailSummaryTabProps = {
@@ -38,6 +39,7 @@ export function RequestLogDetailSummaryTab({
   attemptCount: _attemptCount,
 }: RequestLogDetailSummaryTabProps) {
   const auditMeta = buildRequestLogAuditMeta(selectedLog);
+  const usageReasoningTokens = resolveRequestLogUsageReasoningTokens(selectedLog.usage_json);
   const isPriorityServiceTier =
     selectedLog.cli_key === "codex" &&
     hasPriorityServiceTierSpecialSetting(selectedLog.special_settings_json);
@@ -99,7 +101,7 @@ export function RequestLogDetailSummaryTab({
           <div className="mt-3 grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
             <MetricCard label="输入 Token" value={selectedLog.input_tokens} />
             <MetricCard label="输出 Token" value={selectedLog.output_tokens} />
-            <MetricCard label="思考 Token" value={auditMeta.reasoningTokens} />
+            <MetricCard label="思考 Token" value={usageReasoningTokens} />
             <MetricCard label="缓存创建" value={resolveCacheWriteValue(selectedLog)} />
             <MetricCard label="缓存读取" value={selectedLog.cache_read_input_tokens} />
             <MetricCard label="总耗时" value={formatDurationMs(displayDurationMs)} />

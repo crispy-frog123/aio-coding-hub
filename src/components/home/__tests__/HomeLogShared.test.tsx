@@ -18,6 +18,7 @@ import {
   resolveClaudeModelMappingFromSpecialSettings,
   resolveLiveTraceDurationMs,
   resolveLiveTraceProvider,
+  resolveRequestLogUsageReasoningTokens,
   SessionReuseBadge,
 } from "../HomeLogShared";
 
@@ -252,6 +253,40 @@ describe("components/home/HomeLogShared", () => {
       text: "状态未知",
       title: "状态未知",
     });
+  });
+
+  it("resolves reasoning tokens from final usage json shapes", () => {
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          output_tokens_details: { reasoning_tokens: 321 },
+        })
+      )
+    ).toBe(321);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          usage: {
+            completion_tokens_details: { reasoning_tokens: 654 },
+          },
+        })
+      )
+    ).toBe(654);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          reasoning_tokens: 777,
+        })
+      )
+    ).toBe(777);
+    expect(
+      resolveRequestLogUsageReasoningTokens(
+        JSON.stringify({
+          outputTokensDetails: { reasoningTokens: 888 },
+        })
+      )
+    ).toBe(888);
+    expect(resolveRequestLogUsageReasoningTokens("not-json")).toBeNull();
   });
 
   it("covers malformed special settings and trace ordering edge cases", () => {

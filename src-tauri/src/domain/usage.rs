@@ -7,6 +7,7 @@ pub struct UsageMetrics {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
+    pub reasoning_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
     pub cache_creation_input_tokens: Option<i64>,
     pub cache_creation_5m_input_tokens: Option<i64>,
@@ -28,10 +29,27 @@ fn as_i64(value: Option<&Value>) -> Option<i64> {
     }
 }
 
+fn object_i64(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| as_i64(obj.get(*key)))
+}
+
+fn nested_object_i64(
+    obj: &serde_json::Map<String, Value>,
+    container_keys: &[&str],
+    value_keys: &[&str],
+) -> Option<i64> {
+    container_keys.iter().find_map(|container_key| {
+        obj.get(*container_key)
+            .and_then(|v| v.as_object())
+            .and_then(|m| object_i64(m, value_keys))
+    })
+}
+
 fn has_any_metric(metrics: &UsageMetrics) -> bool {
     metrics.input_tokens.is_some()
         || metrics.output_tokens.is_some()
         || metrics.total_tokens.is_some()
+        || metrics.reasoning_tokens.is_some()
         || metrics.cache_read_input_tokens.is_some()
         || metrics.cache_creation_input_tokens.is_some()
         || metrics.cache_creation_5m_input_tokens.is_some()
@@ -49,6 +67,12 @@ fn normalize_usage_json(metrics: &UsageMetrics) -> String {
     }
     if let Some(v) = metrics.total_tokens {
         obj.insert("total_tokens".to_string(), json!(v));
+    }
+    if let Some(v) = metrics.reasoning_tokens {
+        obj.insert(
+            "output_tokens_details".to_string(),
+            json!({ "reasoning_tokens": v }),
+        );
     }
     if let Some(v) = metrics.cache_read_input_tokens {
         obj.insert("cache_read_input_tokens".to_string(), json!(v));
@@ -141,6 +165,13 @@ fn extract_usage_metrics(value: &Value) -> Option<UsageMetrics> {
     metrics.total_tokens = metrics
         .total_tokens
         .or_else(|| as_i64(obj.get("total_tokens")));
+    metrics.reasoning_tokens = metrics.reasoning_tokens.or_else(|| {
+        nested_object_i64(
+            obj,
+            &["completion_tokens_details", "completionTokensDetails"],
+            &["reasoning_tokens", "reasoningTokens", "reasoningTokenCount"],
+        )
+    });
 
     // OpenAI Responses API: {input_tokens, output_tokens, total_tokens}
     metrics.input_tokens = metrics
@@ -152,6 +183,25 @@ fn extract_usage_metrics(value: &Value) -> Option<UsageMetrics> {
     metrics.total_tokens = metrics
         .total_tokens
         .or_else(|| as_i64(obj.get("total_tokens")));
+    metrics.reasoning_tokens = metrics.reasoning_tokens.or_else(|| {
+        nested_object_i64(
+            obj,
+            &["output_tokens_details", "outputTokensDetails"],
+            &["reasoning_tokens", "reasoningTokens", "reasoningTokenCount"],
+        )
+    });
+    metrics.reasoning_tokens = metrics.reasoning_tokens.or_else(|| {
+        object_i64(
+            obj,
+            &[
+                "reasoning_tokens",
+                "reasoningTokens",
+                "reasoningTokenCount",
+                "thinking_tokens",
+                "thinkingTokens",
+            ],
+        )
+    });
 
     // OpenAI detail: input_tokens_details.cached_tokens OR prompt_tokens_details.cached_tokens
     metrics.cache_read_input_tokens = metrics.cache_read_input_tokens.or_else(|| {
@@ -210,10 +260,11 @@ fn extract_usage_metrics(value: &Value) -> Option<UsageMetrics> {
         .input_tokens
         .or_else(|| as_i64(obj.get("promptTokenCount")));
     let candidates = as_i64(obj.get("candidatesTokenCount"));
-    let thoughts = as_i64(obj.get("thoughtsTokenCount")).unwrap_or(0);
+    let thoughts = as_i64(obj.get("thoughtsTokenCount"));
+    metrics.reasoning_tokens = metrics.reasoning_tokens.or(thoughts);
     metrics.output_tokens = metrics
         .output_tokens
-        .or_else(|| candidates.map(|v| v.saturating_add(thoughts)));
+        .or_else(|| candidates.map(|v| v.saturating_add(thoughts.unwrap_or(0))));
     metrics.total_tokens = metrics
         .total_tokens
         .or_else(|| as_i64(obj.get("totalTokenCount")));
@@ -311,6 +362,7 @@ fn merge_metrics(base: &UsageMetrics, patch: &UsageMetrics) -> UsageMetrics {
         input_tokens: patch.input_tokens.or(base.input_tokens),
         output_tokens: patch.output_tokens.or(base.output_tokens),
         total_tokens: patch.total_tokens.or(base.total_tokens),
+        reasoning_tokens: merge_reasoning_tokens(base.reasoning_tokens, patch.reasoning_tokens),
         cache_read_input_tokens: patch
             .cache_read_input_tokens
             .or(base.cache_read_input_tokens),
@@ -323,6 +375,17 @@ fn merge_metrics(base: &UsageMetrics, patch: &UsageMetrics) -> UsageMetrics {
         cache_creation_1h_input_tokens: patch
             .cache_creation_1h_input_tokens
             .or(base.cache_creation_1h_input_tokens),
+    }
+}
+
+fn merge_reasoning_tokens(base: Option<i64>, patch: Option<i64>) -> Option<i64> {
+    match (base, patch) {
+        (_, Some(value)) if value > 0 => Some(value),
+        (Some(value), Some(_)) if value > 0 => Some(value),
+        (Some(_), Some(value)) => Some(value),
+        (Some(value), None) => Some(value),
+        (None, Some(value)) => Some(value),
+        (None, None) => None,
     }
 }
 
@@ -700,7 +763,10 @@ impl SseUsageTracker {
 
         // Generic SSE: attempt to extract usage/usageMetadata from the event payload.
         if let Some(metrics) = extract_from_json_value(data) {
-            self.last_generic = Some(metrics);
+            self.last_generic = Some(match &self.last_generic {
+                Some(prev) => merge_metrics(prev, &metrics),
+                None => metrics,
+            });
         }
     }
 

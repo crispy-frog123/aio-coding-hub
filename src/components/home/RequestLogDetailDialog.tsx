@@ -20,10 +20,12 @@ import {
   computeStatusBadge,
   resolveLiveTraceDurationMs,
   resolveLiveTraceProvider,
+  resolveRequestLogUsageReasoningTokens,
 } from "./HomeLogShared";
 import { RequestLogDetailSummaryTab } from "./RequestLogDetailSummaryTab";
 import { RequestLogDetailChainTab } from "./RequestLogDetailChainTab";
 import { RequestLogDetailRawTab } from "./RequestLogDetailRawTab";
+import type { RequestAttemptLog } from "../../services/gateway/requestLogs";
 
 export type RequestLogDetailDialogProps = {
   selectedLogId: number | null;
@@ -37,6 +39,16 @@ const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: "chain", label: "决策链" },
   { key: "raw", label: "原始数据" },
 ];
+
+function hasProviderFailover(attemptLogs: RequestAttemptLog[]) {
+  const providerIds = new Set<number>();
+  for (const attempt of attemptLogs) {
+    if (typeof attempt.provider_id !== "number" || attempt.provider_id <= 0) continue;
+    providerIds.add(attempt.provider_id);
+    if (providerIds.size > 1) return true;
+  }
+  return false;
+}
 
 export function RequestLogDetailDialog({
   selectedLogId,
@@ -53,7 +65,12 @@ export function RequestLogDetailDialog({
   const selectedLogLoading = selectedLogQuery.isFetching;
 
   const attemptLogsQuery = useRequestAttemptLogsByTraceIdQuery(selectedLog?.trace_id ?? null, 50);
-  const attemptLogs = attemptLogsQuery.data ?? [];
+  const attemptLogs =
+    selectedLog == null
+      ? []
+      : (attemptLogsQuery.data ?? []).filter(
+          (attempt) => attempt.trace_id === selectedLog.trace_id
+        );
   const attemptLogsLoading = attemptLogsQuery.isFetching;
   const refreshSelectedLogDetail = useCallback(async () => {
     await Promise.allSettled([selectedLogQuery.refetch(), attemptLogsQuery.refetch()]);
@@ -80,6 +97,9 @@ export function RequestLogDetailDialog({
     ? (liveProvider?.providerId ?? selectedLog?.final_provider_id)
     : selectedLog?.final_provider_id;
   const auditMeta = selectedLog ? buildRequestLogAuditMeta(selectedLog) : null;
+  const usageReasoningTokens = selectedLog
+    ? resolveRequestLogUsageReasoningTokens(selectedLog.usage_json)
+    : null;
   const finalProviderText =
     auditMeta?.providerFallbackText ?? resolveProviderLabel(providerName, providerId);
   const displayDurationMs =
@@ -96,7 +116,7 @@ export function RequestLogDetailDialog({
         status: selectedLog.status,
         errorCode: selectedLog.error_code,
         inProgress: isInProgress,
-        hasFailover: attemptLogs.length > 1,
+        hasFailover: hasProviderFailover(attemptLogs),
       })
     : null;
 
@@ -109,7 +129,7 @@ export function RequestLogDetailDialog({
       selectedLog.cache_creation_input_tokens != null ||
       selectedLog.cache_creation_5m_input_tokens != null ||
       selectedLog.cache_creation_1h_input_tokens != null ||
-      auditMeta?.reasoningTokens != null ||
+      usageReasoningTokens != null ||
       selectedLog.cost_usd != null ||
       selectedLog.duration_ms != null ||
       selectedLog.ttfb_ms != null ||

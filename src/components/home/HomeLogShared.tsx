@@ -62,6 +62,55 @@ export function hasCodexReasoningGuardSpecialSetting(
   return resolveCodexReasoningGuardSummary(specialSettingsJson).count > 0;
 }
 
+function finiteJsonNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function resolveReasoningTokensFromJsonValue(value: unknown): number | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return (
+    finiteJsonNumber(
+      (record.output_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens
+    ) ??
+    finiteJsonNumber(
+      (record.outputTokensDetails as Record<string, unknown> | undefined)?.reasoningTokens
+    ) ??
+    finiteJsonNumber(
+      (record.outputTokensDetails as Record<string, unknown> | undefined)?.reasoningTokenCount
+    ) ??
+    finiteJsonNumber(
+      (record.completion_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens
+    ) ??
+    finiteJsonNumber(
+      (record.completionTokensDetails as Record<string, unknown> | undefined)?.reasoningTokens
+    ) ??
+    finiteJsonNumber(
+      (record.completionTokensDetails as Record<string, unknown> | undefined)?.reasoningTokenCount
+    ) ??
+    finiteJsonNumber(record.reasoning_tokens) ??
+    finiteJsonNumber(record.reasoningTokens) ??
+    finiteJsonNumber(record.reasoningTokenCount) ??
+    finiteJsonNumber(record.thinking_tokens) ??
+    finiteJsonNumber(record.thinkingTokens) ??
+    resolveReasoningTokensFromJsonValue(record.usage) ??
+    resolveReasoningTokensFromJsonValue(
+      (record.response as Record<string, unknown> | undefined)?.usage
+    )
+  );
+}
+
+export function resolveRequestLogUsageReasoningTokens(
+  usageJson: string | null | undefined
+): number | null {
+  if (!usageJson) return null;
+  try {
+    return resolveReasoningTokensFromJsonValue(JSON.parse(usageJson) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 export function hasCodexReasoningGuardRetryAttempt(
   attempts: Array<{ outcome?: string | null }> | null | undefined
 ): boolean {

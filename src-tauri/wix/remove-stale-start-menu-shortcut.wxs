@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="RemoveStaleStartMenuShortcut" Guid="{820A8A56-0A54-5D69-8FE4-02B88324C76F}">
+        <RemoveFile Id="RemoveStaleStartMenuShortcutFile" Name="AIO Coding Hub.lnk" On="install" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\aio\AIO Coding Hub"
+                       Name="Start Menu Shortcut Cleanup"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

@@ -513,6 +513,10 @@ fn build_error_details_json(
     error_code: Option<&str>,
     attempts: &[FailoverAttempt],
 ) -> Option<String> {
+    if error_code.is_none() {
+        return None;
+    }
+
     let mut obj = serde_json::Map::new();
 
     if let Some(gateway_error_code) = error_code {
@@ -1518,7 +1522,7 @@ mod tests {
     }
 
     #[test]
-    fn build_error_details_json_does_not_require_top_level_error_code() {
+    fn build_error_details_json_uses_attempt_context_when_top_level_error_code_exists() {
         let mut attempt = sample_attempt();
         attempt.outcome = "system_error".to_string();
         attempt.status = None;
@@ -1529,13 +1533,20 @@ mod tests {
         attempt.selection_method = Some("ordered");
         attempt.reason_code = Some(ErrorCategory::SystemError.reason_code());
 
-        let encoded = build_error_details_json(None, &[attempt])
-            .expect("error details without top-level code");
+        let encoded =
+            build_error_details_json(Some(GatewayErrorCode::InternalError.as_str()), &[attempt])
+                .expect("error details with top-level code");
         let value: serde_json::Value =
             serde_json::from_str(encoded.as_str()).expect("valid error details json");
 
-        assert!(value.get("gateway_error_code").is_none());
-        assert!(value.get("error_code").is_none());
+        assert_eq!(
+            value.get("gateway_error_code"),
+            Some(&json!(GatewayErrorCode::InternalError.as_str()))
+        );
+        assert_eq!(
+            value.get("error_code"),
+            Some(&json!(GatewayErrorCode::InternalError.as_str()))
+        );
         assert_eq!(
             value.get("error_category"),
             Some(&json!(ErrorCategory::SystemError.as_str()))
@@ -1546,6 +1557,70 @@ mod tests {
             Some(&json!(ErrorCategory::SystemError.reason_code()))
         );
         assert_eq!(value.get("decision"), Some(&json!("abort")));
+    }
+
+    #[test]
+    fn successful_request_end_does_not_promote_reasoning_guard_attempt_to_error_details() {
+        let mut guard_attempt = sample_attempt();
+        guard_attempt.outcome = "codex_reasoning_guard_retry".to_string();
+        guard_attempt.status = Some(502);
+        guard_attempt.error_category = Some(ErrorCategory::SystemError.as_str());
+        guard_attempt.error_code = Some("GW_CODEX_REASONING_GUARD");
+        guard_attempt.decision = Some("retry_same_provider");
+        guard_attempt.reason_code = Some("codex_reasoning_guard");
+        guard_attempt.reason =
+            Some("codex reasoning guard matched reasoning_tokens=516 == 516".to_string());
+
+        let mut success_attempt = sample_attempt();
+        success_attempt.provider_id = guard_attempt.provider_id;
+        success_attempt.provider_name = guard_attempt.provider_name.clone();
+        success_attempt.retry_index = Some(2);
+
+        let (log_args, _) = RequestLogEnqueueArgs::from_proxy_request_end_parts(
+            "trace-codex-guard-success",
+            "codex",
+            None,
+            "POST",
+            "/v1/responses",
+            None,
+            false,
+            Some(r#"[{"type":"codex_reasoning_guard","reasoningTokens":516}]"#.to_string()),
+            Some(200),
+            None,
+            2_000,
+            Some(100),
+            Some(2_000),
+            &[guard_attempt, success_attempt],
+            Some("gpt-5-codex".to_string()),
+            100,
+            200,
+            Some(crate::usage::UsageMetrics {
+                input_tokens: Some(19_755),
+                output_tokens: Some(662),
+                total_tokens: Some(20_417),
+                reasoning_tokens: None,
+                cache_read_input_tokens: Some(19_328),
+                cache_creation_input_tokens: None,
+                cache_creation_5m_input_tokens: None,
+                cache_creation_1h_input_tokens: None,
+            }),
+            None,
+        );
+
+        assert_eq!(log_args.status, Some(200));
+        assert_eq!(log_args.error_code, None);
+        assert_eq!(log_args.error_details_json, None);
+        assert_eq!(
+            log_args.usage_metrics.as_ref().and_then(|u| u.input_tokens),
+            Some(19_755)
+        );
+        assert_eq!(
+            log_args
+                .usage_metrics
+                .as_ref()
+                .and_then(|u| u.output_tokens),
+            Some(662)
+        );
     }
 
     #[test]
