@@ -29,6 +29,7 @@ jobs:
       release_created: ${{ steps.manual_release.outputs.release_created || steps.release.outputs.release_created }}
       tag_name: ${{ steps.manual_release.outputs.tag_name || steps.release.outputs.tag_name }}
       release_id: ${{ steps.manual_release.outputs.id || steps.release.outputs.id }}
+      checkout_ref: ${{ steps.manual_release.outputs.checkout_ref || steps.release.outputs.tag_name }}
       build_matrix: ${{ steps.support_matrix.outputs.build_matrix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -74,7 +75,7 @@ jobs:
           tag="$RELEASE_TAG"
           target="$TARGET_COMMITISH"
 
-          if release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null)"; then
+          if release_id="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId 2>/dev/null)"; then
             echo "Using existing release for $tag"
           else
             version="${tag#aio-coding-hub-v}"
@@ -101,13 +102,13 @@ jobs:
               --notes-file "$notes_file" \
               --draft
 
-            release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
+            release_id="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)"
           fi
 
-          id="$(node -e 'let data=""; process.stdin.on("data",(c)=>data+=c); process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(data).id)));' <<< "$release_json")"
           echo "release_created=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$target" >> "$GITHUB_OUTPUT"
 
       - name: Check release PR changelog range
         if: steps.release.outputs.prs_created == 'true'
@@ -128,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.checkout_ref }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
@@ -338,7 +339,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.checkout_ref }}
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
