@@ -6,7 +6,7 @@ describe("MSW defaults", () => {
     resetMswState();
 
     expect(getSettingsState()).toEqual({
-      schema_version: 37,
+      schema_version: 39,
       preferred_port: 37123,
       show_home_heatmap: true,
       show_home_usage: true,
@@ -21,6 +21,7 @@ describe("MSW defaults", () => {
       codex_home_mode: "user_home_default",
       codex_home_override: "",
       codex_oauth_compatible_proxy_mode: false,
+      codex_provider_test_model: "gpt-5.4-mini",
       codex_reasoning_guard_enabled: true,
       codex_reasoning_guard_compare_mode: "equals",
       codex_reasoning_guard_reasoning_equals: [516],
@@ -38,6 +39,14 @@ describe("MSW defaults", () => {
       update_releases_url: "https://github.com/FingerCaster/aio-coding-hub/releases",
       failover_max_attempts_per_provider: 5,
       failover_max_providers_to_try: 5,
+      upstream_retry_policy: {
+        enabled: true,
+        max_retries: 1,
+        backoff_ms: 100,
+        counts_toward_circuit_breaker: false,
+        status_codes: [502, 503, 504],
+        transport_errors: ["connect", "timeout", "read"],
+      },
       circuit_breaker_failure_threshold: 5,
       circuit_breaker_open_duration_minutes: 30,
       enable_circuit_breaker_notice: false,

@@ -27,7 +27,7 @@ describe("components/home/requestLogErrorDetails", () => {
           provider_id: 42,
           provider_index: 1,
           provider_name: "Provider B",
-          reason: "rule=provider_circuit, upstream_body={\"error\":\"bad\"}",
+          reason: 'rule=provider_circuit, upstream_body={"error":"bad"}',
           reason_code: "circuit_open",
           retry_index: 2,
           selection_method: "sort_mode",
@@ -52,12 +52,12 @@ describe("components/home/requestLogErrorDetails", () => {
         providerId: 42,
         providerIndex: 1,
         providerName: "Provider B",
-        reason: "rule=provider_circuit, upstream_body={\"error\":\"bad\"}",
+        reason: 'rule=provider_circuit, upstream_body={"error":"bad"}',
         reasonCode: "circuit_open",
         retryIndex: 2,
         selectionMethod: "sort_mode",
         source: "error_details_json",
-        upstreamBodyPreview: "{\"error\":\"bad\"}",
+        upstreamBodyPreview: '{"error":"bad"}',
         upstreamStatus: 503,
       })
     );
@@ -67,6 +67,8 @@ describe("components/home/requestLogErrorDetails", () => {
     expect(
       resolveRequestLogErrorObservation(
         createRequestLogDetail({
+          status: 502,
+          error_code: "GW_UPSTREAM_5XX",
           error_details_json: "not json",
         })
       )
@@ -80,6 +82,8 @@ describe("components/home/requestLogErrorDetails", () => {
     expect(
       resolveRequestLogErrorObservation(
         createRequestLogDetail({
+          status: 502,
+          error_code: "GW_UPSTREAM_5XX",
           error_details_json: "{}",
         })
       )

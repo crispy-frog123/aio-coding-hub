@@ -61,7 +61,7 @@ pub(super) fn should_record_circuit_failure(
     policy: &crate::settings::UpstreamRetryPolicy,
     configured_retry: bool,
 ) -> bool {
-    !(configured_retry && !policy.counts_toward_circuit_breaker)
+    !configured_retry || policy.counts_toward_circuit_breaker
 }
 
 #[cfg(test)]

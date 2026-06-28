@@ -513,9 +513,7 @@ fn build_error_details_json(
     error_code: Option<&str>,
     attempts: &[FailoverAttempt],
 ) -> Option<String> {
-    if error_code.is_none() {
-        return None;
-    }
+    error_code?;
 
     let mut obj = serde_json::Map::new();
 

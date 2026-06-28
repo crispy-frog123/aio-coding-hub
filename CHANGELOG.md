@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.60.5](https://github.com/FingerCaster/aio-coding-hub/compare/aio-coding-hub-v0.60.4...aio-coding-hub-v0.60.5) (2026-06-29)
+
+
+### Features
+
+* add configurable upstream retry policy ([f148f69](https://github.com/FingerCaster/aio-coding-hub/commit/f148f69))
+* **home:** show reasoning token metrics ([3647475](https://github.com/FingerCaster/aio-coding-hub/commit/3647475))
+
+
+### Bug Fixes
+
+* **codex:** accept default reasoning guard compare mode ([4970211](https://github.com/FingerCaster/aio-coding-hub/commit/4970211))
+* request log token display and msi shortcut warning ([3f40124](https://github.com/FingerCaster/aio-coding-hub/commit/3f40124))
+* show Codex reasoning effort in request logs ([4426cd3](https://github.com/FingerCaster/aio-coding-hub/commit/4426cd3))
+* **tauri:** embed example manifest for type export ([1effa07](https://github.com/FingerCaster/aio-coding-hub/commit/1effa07))
+
 ## [0.60.4](https://github.com/FingerCaster/aio-coding-hub/compare/aio-coding-hub-v0.60.3...aio-coding-hub-v0.60.4) (2026-06-28)
 
 

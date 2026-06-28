@@ -368,6 +368,7 @@ fn translate_cx2cc_non_stream_body(
     Ok(Bytes::from(encoded))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_success_non_stream<R>(
     ctx: CommonCtx<'_, R>,
     provider_ctx: ProviderCtx<'_>,
