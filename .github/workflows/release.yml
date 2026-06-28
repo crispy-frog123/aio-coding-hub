@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing or new release tag to build, e.g. aio-coding-hub-v0.60.6"
+        required: false
+        type: string
+      target_commitish:
+        description: "Commit SHA for a new manual release tag"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -17,9 +26,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      release_id: ${{ steps.release.outputs.id }}
+      release_created: ${{ steps.manual_release.outputs.release_created || steps.release.outputs.release_created }}
+      tag_name: ${{ steps.manual_release.outputs.tag_name || steps.release.outputs.tag_name }}
+      release_id: ${{ steps.manual_release.outputs.id || steps.release.outputs.id }}
       build_matrix: ${{ steps.support_matrix.outputs.build_matrix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -42,6 +51,7 @@ jobs:
           echo "build_matrix=$(node scripts/support-matrix.mjs build-matrix)" >> "$GITHUB_OUTPUT"
 
       - id: release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_tag == '' }}
         uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
         with:
           config-file: release-please-config.json
@@ -49,6 +59,55 @@ jobs:
           target-branch: main
           skip-github-pull-request: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release aio-coding-hub ') }}"
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - id: manual_release
+        name: Use or create manual release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET_COMMITISH: ${{ inputs.target_commitish || github.sha }}
+        run: |
+          set -euo pipefail
+
+          tag="$RELEASE_TAG"
+          target="$TARGET_COMMITISH"
+
+          if release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null)"; then
+            echo "Using existing release for $tag"
+          else
+            version="${tag#aio-coding-hub-v}"
+            notes_file="$(mktemp)"
+            node - "$version" > "$notes_file" <<'NODE'
+          const fs = require('fs');
+          const version = process.argv[2];
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          const lines = changelog.split(/\r?\n/);
+          const heading = new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`);
+          const start = lines.findIndex((line) => heading.test(line));
+          if (start === -1) {
+            console.log(`Release ${version}`);
+            process.exit(0);
+          }
+          const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+          console.log(lines.slice(start + 1, end === -1 ? lines.length : end).join('\n').trim());
+          NODE
+
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$target" \
+              --title "aio-coding-hub: v$version" \
+              --notes-file "$notes_file" \
+              --draft
+
+            release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
+          fi
+
+          id="$(node -e 'let data=""; process.stdin.on("data",(c)=>data+=c); process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(data).id)));' <<< "$release_json")"
+          echo "release_created=true" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
       - name: Check release PR changelog range
         if: steps.release.outputs.prs_created == 'true'
@@ -68,6 +127,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
@@ -276,6 +337,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
