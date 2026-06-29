@@ -1105,7 +1105,7 @@ mod tests {
 
         let attempts: Value = serde_json::from_str(&log.attempts_json).expect("attempts json");
         let attempts = attempts.as_array().expect("attempt array");
-        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts.len(), 2);
         assert_eq!(
             attempts[0].get("provider_id").and_then(Value::as_i64),
             Some(provider_id)
@@ -1115,7 +1115,15 @@ mod tests {
             Some(crate::gateway::proxy::GatewayErrorCode::UpstreamTimeout.as_str())
         );
         assert_eq!(
-            attempts[0].get("decision").and_then(Value::as_str),
+            attempts[1].get("provider_id").and_then(Value::as_i64),
+            Some(provider_id)
+        );
+        assert_eq!(
+            attempts[1].get("outcome").and_then(Value::as_str),
+            Some("request_timeout: category=SYSTEM_ERROR code=GW_UPSTREAM_TIMEOUT decision=switch timeout_secs=1")
+        );
+        assert_eq!(
+            attempts[1].get("decision").and_then(Value::as_str),
             Some("switch")
         );
 
@@ -2544,7 +2552,7 @@ mod tests {
 
         let attempts: Value = serde_json::from_str(&log.attempts_json).expect("attempts json");
         let attempts = attempts.as_array().expect("attempt array");
-        assert_eq!(attempts.len(), 2);
+        assert_eq!(attempts.len(), 3);
         assert_eq!(
             attempts[0].get("provider_id").and_then(Value::as_i64),
             Some(timeout_provider_id)
@@ -2555,10 +2563,18 @@ mod tests {
         );
         assert_eq!(
             attempts[1].get("provider_id").and_then(Value::as_i64),
-            Some(success_provider_id)
+            Some(timeout_provider_id)
         );
         assert_eq!(
             attempts[1].get("outcome").and_then(Value::as_str),
+            Some("request_timeout: category=SYSTEM_ERROR code=GW_UPSTREAM_TIMEOUT decision=switch timeout_secs=1")
+        );
+        assert_eq!(
+            attempts[2].get("provider_id").and_then(Value::as_i64),
+            Some(success_provider_id)
+        );
+        assert_eq!(
+            attempts[2].get("outcome").and_then(Value::as_str),
             Some("success")
         );
 
@@ -4137,7 +4153,7 @@ mod tests {
         );
         assert_eq!(
             attempts[0].get("outcome").and_then(Value::as_str),
-            Some("stream_error: code=GW_FAKE_200")
+            Some("body_error: code=GW_FAKE_200")
         );
         assert_eq!(
             attempts[0].get("error_code").and_then(Value::as_str),
