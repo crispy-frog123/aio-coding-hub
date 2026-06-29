@@ -733,6 +733,13 @@ fn validate_contributes(
         return Ok(());
     };
 
+    if !contributes.unsupported_gateway_rules.is_empty() {
+        return Err(PluginValidationError::new(
+            "PLUGIN_INVALID_CONTRIBUTION",
+            "gatewayRules are no longer supported; use gatewayHooks",
+        ));
+    }
+
     for provider in &contributes.providers {
         if is_blank(&provider.provider_type)
             || is_blank(&provider.display_name)
@@ -915,16 +922,18 @@ fn validate_capability_dependencies(
             "protocolBridges contribution",
         )?;
     }
-    if contributes
-        .ui
-        .get("providers.editor.sections")
-        .is_some_and(|items| !items.is_empty())
-    {
-        require_capability(
-            capabilities,
-            "provider.extensionValues",
-            "providers.editor.sections UI contribution",
-        )?;
+    for slot in ["providers.editor.sections", "providers.editor.fields"] {
+        if contributes
+            .ui
+            .get(slot)
+            .is_some_and(|items| !items.is_empty())
+        {
+            require_capability(
+                capabilities,
+                "provider.extensionValues",
+                &format!("{slot} UI contribution"),
+            )?;
+        }
     }
     if ui_has_button_field(&contributes.ui) {
         require_capability(capabilities, "commands.execute", "UI command field")?;
@@ -1271,9 +1280,13 @@ mod tests {
     }
 
     fn assert_manifest_validation_error(raw: serde_json::Value, expected_code: &str) {
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
+        let err = manifest_validation_error(raw);
         assert_eq!(err.code, expected_code);
+    }
+
+    fn manifest_validation_error(raw: serde_json::Value) -> PluginValidationError {
+        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
+        validate_manifest(&manifest, "0.62.0").unwrap_err()
     }
 
     fn assert_unsupported_or_unknown_runtime(raw: serde_json::Value) {
@@ -1367,13 +1380,12 @@ mod tests {
             }]
         });
 
-        match serde_json::from_value::<PluginManifest>(raw) {
-            Ok(manifest) => {
-                let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
-                assert_eq!(err.code, "PLUGIN_INVALID_CONTRIBUTION");
-            }
-            Err(err) => assert!(err.to_string().contains("unknown field")),
-        }
+        let err = manifest_validation_error(raw);
+        assert_eq!(err.code, "PLUGIN_INVALID_CONTRIBUTION");
+        assert_eq!(
+            err.message,
+            "gatewayRules are no longer supported; use gatewayHooks"
+        );
     }
 
     #[test]
@@ -1448,6 +1460,28 @@ mod tests {
         });
 
         assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_provider_editor_fields_require_extension_values_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "ui": {
+                "providers.editor.fields": [{
+                    "id": "openrouter-api-key",
+                    "schema": {
+                        "type": "section",
+                        "fields": [{ "type": "password", "key": "apiKey", "label": "API key" }]
+                    }
+                }]
+            }
+        });
+
+        let err = manifest_validation_error(raw);
+        assert_eq!(err.code, "PLUGIN_MISSING_CAPABILITY");
+        assert!(err
+            .message
+            .contains("providers.editor.fields UI contribution requires provider.extensionValues"));
     }
 
     #[test]
@@ -1712,6 +1746,36 @@ mod tests {
         });
         let manifest: PluginManifest = serde_json::from_value(local).unwrap();
         let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        assert_eq!(err.code, "PLUGIN_UNSUPPORTED_RUNTIME");
+    }
+
+    #[test]
+    fn official_manifest_validation_rejects_spoofed_native_privacy_filter_id() {
+        let mut raw = valid_manifest();
+        raw["id"] = serde_json::json!("community.privacy-filter");
+        raw["runtime"] = serde_json::json!({
+            "kind": "native",
+            "engine": "privacyFilter"
+        });
+        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
+
+        let err = validate_manifest_for_official_plugin(&manifest, "0.56.0").unwrap_err();
+
+        assert_eq!(err.code, "PLUGIN_UNSUPPORTED_RUNTIME");
+    }
+
+    #[test]
+    fn official_manifest_validation_rejects_wrong_native_privacy_filter_engine() {
+        let mut raw = valid_manifest();
+        raw["id"] = serde_json::json!("official.privacy-filter");
+        raw["runtime"] = serde_json::json!({
+            "kind": "native",
+            "engine": "otherEngine"
+        });
+        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
+
+        let err = validate_manifest_for_official_plugin(&manifest, "0.56.0").unwrap_err();
+
         assert_eq!(err.code, "PLUGIN_UNSUPPORTED_RUNTIME");
     }
 }
