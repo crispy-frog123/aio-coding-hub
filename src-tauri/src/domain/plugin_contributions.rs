@@ -39,7 +39,7 @@ pub fn is_known_capability(capability: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginContributes {
     #[serde(default)]
     pub providers: Vec<ProviderContribution>,
@@ -53,9 +53,6 @@ pub struct PluginContributes {
     #[serde(rename = "gatewayHooks")]
     #[serde(default)]
     pub gateway_hooks: Vec<PluginHook>,
-    #[serde(rename = "gatewayRules")]
-    #[serde(default)]
-    pub gateway_rules: Vec<GatewayRuleContribution>,
     #[serde(default)]
     pub ui: BTreeMap<String, Vec<UiContribution>>,
 }
@@ -118,16 +115,6 @@ pub struct CommandContribution {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct GatewayRuleContribution {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    pub rules: Vec<String>,
-    #[serde(default)]
-    pub hooks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]

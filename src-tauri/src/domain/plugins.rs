@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::plugin_contributions::{
-    is_known_capability, is_known_ui_slot, HostRenderedField, HostRenderedSchema, PluginContributes,
+    is_known_capability, is_known_ui_slot, HostRenderedField, HostRenderedSchema,
+    PluginContributes, UiContribution,
 };
 
 pub type PluginId = String;
@@ -60,22 +63,8 @@ pub struct PluginManifest {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PluginRuntime {
-    ExtensionHost {
-        language: String,
-    },
-    DeclarativeRules {
-        rules: Vec<String>,
-    },
-    Native {
-        engine: String,
-    },
-    Wasm {
-        #[serde(rename = "abiVersion")]
-        abi_version: String,
-        #[serde(rename = "memoryLimitBytes")]
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        memory_limit_bytes: Option<u64>,
-    },
+    ExtensionHost { language: String },
+    Native { engine: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
@@ -542,28 +531,50 @@ pub fn validate_manifest(
     manifest: &PluginManifest,
     host_version: &str,
 ) -> Result<(), PluginValidationError> {
-    validate_plugin_id(&manifest.id)?;
-    validate_semver(&manifest.version, "PLUGIN_INVALID_VERSION")?;
-    validate_manifest_api_version(&manifest.api_version)?;
-    validate_runtime(manifest)?;
+    validate_manifest_identity(manifest)?;
     match &manifest.runtime {
-        PluginRuntime::ExtensionHost { .. } => {
-            validate_activation_events(&manifest.activation_events)?;
-            validate_contributes(manifest.contributes.as_ref())?;
-            validate_capabilities(&manifest.capabilities)?;
+        PluginRuntime::ExtensionHost { language } => {
+            validate_extension_host_manifest(manifest, language)?;
         }
-        PluginRuntime::DeclarativeRules { .. }
-        | PluginRuntime::Native { .. }
-        | PluginRuntime::Wasm { .. } => {
-            validate_hooks(&manifest.hooks)?;
-            validate_permissions(&manifest.permissions)?;
-            validate_hook_permissions(&manifest.hooks, &manifest.permissions)?;
-            validate_permission_scope(&manifest.hooks, &manifest.permissions)?;
+        PluginRuntime::Native { .. } => {
+            return unsupported_runtime("native runtime is not supported")
         }
     }
     validate_config_schema(manifest.config_schema.as_ref())?;
     validate_host_compatibility(&manifest.host_compatibility, host_version)?;
     Ok(())
+}
+
+pub fn validate_manifest_for_official_plugin(
+    manifest: &PluginManifest,
+    host_version: &str,
+) -> Result<(), PluginValidationError> {
+    validate_manifest_identity(manifest)?;
+    match &manifest.runtime {
+        PluginRuntime::ExtensionHost { language } => {
+            validate_extension_host_manifest(manifest, language)?;
+        }
+        PluginRuntime::Native { engine }
+            if manifest.id == "official.privacy-filter" && engine == "privacyFilter" =>
+        {
+            validate_hooks(&manifest.hooks)?;
+            validate_permissions(&manifest.permissions)?;
+            validate_hook_permissions(&manifest.hooks, &manifest.permissions)?;
+            validate_permission_scope(&manifest.hooks, &manifest.permissions)?;
+        }
+        PluginRuntime::Native { .. } => {
+            return unsupported_runtime("native runtime is reserved for official plugins");
+        }
+    }
+    validate_config_schema(manifest.config_schema.as_ref())?;
+    validate_host_compatibility(&manifest.host_compatibility, host_version)?;
+    Ok(())
+}
+
+fn validate_manifest_identity(manifest: &PluginManifest) -> Result<(), PluginValidationError> {
+    validate_plugin_id(&manifest.id)?;
+    validate_semver(&manifest.version, "PLUGIN_INVALID_VERSION")?;
+    validate_manifest_api_version(&manifest.api_version)
 }
 
 pub fn permission_risk(permission: &str) -> Option<PluginPermissionRisk> {
@@ -642,58 +653,50 @@ fn validate_manifest_api_version(api_version: &str) -> Result<(), PluginValidati
     Ok(())
 }
 
-fn validate_runtime(manifest: &PluginManifest) -> Result<(), PluginValidationError> {
-    match &manifest.runtime {
-        PluginRuntime::ExtensionHost { language } => {
-            if manifest
-                .main
-                .as_deref()
-                .map_or(true, |main| main.trim().is_empty())
-            {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_MISSING_MAIN",
-                    "extensionHost runtime requires main",
-                ));
-            }
-            if language != "typescript" {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_INVALID_RUNTIME",
-                    "extensionHost language must be typescript",
-                ));
-            }
-        }
-        PluginRuntime::DeclarativeRules { rules } => {
-            if rules.is_empty() {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_INVALID_RUNTIME",
-                    "declarativeRules runtime requires at least one rules file",
-                ));
-            }
-        }
-        PluginRuntime::Native { engine } => {
-            if manifest.id != "official.privacy-filter" || engine != "privacyFilter" {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_UNSUPPORTED_RUNTIME",
-                    "native runtime is reserved for official plugins",
-                ));
-            }
-        }
-        PluginRuntime::Wasm { abi_version, .. } => {
-            let Some((major, _, _)) = parse_semver(abi_version) else {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_INVALID_RUNTIME",
-                    "WASM abiVersion must be SemVer",
-                ));
-            };
-            if major != SUPPORTED_PLUGIN_API_MAJOR {
-                return Err(PluginValidationError::new(
-                    "PLUGIN_UNSUPPORTED_RUNTIME",
-                    "WASM ABI major version is not supported",
-                ));
-            }
-        }
+fn validate_extension_host_manifest(
+    manifest: &PluginManifest,
+    language: &str,
+) -> Result<(), PluginValidationError> {
+    if manifest
+        .main
+        .as_deref()
+        .map_or(true, |main| main.trim().is_empty())
+    {
+        return Err(PluginValidationError::new(
+            "PLUGIN_MISSING_MAIN",
+            "extensionHost runtime requires main",
+        ));
     }
+    if language != "typescript" {
+        return Err(PluginValidationError::new(
+            "PLUGIN_INVALID_RUNTIME",
+            "extensionHost language must be typescript",
+        ));
+    }
+    if !manifest.hooks.is_empty() {
+        return Err(PluginValidationError::new(
+            "PLUGIN_INVALID_MANIFEST",
+            "extensionHost manifests must not declare top-level hooks",
+        ));
+    }
+    if !manifest.permissions.is_empty() {
+        return Err(PluginValidationError::new(
+            "PLUGIN_INVALID_MANIFEST",
+            "extensionHost manifests must not declare top-level permissions",
+        ));
+    }
+    validate_activation_events(&manifest.activation_events)?;
+    validate_contributes(manifest.contributes.as_ref())?;
+    validate_capabilities(&manifest.capabilities)?;
+    validate_capability_dependencies(manifest.contributes.as_ref(), &manifest.capabilities)?;
     Ok(())
+}
+
+fn unsupported_runtime(reason: &str) -> Result<(), PluginValidationError> {
+    Err(PluginValidationError::new(
+        "PLUGIN_UNSUPPORTED_RUNTIME",
+        reason,
+    ))
 }
 
 fn validate_activation_events(activation_events: &[String]) -> Result<(), PluginValidationError> {
@@ -775,18 +778,6 @@ fn validate_contributes(
 
     for hook in &contributes.gateway_hooks {
         validate_hook(hook)?;
-    }
-
-    for rule in &contributes.gateway_rules {
-        if rule.rules.is_empty() || rule.rules.iter().any(|item| is_blank(item)) {
-            return Err(PluginValidationError::new(
-                "PLUGIN_INVALID_GATEWAY_RULE_CONTRIBUTION",
-                "gateway rule contribution requires non-empty rules",
-            ));
-        }
-        for hook in &rule.hooks {
-            validate_hook_name(hook)?;
-        }
     }
 
     for (slot, ui_contributions) in &contributes.ui {
@@ -894,6 +885,91 @@ fn validate_capabilities(capabilities: &[String]) -> Result<(), PluginValidation
         }
     }
     Ok(())
+}
+
+fn validate_capability_dependencies(
+    contributes: Option<&PluginContributes>,
+    capabilities: &[String],
+) -> Result<(), PluginValidationError> {
+    let Some(contributes) = contributes else {
+        return Ok(());
+    };
+
+    if !contributes.commands.is_empty() {
+        require_capability(capabilities, "commands.execute", "commands contribution")?;
+    }
+    if !contributes.providers.is_empty() {
+        require_capability(
+            capabilities,
+            "provider.extensionValues",
+            "provider contribution",
+        )?;
+    }
+    if !contributes.gateway_hooks.is_empty() {
+        require_capability(capabilities, "gateway.hooks", "gatewayHooks contribution")?;
+    }
+    if !contributes.protocol_bridges.is_empty() {
+        require_capability(
+            capabilities,
+            "protocol.bridge",
+            "protocolBridges contribution",
+        )?;
+    }
+    if contributes
+        .ui
+        .get("providers.editor.sections")
+        .is_some_and(|items| !items.is_empty())
+    {
+        require_capability(
+            capabilities,
+            "provider.extensionValues",
+            "providers.editor.sections UI contribution",
+        )?;
+    }
+    if ui_has_button_field(&contributes.ui) {
+        require_capability(capabilities, "commands.execute", "UI command field")?;
+    }
+
+    Ok(())
+}
+
+fn has_capability(capabilities: &[String], capability: &str) -> bool {
+    capabilities.iter().any(|item| item == capability)
+}
+
+fn require_capability(
+    capabilities: &[String],
+    capability: &str,
+    reason: &str,
+) -> Result<(), PluginValidationError> {
+    if has_capability(capabilities, capability) {
+        return Ok(());
+    }
+    Err(PluginValidationError::new(
+        "PLUGIN_MISSING_CAPABILITY",
+        format!("{reason} requires {capability}"),
+    ))
+}
+
+fn ui_has_button_field(ui: &BTreeMap<String, Vec<UiContribution>>) -> bool {
+    ui.values().any(|contributions| {
+        contributions
+            .iter()
+            .any(|contribution| schema_has_button_field(&contribution.schema))
+    })
+}
+
+fn schema_has_button_field(schema: &HostRenderedSchema) -> bool {
+    match schema {
+        HostRenderedSchema::Section { fields } | HostRenderedSchema::Panel { fields } => {
+            fields.iter().any(is_button_field)
+        }
+        HostRenderedSchema::Badge { .. } => false,
+    }
+}
+
+fn is_button_field(field: &HostRenderedField) -> bool {
+    matches!(field, HostRenderedField::Button { .. })
 }
 
 fn is_blank(value: &str) -> bool {
@@ -1177,11 +1253,224 @@ mod tests {
         })
     }
 
+    fn valid_extension_host_manifest() -> serde_json::Value {
+        serde_json::json!({
+            "id": "acme.extension",
+            "name": "Extension",
+            "version": "1.0.0",
+            "apiVersion": "1.0.0",
+            "main": "dist/extension.js",
+            "runtime": { "kind": "extensionHost", "language": "typescript" },
+            "activationEvents": ["onStartup"],
+            "capabilities": [],
+            "hostCompatibility": {
+                "app": ">=0.62.0 <1.0.0",
+                "pluginApi": "^1.0.0"
+            }
+        })
+    }
+
+    fn assert_manifest_validation_error(raw: serde_json::Value, expected_code: &str) {
+        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
+        let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
+        assert_eq!(err.code, expected_code);
+    }
+
+    fn assert_unsupported_or_unknown_runtime(raw: serde_json::Value) {
+        match serde_json::from_value::<PluginManifest>(raw) {
+            Ok(manifest) => {
+                let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
+                assert_eq!(err.code, "PLUGIN_UNSUPPORTED_RUNTIME");
+            }
+            Err(err) => assert!(err.to_string().contains("unknown variant")),
+        }
+    }
+
+    fn hook(name: &str) -> PluginHook {
+        PluginHook {
+            name: name.to_string(),
+            priority: 100,
+            failure_policy: Some("fail-open".to_string()),
+        }
+    }
+
+    fn permissions(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
     #[test]
     fn manifest_json_deserializes_and_validates() {
-        let manifest: PluginManifest = serde_json::from_value(valid_manifest()).unwrap();
-        validate_manifest(&manifest, "0.56.0").unwrap();
-        assert_eq!(manifest.id.as_str(), "community.prompt-helper");
+        let manifest: PluginManifest =
+            serde_json::from_value(valid_extension_host_manifest()).unwrap();
+        validate_manifest(&manifest, "0.62.0").unwrap();
+        assert_eq!(manifest.id.as_str(), "acme.extension");
+    }
+
+    #[test]
+    fn declarative_rules_runtime_is_unsupported() {
+        assert_unsupported_or_unknown_runtime(valid_manifest());
+    }
+
+    #[test]
+    fn wasm_runtime_is_unsupported() {
+        let mut raw = valid_manifest();
+        raw["runtime"] = serde_json::json!({
+            "kind": "wasm",
+            "abiVersion": "1.0.0"
+        });
+
+        assert_unsupported_or_unknown_runtime(raw);
+    }
+
+    #[test]
+    fn third_party_native_runtime_is_unsupported() {
+        let mut raw = valid_manifest();
+        raw["id"] = serde_json::json!("community.privacy-filter");
+        raw["runtime"] = serde_json::json!({
+            "kind": "native",
+            "engine": "privacyFilter"
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_UNSUPPORTED_RUNTIME");
+    }
+
+    #[test]
+    fn extension_host_rejects_top_level_hooks() {
+        let mut raw = valid_extension_host_manifest();
+        raw["hooks"] = serde_json::json!([
+            {
+                "name": "gateway.request.afterBodyRead",
+                "priority": 100,
+                "failurePolicy": "fail-open"
+            }
+        ]);
+
+        assert_manifest_validation_error(raw, "PLUGIN_INVALID_MANIFEST");
+    }
+
+    #[test]
+    fn extension_host_rejects_top_level_permissions() {
+        let mut raw = valid_extension_host_manifest();
+        raw["permissions"] = serde_json::json!(["request.body.read"]);
+
+        assert_manifest_validation_error(raw, "PLUGIN_INVALID_MANIFEST");
+    }
+
+    #[test]
+    fn extension_host_rejects_gateway_rules() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "gatewayRules": [{
+                "id": "acme.extension.gateway-rule",
+                "rules": ["request.path == '/v1/chat/completions'"],
+                "hooks": ["gateway.request.afterBodyRead"]
+            }]
+        });
+
+        match serde_json::from_value::<PluginManifest>(raw) {
+            Ok(manifest) => {
+                let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
+                assert_eq!(err.code, "PLUGIN_INVALID_CONTRIBUTION");
+            }
+            Err(err) => assert!(err.to_string().contains("unknown field")),
+        }
+    }
+
+    #[test]
+    fn extension_host_commands_require_execute_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "commands": [{
+                "command": "acme.extension.refresh",
+                "title": "Refresh"
+            }]
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_gateway_hooks_require_gateway_hooks_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "gatewayHooks": [{
+                "name": "gateway.request.afterBodyRead",
+                "priority": 100,
+                "failurePolicy": "fail-open"
+            }]
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_protocol_bridges_require_protocol_bridge_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "protocolBridges": [{
+                "bridgeType": "acme.extension.bridge",
+                "inboundProtocol": "claude",
+                "outboundProtocol": "codex"
+            }]
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_providers_require_extension_values_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "providers": [{
+                "providerType": "acme.extension.openrouter",
+                "displayName": "OpenRouter",
+                "targetCliKeys": ["codex"],
+                "extensionNamespace": "openrouter"
+            }]
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_provider_editor_sections_require_extension_values_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "ui": {
+                "providers.editor.sections": [{
+                    "id": "openrouter-routing",
+                    "schema": {
+                        "type": "section",
+                        "fields": [{ "type": "text", "key": "route", "label": "Route" }]
+                    }
+                }]
+            }
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
+    }
+
+    #[test]
+    fn extension_host_button_fields_require_execute_capability() {
+        let mut raw = valid_extension_host_manifest();
+        raw["contributes"] = serde_json::json!({
+            "ui": {
+                "settings.sections": [{
+                    "id": "refresh-settings",
+                    "schema": {
+                        "type": "section",
+                        "fields": [{
+                            "type": "button",
+                            "key": "refresh",
+                            "label": "Refresh",
+                            "command": "acme.extension.refresh"
+                        }]
+                    }
+                }]
+            }
+        });
+
+        assert_manifest_validation_error(raw, "PLUGIN_MISSING_CAPABILITY");
     }
 
     #[test]
@@ -1274,74 +1563,71 @@ mod tests {
 
     #[test]
     fn manifest_rejects_unknown_permission() {
-        let mut raw = valid_manifest();
-        raw["permissions"] = serde_json::json!(["request.body.read", "unknown.permission"]);
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let err = validate_permissions(&permissions(&["request.body.read", "unknown.permission"]))
+            .unwrap_err();
         assert_eq!(err.code, "PLUGIN_UNKNOWN_PERMISSION");
     }
 
     #[test]
     fn manifest_rejects_unknown_hook() {
-        let mut raw = valid_manifest();
-        raw["hooks"][0]["name"] = serde_json::json!("gateway.request.missing");
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let hooks = vec![hook("gateway.request.missing")];
+        let err = validate_hooks(&hooks).unwrap_err();
         assert_eq!(err.code, "PLUGIN_UNKNOWN_HOOK");
     }
 
     #[test]
     fn validate_manifest_rejects_reserved_hook_until_it_is_wired() {
-        let mut raw = valid_manifest();
-        raw["hooks"][0]["name"] = serde_json::json!("gateway.request.received");
-        raw["permissions"] = serde_json::json!(["request.meta.read"]);
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let hooks = vec![hook("gateway.request.received")];
+        let err = validate_hooks(&hooks).unwrap_err();
         assert_eq!(err.code, "PLUGIN_RESERVED_HOOK");
         assert!(err.message.contains("gateway.request.received"));
     }
 
     #[test]
     fn validate_manifest_accepts_active_vnext_hooks() {
-        let cases = [
+        let cases: [(&str, &[&str]); 6] = [
             (
                 "gateway.request.afterBodyRead",
-                serde_json::json!(["request.body.read", "request.body.write"]),
+                &["request.body.read", "request.body.write"],
             ),
             (
                 "gateway.request.beforeSend",
-                serde_json::json!(["request.body.read", "request.body.write"]),
+                &["request.body.read", "request.body.write"],
             ),
             (
                 "gateway.response.chunk",
-                serde_json::json!(["stream.inspect", "stream.modify"]),
+                &["stream.inspect", "stream.modify"],
             ),
             (
                 "gateway.response.after",
-                serde_json::json!(["response.body.read", "response.body.write"]),
+                &["response.body.read", "response.body.write"],
             ),
-            ("gateway.error", serde_json::json!(["response.body.read"])),
-            ("log.beforePersist", serde_json::json!(["log.redact"])),
+            ("gateway.error", &["response.body.read"]),
+            ("log.beforePersist", &["log.redact"]),
         ];
 
-        for (hook_name, permissions) in cases {
-            let mut raw = valid_manifest();
-            raw["hooks"][0]["name"] = serde_json::json!(hook_name);
-            raw["permissions"] = permissions;
-            let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-            validate_manifest(&manifest, "0.56.0")
+        for (hook_name, permission_items) in cases {
+            let hooks = vec![hook(hook_name)];
+            let permissions = permissions(permission_items);
+            validate_hooks(&hooks)
                 .unwrap_or_else(|err| panic!("active hook {hook_name} rejected: {err:?}"));
+            validate_permissions(&permissions)
+                .unwrap_or_else(|err| panic!("permissions for {hook_name} rejected: {err:?}"));
+            validate_hook_permissions(&hooks, &permissions).unwrap_or_else(|err| {
+                panic!("permission dependencies for {hook_name} rejected: {err:?}")
+            });
+            validate_permission_scope(&hooks, &permissions)
+                .unwrap_or_else(|err| panic!("permission scope for {hook_name} rejected: {err:?}"));
         }
     }
 
     #[test]
     fn validate_manifest_preserves_before_send_write_without_read_compatibility() {
-        let mut raw = valid_manifest();
-        raw["hooks"][0]["name"] = serde_json::json!("gateway.request.beforeSend");
-        raw["permissions"] = serde_json::json!(["request.body.write"]);
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
+        let hooks = vec![hook("gateway.request.beforeSend")];
+        let permissions = permissions(&["request.body.write"]);
 
-        validate_manifest(&manifest, "0.56.0")
+        validate_hook_permissions(&hooks, &permissions)
+            .and_then(|_| validate_permission_scope(&hooks, &permissions))
             .expect("beforeSend write-only permission is part of Plugin API v1 compatibility");
     }
 
@@ -1354,11 +1640,12 @@ mod tests {
             "file.write",
             "secret.read",
         ] {
-            let mut raw = valid_manifest();
-            raw["permissions"] =
-                serde_json::json!(["request.body.read", "request.body.write", permission]);
-            let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-            let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+            let err = validate_permissions(&permissions(&[
+                "request.body.read",
+                "request.body.write",
+                permission,
+            ]))
+            .unwrap_err();
             assert_eq!(err.code, "PLUGIN_RESERVED_PERMISSION");
             assert!(err.message.contains(permission));
         }
@@ -1366,34 +1653,30 @@ mod tests {
 
     #[test]
     fn manifest_rejects_permissions_that_do_not_apply_to_declared_hooks() {
-        let mut raw = valid_manifest();
-        raw["hooks"] = serde_json::json!([
-            { "name": "log.beforePersist", "priority": 10, "failurePolicy": "fail-open" }
-        ]);
-        raw["permissions"] = serde_json::json!(["request.body.read", "log.redact"]);
-        let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let hooks = vec![hook("log.beforePersist")];
+        let permissions = permissions(&["request.body.read", "log.redact"]);
+        let err = validate_permission_scope(&hooks, &permissions).unwrap_err();
         assert_eq!(err.code, "PLUGIN_PERMISSION_SCOPE_MISMATCH");
         assert!(err.message.contains("request.body.read"));
     }
 
     #[test]
     fn manifest_rejects_incompatible_host() {
-        let mut raw = valid_manifest();
+        let mut raw = valid_extension_host_manifest();
         raw["hostCompatibility"]["app"] = serde_json::json!(">=9.0.0");
         let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
         assert_eq!(err.code, "PLUGIN_INCOMPATIBLE_HOST");
     }
 
     #[test]
     fn validate_manifest_rejects_future_api_version_major_even_when_compat_range_mentions_v1() {
-        let mut raw = valid_manifest();
+        let mut raw = valid_extension_host_manifest();
         raw["apiVersion"] = serde_json::json!("2.0.0");
         raw["hostCompatibility"]["pluginApi"] = serde_json::json!("^1.0.0");
         let manifest: PluginManifest = serde_json::from_value(raw).unwrap();
 
-        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        let err = validate_manifest(&manifest, "0.62.0").unwrap_err();
 
         assert_eq!(err.code, "PLUGIN_INCOMPATIBLE_API");
         assert!(err.message.contains("apiVersion"));
@@ -1417,7 +1700,9 @@ mod tests {
             "engine": "privacyFilter"
         });
         let manifest: PluginManifest = serde_json::from_value(official).unwrap();
-        validate_manifest(&manifest, "0.56.0").unwrap();
+        validate_manifest_for_official_plugin(&manifest, "0.56.0").unwrap();
+        let err = validate_manifest(&manifest, "0.56.0").unwrap_err();
+        assert_eq!(err.code, "PLUGIN_UNSUPPORTED_RUNTIME");
 
         let mut local = valid_manifest();
         local["id"] = serde_json::json!("local.privacy-filter");

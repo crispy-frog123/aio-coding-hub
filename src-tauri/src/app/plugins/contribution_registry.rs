@@ -65,15 +65,6 @@ pub struct ActiveGatewayHookContribution {
     pub failure_policy: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ActiveGatewayRuleContribution {
-    pub plugin_id: String,
-    pub contribution_id: String,
-    pub rules: Vec<String>,
-    pub hooks: Vec<String>,
-}
-
 #[derive(Debug, Clone, Default, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveContributionSnapshot {
@@ -83,7 +74,6 @@ pub struct ActiveContributionSnapshot {
     pub protocol_bridges: Vec<ActiveProtocolBridgeContribution>,
     pub commands: Vec<ActiveCommandContribution>,
     pub gateway_hooks: Vec<ActiveGatewayHookContribution>,
-    pub gateway_rules: Vec<ActiveGatewayRuleContribution>,
 }
 
 impl ActiveContributionSnapshot {
@@ -168,22 +158,6 @@ impl ActiveContributionSnapshot {
                     name: hook.name.clone(),
                     priority: hook.priority,
                     failure_policy: hook.failure_policy.clone(),
-                });
-            }
-
-            for (index, rule) in contributes.gateway_rules.iter().enumerate() {
-                let contribution_id = match rule.id.as_deref() {
-                    Some(id) => {
-                        ensure_contribution_id(id, "gateway rule")?;
-                        id.to_string()
-                    }
-                    None => format!("{plugin_id}.gatewayRule.{index}"),
-                };
-                snapshot.gateway_rules.push(ActiveGatewayRuleContribution {
-                    plugin_id: plugin_id.to_string(),
-                    contribution_id,
-                    rules: rule.rules.clone(),
-                    hooks: rule.hooks.clone(),
                 });
             }
 
@@ -532,7 +506,6 @@ mod contribution_registry_tests {
             protocol_bridges: Vec::new(),
             commands: Vec::new(),
             gateway_hooks: Vec::new(),
-            gateway_rules: Vec::new(),
             ui: BTreeMap::new(),
         }
     }
