@@ -163,6 +163,17 @@ impl ExtensionHostInstance {
 
     #[allow(dead_code)]
     pub(crate) async fn execute_command(&mut self, command: &str, args: Value) -> AppResult<Value> {
+        if !self
+            .manifest
+            .capabilities
+            .iter()
+            .any(|capability| capability == "commands.execute")
+        {
+            return Err(AppError::new(
+                "PLUGIN_EXTENSION_HOST_FORBIDDEN",
+                "extension host API requires commands.execute",
+            ));
+        }
         self.activate().await?;
         self.runtime
             .call_method(
@@ -716,6 +727,34 @@ mod tests {
             .execute_command("acme.echo", json!({}))
             .await
             .expect_err("diagnostics API without capability should fail");
+
+        assert_eq!(err.code(), "PLUGIN_EXTENSION_HOST_FORBIDDEN");
+        host.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn extension_host_command_dispatch_requires_commands_execute_before_activation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_extension_plugin_with_capabilities(
+            temp.path(),
+            r#"
+            module.exports.activate = function(api) {
+              api.commands.registerCommand("acme.echo", function() {
+                return { executed: true };
+              });
+            };
+            "#,
+            &[],
+        );
+
+        let mut host = super::ExtensionHost::start_for_tests(temp.path())
+            .await
+            .expect("start extension host");
+
+        let err = host
+            .execute_command("acme.echo", json!({}))
+            .await
+            .expect_err("missing commands capability should fail before activation");
 
         assert_eq!(err.code(), "PLUGIN_EXTENSION_HOST_FORBIDDEN");
         host.dispose().await;
