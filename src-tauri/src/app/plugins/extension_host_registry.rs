@@ -164,7 +164,7 @@ impl ManagedExtensionHostInstance {
 pub(crate) struct ExtensionHostInstanceRegistry {
     db: db::Db,
     instances: Mutex<BTreeMap<ExtensionHostInstanceKey, Arc<ManagedExtensionHostInstance>>>,
-    start_locks: Mutex<BTreeMap<ExtensionHostInstanceKey, Arc<Mutex<()>>>>,
+    plugin_locks: Mutex<BTreeMap<String, Arc<Mutex<()>>>>,
     limits: ExtensionHostRegistryLimits,
     factory: Arc<dyn ExtensionHostFactory>,
 }
@@ -187,7 +187,7 @@ impl ExtensionHostInstanceRegistry {
         Self {
             db,
             instances: Mutex::new(BTreeMap::new()),
-            start_locks: Mutex::new(BTreeMap::new()),
+            plugin_locks: Mutex::new(BTreeMap::new()),
             limits,
             factory,
         }
@@ -212,19 +212,8 @@ impl ExtensionHostInstanceRegistry {
         now: Instant,
     ) -> AppResult<ExtensionHostCommandOutput> {
         let key = ExtensionHostInstanceKey::from_plugin_detail(&detail)?;
-
-        if let Some(value) = self
-            .execute_warm_instance(&key, command, args.clone(), now)
-            .await?
-        {
-            return Ok(ExtensionHostCommandOutput {
-                value,
-                cold_start: false,
-            });
-        }
-
-        let start_lock = self.start_lock_for(&key).await;
-        let _start_guard = start_lock.lock().await;
+        let plugin_lock = self.plugin_lock_for(&key.plugin_id).await;
+        let _plugin_guard = plugin_lock.lock().await;
 
         if let Some(value) = self
             .execute_warm_instance(&key, command, args.clone(), now)
@@ -272,6 +261,8 @@ impl ExtensionHostInstanceRegistry {
 
     #[allow(dead_code)]
     pub(crate) async fn dispose_plugin(&self, plugin_id: &str) {
+        let plugin_lock = self.plugin_lock_for(plugin_id).await;
+        let plugin_guard = plugin_lock.lock().await;
         let disposals = {
             let mut instances = self.instances.lock().await;
             let keys = instances
@@ -284,6 +275,9 @@ impl ExtensionHostInstanceRegistry {
                 .collect::<Vec<_>>()
         };
         dispose_instances(disposals).await;
+        drop(plugin_guard);
+        self.remove_plugin_lock_if_unused(plugin_id, &plugin_lock)
+            .await;
     }
 
     #[allow(dead_code)]
@@ -303,6 +297,7 @@ impl ExtensionHostInstanceRegistry {
                 .collect::<Vec<_>>()
         };
         dispose_instances(instances).await;
+        self.plugin_locks.lock().await.clear();
     }
 
     #[cfg(test)]
@@ -318,6 +313,16 @@ impl ExtensionHostInstanceRegistry {
     #[cfg(test)]
     async fn instance_count(&self) -> usize {
         self.instances.lock().await.len()
+    }
+
+    #[cfg(test)]
+    async fn plugin_instance_count(&self, plugin_id: &str) -> usize {
+        self.instances
+            .lock()
+            .await
+            .keys()
+            .filter(|key| key.plugin_id == plugin_id)
+            .count()
     }
 
     async fn execute_warm_instance(
@@ -351,12 +356,22 @@ impl ExtensionHostInstanceRegistry {
         }
     }
 
-    async fn start_lock_for(&self, key: &ExtensionHostInstanceKey) -> Arc<Mutex<()>> {
-        let mut start_locks = self.start_locks.lock().await;
-        start_locks
-            .entry(key.clone())
+    async fn plugin_lock_for(&self, plugin_id: &str) -> Arc<Mutex<()>> {
+        let mut plugin_locks = self.plugin_locks.lock().await;
+        plugin_locks
+            .entry(plugin_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
+    }
+
+    async fn remove_plugin_lock_if_unused(&self, plugin_id: &str, plugin_lock: &Arc<Mutex<()>>) {
+        let mut plugin_locks = self.plugin_locks.lock().await;
+        let should_remove = plugin_locks.get(plugin_id).is_some_and(|current| {
+            Arc::ptr_eq(current, plugin_lock) && Arc::strong_count(current) == 2
+        });
+        if should_remove {
+            plugin_locks.remove(plugin_id);
+        }
     }
 }
 
@@ -539,6 +554,7 @@ mod tests {
         PluginPermissionRisk, PluginRuntime, PluginStatus, PluginSummary,
     };
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::{Duration, Instant};
     use tokio::sync::Notify;
@@ -565,10 +581,13 @@ mod tests {
     struct BlockingExtensionHostFactory {
         slow_command: Arc<BlockingCommandControl>,
         slow_dispose: Arc<BlockingDisposeControl>,
+        starts: Arc<AtomicUsize>,
+        disposals: Arc<AtomicUsize>,
     }
 
     #[derive(Default)]
     struct BlockingCommandControl {
+        starts: AtomicUsize,
         started: Notify,
         release: Notify,
     }
@@ -583,6 +602,7 @@ mod tests {
         plugin_id: String,
         slow_command: Arc<BlockingCommandControl>,
         slow_dispose: Arc<BlockingDisposeControl>,
+        disposals: Arc<AtomicUsize>,
         running: bool,
     }
 
@@ -667,10 +687,12 @@ mod tests {
             _db: db::Db,
         ) -> BoxFuture<'a, AppResult<Box<dyn ExtensionHostProcess>>> {
             Box::pin(async move {
+                self.starts.fetch_add(1, Ordering::SeqCst);
                 Ok(Box::new(BlockingExtensionHostProcess {
                     plugin_id: detail.summary.plugin_id,
                     slow_command: self.slow_command.clone(),
                     slow_dispose: self.slow_dispose.clone(),
+                    disposals: self.disposals.clone(),
                     running: true,
                 }) as Box<dyn ExtensionHostProcess>)
             })
@@ -684,7 +706,10 @@ mod tests {
             _args: Value,
         ) -> BoxFuture<'a, AppResult<Value>> {
             Box::pin(async move {
-                if self.plugin_id == "acme.slow" && command == "slow" {
+                if (self.plugin_id == "acme.slow" && command == "slow")
+                    || (self.plugin_id == "acme.race" && command == "race")
+                {
+                    self.slow_command.starts.fetch_add(1, Ordering::SeqCst);
                     self.slow_command.started.notify_waiters();
                     self.slow_command.release.notified().await;
                 }
@@ -701,12 +726,37 @@ mod tests {
 
         fn dispose<'a>(&'a mut self) -> BoxFuture<'a, ()> {
             Box::pin(async move {
+                self.disposals.fetch_add(1, Ordering::SeqCst);
                 if self.plugin_id == "acme.slow" {
                     self.slow_dispose.started.notify_waiters();
                     self.slow_dispose.release.notified().await;
                 }
                 self.running = false;
             })
+        }
+    }
+
+    impl BlockingExtensionHostFactory {
+        fn start_count(&self) -> usize {
+            self.starts.load(Ordering::SeqCst)
+        }
+
+        fn dispose_count(&self) -> usize {
+            self.disposals.load(Ordering::SeqCst)
+        }
+
+        fn command_start_count(&self) -> usize {
+            self.slow_command.starts.load(Ordering::SeqCst)
+        }
+
+        async fn wait_for_command_start_count(&self, target: usize) {
+            loop {
+                let notified = self.slow_command.started.notified();
+                if self.command_start_count() >= target {
+                    return;
+                }
+                notified.await;
+            }
         }
     }
 
@@ -1065,6 +1115,69 @@ mod tests {
         fast_result
             .expect("fast command should complete")
             .expect("fast command result");
+    }
+
+    #[tokio::test]
+    async fn registry_serializes_same_plugin_replacement_during_concurrent_cold_start() {
+        let factory = Arc::new(BlockingExtensionHostFactory::default());
+        let registry = Arc::new(ExtensionHostInstanceRegistry::new_for_tests(
+            factory.clone(),
+            ExtensionHostRegistryLimits {
+                max_warm_instances: 8,
+                idle_recycle: Duration::from_secs(120),
+            },
+        ));
+        let first_registry = registry.clone();
+        let second_registry = registry.clone();
+
+        let first_task = tokio::spawn(async move {
+            first_registry
+                .execute_command_with_now(
+                    plugin_detail("acme.race", "before"),
+                    "race",
+                    json!({}),
+                    Instant::now(),
+                )
+                .await
+        });
+        factory.wait_for_command_start_count(1).await;
+
+        let second_task = tokio::spawn(async move {
+            second_registry
+                .execute_command_with_now(
+                    plugin_detail("acme.race", "after"),
+                    "race",
+                    json!({}),
+                    Instant::now(),
+                )
+                .await
+        });
+        let second_started_while_first_running = tokio::time::timeout(
+            Duration::from_millis(100),
+            factory.wait_for_command_start_count(2),
+        )
+        .await;
+
+        factory.slow_command.release.notify_waiters();
+        factory.wait_for_command_start_count(2).await;
+        factory.slow_command.release.notify_waiters();
+        first_task
+            .await
+            .expect("first task join")
+            .expect("first command result");
+        second_task
+            .await
+            .expect("second task join")
+            .expect("second command result");
+
+        assert!(
+            second_started_while_first_running.is_err(),
+            "same plugin replacement should wait for the first execution to finish"
+        );
+        assert_eq!(factory.start_count(), 2);
+        assert_eq!(factory.dispose_count(), 1);
+        assert_eq!(registry.plugin_instance_count("acme.race").await, 1);
+        assert_eq!(registry.instance_count().await, 1);
     }
 
     #[tokio::test]
