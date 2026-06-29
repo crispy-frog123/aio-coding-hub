@@ -54,7 +54,10 @@ function commandTemplate(id: string, name: string): ScaffoldFiles {
       name,
       id,
       "This scaffold registers one Extension Host command.",
-      ["create-aio-plugin validate --strict .", "create-aio-plugin pack ."]
+      [
+        "pnpm --filter create-aio-plugin cli validate --strict .",
+        "pnpm --filter create-aio-plugin cli pack .",
+      ]
     ),
   };
 }
@@ -269,9 +272,9 @@ function jsonFile(value: unknown): string {
 
 function exampleReadme(name: string, id: string, summary: string): string {
   return readme(name, id, summary, [
-    "create-aio-plugin validate --strict .",
-    "create-aio-plugin pack .",
-    "create-aio-plugin publish-check .",
+    "pnpm --filter create-aio-plugin cli validate --strict .",
+    "pnpm --filter create-aio-plugin cli pack .",
+    "pnpm --filter create-aio-plugin cli publish-check .",
   ]);
 }
 

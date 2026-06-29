@@ -1,5 +1,13 @@
 # aio-coding-hub Plugin Example Developer Loop Phase 1 Implementation Plan
 
+> Status: Superseded.
+>
+> MUST NOT be executed. This historical plan contains obsolete declarativeRules
+> and local `replay --explain` success-path assumptions. Use the Extension
+> Host-only plan in
+> `docs/superpowers/plans/2026-06-29-aio-coding-hub-extension-host-only-plugin-architecture.md`
+> and the current docs under `docs/plugins/` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add runnable `create-aio-plugin` example templates for prompt-helper, redactor, and response-guard so plugin authors can validate, replay, pack, and publish-check realistic examples without changing Plugin API v1.

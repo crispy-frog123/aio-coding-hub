@@ -93,7 +93,7 @@ const USAGE = [
   "  rule is a legacy alias for command and generates an Extension Host command template.",
   "  create-aio-plugin doctor <plugin-dir>",
   "  create-aio-plugin validate [--strict] <plugin-dir>",
-  "  create-aio-plugin replay [--explain] <plugin-dir> <fixture.json> <hook>",
+  "  create-aio-plugin replay [--explain] <plugin-dir> <fixture.json> <hook> (unsupported for Extension Host; returns PLUGIN_REPLAY_UNSUPPORTED)",
   "  create-aio-plugin pack <plugin-dir>",
   "  create-aio-plugin publish-check <plugin-dir>",
 ].join("\n");
@@ -157,7 +157,9 @@ export function runCreateAioPluginCli(args: string[], cwd: string, io: CliIo = c
     const fixturePath = explain ? thirdArg : secondArg;
     const hookName = explain ? args[4] : thirdArg;
     if (!pluginDir || !fixturePath || !hookName) {
-      io.error("Usage: create-aio-plugin replay <plugin-dir> <fixture.json> <hook>");
+      io.error(
+        "Usage: create-aio-plugin replay <plugin-dir> <fixture.json> <hook> (unsupported for Extension Host; returns PLUGIN_REPLAY_UNSUPPORTED)"
+      );
       return 1;
     }
     try {

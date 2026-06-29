@@ -770,9 +770,9 @@ function expectExampleReadmeDocumentsDevtoolsLoop(files: Record<string, string>)
   const readme = files["README.md"] ?? "";
 
   expect(readme).toContain("development template, not a default installable marketplace package");
-  expect(readme).toContain("create-aio-plugin validate --strict .");
-  expect(readme).toContain("create-aio-plugin pack .");
-  expect(readme).toContain("create-aio-plugin publish-check .");
+  expect(readme).toContain("pnpm --filter create-aio-plugin cli validate --strict .");
+  expect(readme).toContain("pnpm --filter create-aio-plugin cli pack .");
+  expect(readme).toContain("pnpm --filter create-aio-plugin cli publish-check .");
   expect(readme).not.toContain("create-aio-plugin replay");
 }
 

@@ -322,6 +322,44 @@ const requiredDocs = [
 
 const failures = [];
 
+const localReplayBoundaryFiles = [
+  "docs/plugins/README.md",
+  "docs/plugins/developer-guide.md",
+  "docs/plugins/reference/sdk.md",
+  "docs/plugins/reference/declarative-rules.md",
+  "docs/plugins/reference/compatibility.md",
+  "docs/plugins/architecture/audit.md",
+  "docs/plugins/examples/README.md",
+  "docs/plugins/examples/privacy-filter.md",
+  "docs/plugins/reference/publishing.md",
+  "packages/create-aio-plugin/src/scaffold.ts",
+  "packages/create-aio-plugin/src/scaffold.test.ts",
+  "packages/create-aio-plugin/src/devtools.ts",
+];
+
+const replaySuccessPatterns = [
+  /pnpm --filter create-aio-plugin cli replay/,
+  /\bcreate-aio-plugin\s+replay\b/,
+  /\breplay --explain\b/,
+  /validate[\s\S]{0,80}replay[\s\S]{0,80}pack/,
+];
+
+const supersededHistoricalDocs = [
+  "docs/superpowers/plans/2026-06-26-aio-coding-hub-plugin-example-developer-loop-phase-1.md",
+  "docs/superpowers/specs/2026-06-26-aio-coding-hub-plugin-example-developer-loop-phase-1-design.md",
+];
+
+function lineExplainsReplayUnsupported(line) {
+  return (
+    line.includes("PLUGIN_REPLAY_UNSUPPORTED") ||
+    line.includes("unsupported for Extension Host") ||
+    line.includes("当前不执行 Extension Host gateway hooks") ||
+    line.includes("不在本地执行 Extension Host gateway hooks") ||
+    line.includes("not local `create-aio-plugin replay` execution") ||
+    line.includes("not.toContain")
+  );
+}
+
 for (const doc of requiredDocs) {
   const fullPath = join(repoRoot, doc.path);
   if (!existsSync(fullPath)) {
@@ -347,6 +385,35 @@ for (const doc of requiredDocs) {
     if (text.includes(phrase)) {
       failures.push(`${doc.path}: forbidden phrase "${phrase}"`);
     }
+  }
+}
+
+for (const path of localReplayBoundaryFiles) {
+  const fullPath = join(repoRoot, path);
+  if (!existsSync(fullPath)) {
+    failures.push(`${path}: missing local replay boundary file`);
+    continue;
+  }
+  const lines = readFileSync(fullPath, "utf8").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    if (lineExplainsReplayUnsupported(line)) return;
+    if (replaySuccessPatterns.some((pattern) => pattern.test(line))) {
+      failures.push(
+        `${path}:${index + 1}: local create-aio-plugin replay must not be documented as a successful Extension Host hook path`
+      );
+    }
+  });
+}
+
+for (const path of supersededHistoricalDocs) {
+  const fullPath = join(repoRoot, path);
+  if (!existsSync(fullPath)) {
+    failures.push(`${path}: missing superseded historical document`);
+    continue;
+  }
+  const head = readFileSync(fullPath, "utf8").split(/\r?\n/).slice(0, 12).join("\n");
+  if (!head.includes("Status: Superseded.") || !head.includes("MUST NOT be executed")) {
+    failures.push(`${path}: obsolete plugin example plan must be marked superseded`);
   }
 }
 
