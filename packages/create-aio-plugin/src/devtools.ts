@@ -267,24 +267,8 @@ export function runCreateAioPluginCli(args: string[], cwd: string, io: CliIo = c
 }
 
 export function validatePluginFiles(files: ScaffoldFiles): ValidationResult {
-  const manifestText = files["plugin.json"];
-  if (!manifestText) {
-    return {
-      ok: false,
-      error: { code: "PLUGIN_MISSING_MANIFEST", message: "missing plugin.json" },
-    };
-  }
-  try {
-    return validateManifest(JSON.parse(manifestText) as PluginManifest);
-  } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: "PLUGIN_INVALID_MANIFEST",
-        message: error instanceof Error ? error.message : "invalid manifest",
-      },
-    };
-  }
+  const result = validatePluginFilesStrict(files);
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
 export function readPluginDirectory(root: string): ScaffoldFiles {

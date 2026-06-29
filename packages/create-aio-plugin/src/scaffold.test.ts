@@ -358,6 +358,7 @@ describe("create-aio-plugin scaffold", () => {
     writeManifest(files, manifest);
 
     expect(doctorPluginFiles(files).ok).toBe(true);
+    expect(validatePluginFiles(files).ok).toBe(true);
 
     const packed = packPlugin(files);
     const result = publishCheckPluginBytes(packed.bytes, {
@@ -386,6 +387,7 @@ describe("create-aio-plugin scaffold", () => {
       files[main] = "module.exports.activate = function() {};\n";
 
       const doctorResult = doctorPluginFiles(files);
+      const validateResult = validatePluginFiles(files);
 
       expect(doctorResult.ok).toBe(false);
       expect(doctorResult.diagnostics).toContainEqual(
@@ -394,6 +396,10 @@ describe("create-aio-plugin scaffold", () => {
           code: "PLUGIN_INVALID_MAIN",
         })
       );
+      expect(validateResult).toMatchObject({
+        ok: false,
+        error: { code: "PLUGIN_INVALID_MAIN" },
+      });
       expect(() => packPlugin(files)).toThrow(/PLUGIN_INVALID_MAIN/);
     }
   );
@@ -441,7 +447,7 @@ describe("create-aio-plugin scaffold", () => {
     );
   });
 
-  it("validate strict command preserves manifest-only validate unless strict is requested", () => {
+  it("validate command rejects packages missing the extension host main file", () => {
     const root = mkdtempSync(join(tmpdir(), "aio-plugin-strict-"));
     const files = createPluginScaffold({ id: "acme.real", name: "Real", template: "rule" });
     delete files["dist/extension.js"];
@@ -454,8 +460,11 @@ describe("create-aio-plugin scaffold", () => {
         log: (line) => normalOutput.push(line),
         error: (line) => normalOutput.push(line),
       })
-    ).toBe(0);
-    expect(JSON.parse(normalOutput[0] ?? "{}")).toEqual({ ok: true });
+    ).toBe(1);
+    expect(JSON.parse(normalOutput[0] ?? "{}")).toMatchObject({
+      ok: false,
+      error: { code: "PLUGIN_MAIN_FILE_MISSING" },
+    });
 
     expect(
       runCreateAioPluginCli(["validate", "--strict", root], process.cwd(), {
