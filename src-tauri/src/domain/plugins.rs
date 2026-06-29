@@ -733,7 +733,7 @@ fn validate_contributes(
         return Ok(());
     };
 
-    if !contributes.unsupported_gateway_rules.is_empty() {
+    if contributes.unsupported_gateway_rules.is_some() {
         return Err(PluginValidationError::new(
             "PLUGIN_INVALID_CONTRIBUTION",
             "gatewayRules are no longer supported; use gatewayHooks",
@@ -1386,6 +1386,26 @@ mod tests {
             err.message,
             "gatewayRules are no longer supported; use gatewayHooks"
         );
+    }
+
+    #[test]
+    fn extension_host_rejects_gateway_rules_when_empty_or_non_array() {
+        for gateway_rules in [
+            serde_json::json!([]),
+            serde_json::json!({}),
+            serde_json::json!("bad"),
+        ] {
+            let mut raw = valid_extension_host_manifest();
+            raw["contributes"] = serde_json::json!({ "gatewayRules": gateway_rules });
+
+            let err = manifest_validation_error(raw);
+
+            assert_eq!(err.code, "PLUGIN_INVALID_CONTRIBUTION");
+            assert_eq!(
+                err.message,
+                "gatewayRules are no longer supported; use gatewayHooks"
+            );
+        }
     }
 
     #[test]

@@ -506,7 +506,7 @@ mod contribution_registry_tests {
             protocol_bridges: Vec::new(),
             commands: Vec::new(),
             gateway_hooks: Vec::new(),
-            unsupported_gateway_rules: Vec::new(),
+            unsupported_gateway_rules: None,
             ui: BTreeMap::new(),
         }
     }

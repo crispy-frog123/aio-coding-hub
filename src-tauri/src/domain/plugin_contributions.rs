@@ -56,7 +56,7 @@ pub struct PluginContributes {
     #[serde(rename = "gatewayRules")]
     #[serde(default, skip_serializing)]
     #[specta(skip)]
-    pub(crate) unsupported_gateway_rules: Vec<serde_json::Value>,
+    pub(crate) unsupported_gateway_rules: Option<serde_json::Value>,
     #[serde(default)]
     pub ui: BTreeMap<String, Vec<UiContribution>>,
 }
