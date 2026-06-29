@@ -9,7 +9,7 @@ pub(crate) enum RuntimeDispatch {
     DeclarativeRules,
     NativePrivacyFilter,
     WasmNotWired,
-    ExtensionHostNotWired,
+    ExtensionHost,
 }
 
 pub(crate) struct PluginRuntimeManager {
@@ -50,7 +50,7 @@ impl PluginRuntimeManager {
         let _process_enabled = self.policy.process_enabled;
 
         match runtime {
-            PluginRuntime::ExtensionHost { .. } => Ok(RuntimeDispatch::ExtensionHostNotWired),
+            PluginRuntime::ExtensionHost { .. } => Ok(RuntimeDispatch::ExtensionHost),
             PluginRuntime::DeclarativeRules { .. } => Ok(RuntimeDispatch::DeclarativeRules),
             PluginRuntime::Native { engine }
                 if plugin_id == "official.privacy-filter" && engine == "privacyFilter" =>
@@ -143,6 +143,21 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "PLUGIN_UNSUPPORTED_RUNTIME: unsupported native plugin runtime engine: privacyFilter"
+        );
+    }
+
+    #[test]
+    fn runtime_manager_returns_extension_host_dispatch() {
+        let manager = PluginRuntimeManager::for_tests(RuntimePolicy::default());
+        let runtime = PluginRuntime::ExtensionHost {
+            language: "typescript".to_string(),
+        };
+
+        assert_eq!(
+            manager
+                .runtime_dispatch("acme.extension", &runtime)
+                .expect("extension host runtime should be recognized"),
+            RuntimeDispatch::ExtensionHost
         );
     }
 }

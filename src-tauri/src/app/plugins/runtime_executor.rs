@@ -64,9 +64,9 @@ impl RuntimeGatewayPluginExecutor {
                 "PLUGIN_WASM_NOT_WIRED",
                 "wasm runtime policy is enabled but gateway execution is not wired in this release",
             )),
-            RuntimeDispatch::ExtensionHostNotWired => Err(GatewayPluginError::new(
+            RuntimeDispatch::ExtensionHost => Err(GatewayPluginError::new(
                 "PLUGIN_EXTENSION_HOST_NOT_WIRED",
-                "extension host runtime execution is not wired in this release",
+                "extension host runtime is managed outside gateway hook execution",
             )),
         }
     }

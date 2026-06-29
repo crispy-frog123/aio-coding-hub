@@ -1,0 +1,434 @@
+//! Usage: Parent-side extension host worker lifecycle and command dispatch.
+
+use super::extension_host_worker::{
+    ExtensionHostWorkerConfig, DEFAULT_EXTENSION_HOST_MAX_LINE_BYTES,
+};
+use super::process_runtime::{JsonRpcProcessRuntime, ProcessRuntimeConfig};
+use crate::plugins::PluginManifest;
+use crate::shared::error::{AppError, AppResult};
+use rand::RngCore;
+use serde_json::{json, Value};
+use sha2::Digest;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const DEFAULT_EXTENSION_HOST_START_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_EXTENSION_HOST_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_EXTENSION_HOST_IDLE_RECYCLE: Duration = Duration::from_secs(30);
+
+#[derive(Debug)]
+pub(crate) struct ExtensionHostInstance {
+    manifest: PluginManifest,
+    runtime: JsonRpcProcessRuntime,
+    _config_file: ExtensionHostConfigFile,
+}
+
+impl ExtensionHostInstance {
+    #[allow(dead_code)]
+    pub(crate) async fn start(manifest: PluginManifest, plugin_root: PathBuf) -> AppResult<Self> {
+        Self::start_with_timeout(manifest, plugin_root, DEFAULT_EXTENSION_HOST_CALL_TIMEOUT).await
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn start_with_timeout(
+        manifest: PluginManifest,
+        plugin_root: PathBuf,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
+        let current_exe = std::env::current_exe().map_err(|err| {
+            AppError::new(
+                "PLUGIN_EXTENSION_HOST_EXE_UNAVAILABLE",
+                format!("failed to resolve current executable: {err}"),
+            )
+        })?;
+        Self::start_with_program(manifest, plugin_root, current_exe, call_timeout).await
+    }
+
+    async fn start_with_program(
+        manifest: PluginManifest,
+        plugin_root: PathBuf,
+        program: PathBuf,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
+        let contribution_hash = contribution_hash(&manifest);
+        let config_file =
+            write_worker_config(&plugin_root, call_timeout, contribution_hash.clone())?;
+        #[cfg(not(test))]
+        let args = vec![
+            "--extension-host-worker".to_string(),
+            "--extension-host-config".to_string(),
+            config_file.path().display().to_string(),
+        ];
+        #[cfg(test)]
+        let args = vec![
+            "--exact".to_string(),
+            "app::plugins::extension_host_worker::extension_host_worker_process_entry_for_tests"
+                .to_string(),
+            "--nocapture".to_string(),
+            "--".to_string(),
+            "--extension-host-config".to_string(),
+            config_file.path().display().to_string(),
+        ];
+        let runtime = JsonRpcProcessRuntime::start(ProcessRuntimeConfig {
+            program: program.display().to_string(),
+            args,
+            start_timeout: DEFAULT_EXTENSION_HOST_START_TIMEOUT,
+            hook_timeout: call_timeout,
+            idle_recycle: DEFAULT_EXTENSION_HOST_IDLE_RECYCLE,
+            max_line_bytes: DEFAULT_EXTENSION_HOST_MAX_LINE_BYTES,
+            ready_method: "extension.ready".to_string(),
+            allow_startup_noise: cfg!(test),
+        })
+        .await
+        .map_err(map_process_error)?;
+
+        let mut host = Self {
+            manifest,
+            runtime,
+            _config_file: config_file,
+        };
+        host.handshake().await?;
+        Ok(host)
+    }
+
+    async fn handshake(&mut self) -> AppResult<()> {
+        self.runtime
+            .call_method(
+                "extension.handshake",
+                json!({
+                    "pluginId": self.manifest.id,
+                    "version": self.manifest.version,
+                    "apiVersion": self.manifest.api_version,
+                    "contributionHash": contribution_hash(&self.manifest),
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(map_process_error)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn activate(&mut self) -> AppResult<()> {
+        self.runtime
+            .call_method("extension.activate", Value::Null)
+            .await
+            .map(|_| ())
+            .map_err(map_process_error)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn execute_command(&mut self, command: &str, args: Value) -> AppResult<Value> {
+        self.activate().await?;
+        self.runtime
+            .call_method(
+                "commands.execute",
+                json!({
+                    "command": command,
+                    "args": args,
+                }),
+            )
+            .await
+            .map_err(map_process_error)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_running(&mut self) -> bool {
+        self.runtime.is_running()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn dispose(&mut self) {
+        let _ = self
+            .runtime
+            .call_method("extension.deactivate", Value::Null)
+            .await;
+        self.runtime.shutdown().await;
+    }
+
+    #[cfg(test)]
+    async fn start_for_tests(plugin_root: &Path) -> AppResult<Self> {
+        let manifest = read_manifest(plugin_root)?;
+        Self::start_for_tests_with_manifest(
+            manifest,
+            plugin_root,
+            DEFAULT_EXTENSION_HOST_CALL_TIMEOUT,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    async fn start_for_tests_with_timeout(
+        plugin_root: &Path,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
+        let manifest = read_manifest(plugin_root)?;
+        Self::start_for_tests_with_manifest(manifest, plugin_root, call_timeout).await
+    }
+
+    #[cfg(test)]
+    async fn start_for_tests_with_manifest(
+        manifest: PluginManifest,
+        plugin_root: &Path,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
+        let program = std::env::current_exe().map_err(|err| {
+            AppError::new(
+                "PLUGIN_EXTENSION_HOST_EXE_UNAVAILABLE",
+                format!("failed to resolve current test executable: {err}"),
+            )
+        })?;
+        Self::start_with_program(manifest, plugin_root.to_path_buf(), program, call_timeout).await
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) type ExtensionHost = ExtensionHostInstance;
+
+#[derive(Debug)]
+struct ExtensionHostConfigFile {
+    path: PathBuf,
+}
+
+impl ExtensionHostConfigFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ExtensionHostConfigFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn write_worker_config(
+    plugin_root: &Path,
+    call_timeout: Duration,
+    contribution_hash: String,
+) -> AppResult<ExtensionHostConfigFile> {
+    let config = ExtensionHostWorkerConfig {
+        plugin_root: plugin_root.to_path_buf(),
+        contribution_hash: Some(contribution_hash),
+        max_line_bytes: DEFAULT_EXTENSION_HOST_MAX_LINE_BYTES,
+        js_timeout_ms: call_timeout.as_millis().try_into().unwrap_or(u64::MAX),
+    };
+    let mut nonce = [0_u8; 8];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    let path = std::env::temp_dir().join(format!(
+        "aio-extension-host-{}-{:016x}.json",
+        std::process::id(),
+        u64::from_le_bytes(nonce)
+    ));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|err| {
+            AppError::new(
+                "PLUGIN_EXTENSION_HOST_CONFIG_CREATE_FAILED",
+                format!("failed to create extension host config file: {err}"),
+            )
+        })?;
+    let bytes = serde_json::to_vec(&config).map_err(|err| {
+        AppError::new(
+            "PLUGIN_EXTENSION_HOST_CONFIG_ENCODE_FAILED",
+            format!("failed to encode extension host config: {err}"),
+        )
+    })?;
+    file.write_all(&bytes).map_err(|err| {
+        AppError::new(
+            "PLUGIN_EXTENSION_HOST_CONFIG_WRITE_FAILED",
+            format!("failed to write extension host config: {err}"),
+        )
+    })?;
+    file.flush().map_err(|err| {
+        AppError::new(
+            "PLUGIN_EXTENSION_HOST_CONFIG_WRITE_FAILED",
+            format!("failed to flush extension host config: {err}"),
+        )
+    })?;
+    Ok(ExtensionHostConfigFile { path })
+}
+
+fn contribution_hash(manifest: &PluginManifest) -> String {
+    let bytes = serde_json::to_vec(&json!({
+        "runtime": manifest.runtime,
+        "main": manifest.main,
+        "activationEvents": manifest.activation_events,
+        "contributes": manifest.contributes,
+        "capabilities": manifest.capabilities,
+        "permissions": manifest.permissions,
+    }))
+    .unwrap_or_default();
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+fn read_manifest(plugin_root: &Path) -> AppResult<PluginManifest> {
+    let path = plugin_root.join("plugin.json");
+    let bytes = std::fs::read(&path).map_err(|err| {
+        AppError::new(
+            "PLUGIN_EXTENSION_HOST_MANIFEST_READ_FAILED",
+            format!(
+                "failed to read extension host manifest {}: {err}",
+                path.display()
+            ),
+        )
+    })?;
+    serde_json::from_slice(&bytes).map_err(|err| {
+        AppError::new(
+            "PLUGIN_EXTENSION_HOST_MANIFEST_DECODE_FAILED",
+            format!(
+                "failed to decode extension host manifest {}: {err}",
+                path.display()
+            ),
+        )
+    })
+}
+
+fn map_process_error(err: AppError) -> AppError {
+    match err.code() {
+        "PLUGIN_PROCESS_HOOK_TIMEOUT" => AppError::new(
+            "PLUGIN_EXTENSION_CALL_TIMEOUT",
+            "extension host call timed out",
+        ),
+        "PLUGIN_EXTENSION_HOST_TIMEOUT" => AppError::new(
+            "PLUGIN_EXTENSION_CALL_TIMEOUT",
+            "extension host call timed out",
+        ),
+        "PLUGIN_PROCESS_START_TIMEOUT" => AppError::new(
+            "PLUGIN_EXTENSION_START_TIMEOUT",
+            "extension host worker did not become ready before startup timeout",
+        ),
+        "PLUGIN_PROCESS_REQUEST_TOO_LARGE" => AppError::new(
+            "PLUGIN_EXTENSION_REQUEST_TOO_LARGE",
+            "extension host request exceeded max line bytes",
+        ),
+        "PLUGIN_PROCESS_RESPONSE_TOO_LARGE" => AppError::new(
+            "PLUGIN_EXTENSION_RESPONSE_TOO_LARGE",
+            "extension host response exceeded max line bytes",
+        ),
+        _ => err,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use std::path::Path;
+    use std::time::Duration;
+
+    fn write_extension_plugin(root: &Path, extension_js: &str) {
+        std::fs::create_dir_all(root.join("dist")).expect("create dist");
+        std::fs::write(
+            root.join("plugin.json"),
+            r#"{
+              "id": "acme.echo",
+              "name": "Acme Echo",
+              "version": "1.0.0",
+              "apiVersion": "1.0.0",
+              "runtime": { "kind": "extensionHost", "language": "typescript" },
+              "main": "dist/extension.js",
+              "activationEvents": ["onCommand:acme.echo", "onCommand:acme.never"],
+              "contributes": {
+                "commands": [
+                  { "command": "acme.echo", "title": "Echo" },
+                  { "command": "acme.never", "title": "Never" }
+                ]
+              },
+              "capabilities": ["commands.execute"],
+              "hostCompatibility": { "app": ">=0.60.0", "pluginApi": "^1.0.0" }
+            }"#,
+        )
+        .expect("write plugin.json");
+        std::fs::write(root.join("dist/extension.js"), extension_js).expect("write extension.js");
+    }
+
+    #[tokio::test]
+    async fn extension_host_activates_and_dispatches_command() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_extension_plugin(
+            temp.path(),
+            r#"
+            module.exports.activate = function(api) {
+              api.commands.registerCommand("acme.echo", function(args) {
+                return { ok: true, echo: args.text };
+              });
+            };
+            "#,
+        );
+
+        let mut host = super::ExtensionHost::start_for_tests(temp.path())
+            .await
+            .expect("start extension host");
+
+        let result = host
+            .execute_command("acme.echo", json!({ "text": "hello" }))
+            .await
+            .expect("execute command");
+
+        assert_eq!(result, json!({ "ok": true, "echo": "hello" }));
+        assert!(host.is_running());
+        host.dispose().await;
+        assert!(!host.is_running());
+    }
+
+    #[tokio::test]
+    async fn extension_host_timeout_kills_worker() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_extension_plugin(
+            temp.path(),
+            r#"
+            module.exports.activate = function(api) {
+              api.commands.registerCommand("acme.never", function() {
+                while (true) {}
+              });
+            };
+            "#,
+        );
+
+        let mut host = super::ExtensionHost::start_for_tests_with_timeout(
+            temp.path(),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("start extension host");
+
+        let err = host
+            .execute_command("acme.never", json!({}))
+            .await
+            .expect_err("command timeout fails");
+
+        assert_eq!(err.code(), "PLUGIN_EXTENSION_CALL_TIMEOUT");
+        assert!(!host.is_running());
+    }
+
+    #[tokio::test]
+    async fn extension_host_rejects_manifest_contribution_hash_mismatch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_extension_plugin(
+            temp.path(),
+            r#"
+            module.exports.activate = function(api) {
+              api.commands.registerCommand("acme.echo", function(args) {
+                return args;
+              });
+            };
+            "#,
+        );
+        let mut manifest = super::read_manifest(temp.path()).expect("manifest");
+        manifest.contributes = None;
+
+        let err = super::ExtensionHost::start_for_tests_with_manifest(
+            manifest,
+            temp.path(),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect_err("hash mismatch should fail handshake");
+
+        assert_eq!(err.code(), "PLUGIN_PROCESS_CRASHED");
+    }
+}
