@@ -868,6 +868,7 @@ mod tests {
             path: "/v1/messages".to_string(),
             query: None,
             requested_model: Some("claude-sonnet".to_string()),
+            special_settings_json: None,
             status: Some(200),
             error_category: None,
             error_code: None,
