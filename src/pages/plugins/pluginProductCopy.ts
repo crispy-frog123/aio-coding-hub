@@ -123,22 +123,15 @@ export function describePluginRuntime(runtime: string): RuntimeDescription {
     };
   }
 
-  if (runtime === "declarativeRules") {
+  if (runtime === "extensionHost") {
     return {
-      label: "规则插件",
-      detail: "根据声明式规则处理请求、响应或日志。",
-    };
-  }
-
-  if (runtime === "wasm") {
-    return {
-      label: "WASM 插件",
-      detail: "使用沙箱化模块执行插件逻辑。",
+      label: "扩展主机插件",
+      detail: "通过 AIO Coding Hub 扩展主机运行插件逻辑。",
     };
   }
 
   return {
-    label: runtime,
-    detail: "插件清单声明的运行方式。",
+    label: "不支持的旧插件运行时",
+    detail: "该插件使用预发布时期的运行方式，请安装 Extension Host 版本。",
   };
 }

@@ -241,6 +241,7 @@ fn extract_zip_bytes(
                 "plugin package must contain plugin.json",
             )
         })?;
+    reject_unsupported_manifest_runtime(&manifest_bytes)?;
     let manifest: PluginManifest = serde_json::from_slice(&manifest_bytes).map_err(|error| {
         AppError::new(
             "PLUGIN_INVALID_MANIFEST",
@@ -405,6 +406,39 @@ fn safe_zip_entry_path(raw_name: &str) -> AppResult<PathBuf> {
         }
     }
     Ok(out)
+}
+
+fn reject_unsupported_manifest_runtime(manifest_bytes: &[u8]) -> AppResult<()> {
+    let raw: serde_json::Value = serde_json::from_slice(manifest_bytes).map_err(|error| {
+        AppError::new(
+            "PLUGIN_INVALID_MANIFEST",
+            format!("failed to parse plugin package manifest: {error}"),
+        )
+    })?;
+    let plugin_id = raw
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let Some(kind) = raw
+        .get("runtime")
+        .and_then(|runtime| runtime.get("kind"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(());
+    };
+
+    match kind {
+        "declarativeRules" | "wasm" | "process" => Err(unsupported_runtime_error(kind)),
+        "native" if plugin_id != "official.privacy-filter" => Err(unsupported_runtime_error(kind)),
+        _ => Ok(()),
+    }
+}
+
+fn unsupported_runtime_error(kind: &str) -> AppError {
+    AppError::new(
+        "PLUGIN_UNSUPPORTED_RUNTIME",
+        format!("unsupported pre-release plugin runtime: {kind}"),
+    )
 }
 
 fn package_root_dir(staging_dir: &Path) -> AppResult<PathBuf> {

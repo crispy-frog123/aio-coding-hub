@@ -282,14 +282,7 @@ function PluginDetailPanel({
     return <div className="text-sm text-muted-foreground">选择一个插件查看详情。</div>;
   }
 
-  const runtime =
-    detail.manifest.runtime.kind === "declarativeRules"
-      ? `declarativeRules: ${detail.manifest.runtime.rules.join(", ")}`
-      : detail.manifest.runtime.kind === "native"
-        ? `native: ${detail.manifest.runtime.engine}`
-        : detail.manifest.runtime.kind === "wasm"
-          ? `wasm: ${detail.manifest.runtime.abiVersion}`
-          : `extensionHost: ${detail.manifest.runtime.language}`;
+  const runtime = detail.summary.runtime;
   const runtimeCopy = describePluginRuntime(detail.summary.runtime);
   const unsigned = isUnsigned(detail);
   const rollbackVersion = previousVersion(detail);

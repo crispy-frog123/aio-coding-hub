@@ -21,24 +21,33 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const OFFICIAL_PRIVACY_FILTER_ID: &str = "official.privacy-filter";
+const UNSUPPORTED_LEGACY_RUNTIME_ERROR: &str =
+    "Unsupported pre-release plugin runtime; reinstall an Extension Host version";
 
 pub(crate) fn list_plugins(db: &crate::db::Db) -> AppResult<Vec<crate::plugins::PluginSummary>> {
-    repository::list_plugins(db)
+    Ok(repository::list_plugins(db)?
+        .into_iter()
+        .map(normalize_unsupported_legacy_plugin_summary)
+        .collect())
 }
 
 pub(crate) fn get_plugin_detail(db: &crate::db::Db, plugin_id: &str) -> AppResult<PluginDetail> {
-    detail_with_config_defaults_for_db(db, repository::get_plugin(db, plugin_id)?)
+    Ok(normalize_unsupported_legacy_plugin_detail(
+        detail_with_config_defaults_for_db(db, repository::get_plugin(db, plugin_id)?)?,
+    ))
 }
 
 pub(crate) fn active_plugin_contributions(
     db: &crate::db::Db,
 ) -> AppResult<ActiveContributionSnapshot> {
     let mut details = Vec::new();
-    for summary in repository::list_plugins(db)? {
-        details.push(detail_with_config_defaults_for_db(
-            db,
-            repository::get_plugin(db, &summary.plugin_id)?,
-        )?);
+    for summary in list_plugins(db)? {
+        details.push(normalize_unsupported_legacy_plugin_detail(
+            detail_with_config_defaults_for_db(
+                db,
+                repository::get_plugin(db, &summary.plugin_id)?,
+            )?,
+        ));
     }
     ActiveContributionSnapshot::from_plugin_details(&details)
 }
@@ -161,11 +170,12 @@ fn find_declared_command_owner(
     db: &crate::db::Db,
     command: &str,
 ) -> AppResult<Option<PluginDetail>> {
-    for summary in repository::list_plugins(db)? {
-        let detail = detail_with_config_defaults_for_db(
-            db,
-            repository::get_plugin(db, &summary.plugin_id)?,
-        )?;
+    for summary in list_plugins(db)? {
+        let detail =
+            normalize_unsupported_legacy_plugin_detail(detail_with_config_defaults_for_db(
+                db,
+                repository::get_plugin(db, &summary.plugin_id)?,
+            )?);
         let declared = detail
             .manifest
             .contributes
@@ -258,14 +268,18 @@ pub(crate) fn enabled_plugins_for_gateway(db: &crate::db::Db) -> AppResult<Vec<P
 
 fn enabled_plugins_for_gateway_once(db: &crate::db::Db) -> AppResult<Vec<PluginDetail>> {
     let mut out = Vec::new();
-    for summary in repository::list_plugins(db)? {
+    for summary in list_plugins(db)? {
         if summary.status != PluginStatus::Enabled {
             continue;
         }
-        let detail = detail_with_config_defaults_for_db(
-            db,
-            repository::get_plugin(db, &summary.plugin_id)?,
-        )?;
+        let detail =
+            normalize_unsupported_legacy_plugin_detail(detail_with_config_defaults_for_db(
+                db,
+                repository::get_plugin(db, &summary.plugin_id)?,
+            )?);
+        if is_unsupported_legacy_runtime_detail(&detail) {
+            continue;
+        }
         if let Err(err) = validate_manifest_for_source(
             &detail.manifest,
             detail.install_source,
@@ -286,6 +300,35 @@ fn enabled_plugins_for_gateway_once(db: &crate::db::Db) -> AppResult<Vec<PluginD
 fn is_missing_plugin_table_error(err: &AppError) -> bool {
     let message = err.to_string();
     message.contains("no such table: plugins") || message.contains("no such table: plugin_")
+}
+
+fn is_unsupported_legacy_runtime_summary(runtime: &str) -> bool {
+    matches!(runtime, "declarativeRules" | "wasm" | "process" | "native")
+        || runtime.starts_with("native:") && runtime != "native:privacyFilter"
+}
+
+fn is_unsupported_legacy_runtime_detail(detail: &PluginDetail) -> bool {
+    is_unsupported_legacy_runtime_summary(&detail.summary.runtime)
+        || matches!(detail.manifest.runtime, PluginRuntime::ExtensionHost { .. })
+            && detail.manifest.main.as_deref() == Some("legacy/unsupported.js")
+}
+
+fn normalize_unsupported_legacy_plugin_summary(
+    mut summary: crate::plugins::PluginSummary,
+) -> crate::plugins::PluginSummary {
+    if is_unsupported_legacy_runtime_summary(&summary.runtime) {
+        summary.status = PluginStatus::Disabled;
+        summary.update_available = false;
+        summary.last_error = Some(UNSUPPORTED_LEGACY_RUNTIME_ERROR.to_string());
+    }
+    summary
+}
+
+fn normalize_unsupported_legacy_plugin_detail(mut detail: PluginDetail) -> PluginDetail {
+    if is_unsupported_legacy_runtime_detail(&detail) {
+        detail.summary = normalize_unsupported_legacy_plugin_summary(detail.summary);
+    }
+    detail
 }
 
 pub(crate) fn install_official_plugin(
@@ -2947,6 +2990,65 @@ DROP TABLE plugins;
     }
 
     #[test]
+    fn legacy_runtime_db_row_is_disabled_for_ui_and_gateway() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("legacy-runtime-plugin.db")).unwrap();
+        let manifest = legacy_declarative_rules_package_manifest("local.legacy-db", "1.0.0");
+        let manifest_json = manifest.to_string();
+        let now = crate::shared::time::now_unix_seconds();
+        db.open_connection()
+            .unwrap()
+            .execute(
+                r#"
+INSERT INTO plugins (
+  plugin_id,
+  name,
+  current_version,
+  install_source,
+  status,
+  manifest_json,
+  config_json,
+  granted_permissions_json,
+  installed_dir,
+  created_at,
+  updated_at
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', '[]', NULL, ?7, ?7)
+"#,
+                rusqlite::params![
+                    "local.legacy-db",
+                    "Legacy Rules Plugin",
+                    "1.0.0",
+                    "local",
+                    "enabled",
+                    manifest_json,
+                    now
+                ],
+            )
+            .unwrap();
+
+        let listed = list_plugins(&db).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].status, PluginStatus::Disabled);
+        assert_eq!(listed[0].runtime, "declarativeRules");
+        assert!(listed[0]
+            .last_error
+            .as_deref()
+            .is_some_and(|message| message.contains("Unsupported pre-release plugin runtime")));
+
+        let detail = get_plugin_detail(&db, "local.legacy-db").unwrap();
+        assert_eq!(detail.summary.status, PluginStatus::Disabled);
+        assert_eq!(detail.summary.runtime, "declarativeRules");
+        assert!(detail
+            .summary
+            .last_error
+            .as_deref()
+            .is_some_and(|message| message.contains("Unsupported pre-release plugin runtime")));
+
+        let active = enabled_plugins_for_gateway(&db).unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[test]
     fn official_privacy_filter_install_uses_upstream_redaction_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let db = crate::db::init_for_tests(&dir.path().join("official-privacy-filter.db")).unwrap();
@@ -3511,8 +3613,58 @@ DROP TABLE plugins;
         zip.finish().expect("finish package");
     }
 
+    fn legacy_declarative_rules_package_manifest(
+        plugin_id: &str,
+        version: &str,
+    ) -> serde_json::Value {
+        let mut manifest = local_package_manifest(plugin_id, version);
+        manifest["runtime"] = serde_json::json!({
+            "kind": "declarativeRules",
+            "rules": ["rules/main.json"]
+        });
+        let object = manifest.as_object_mut().expect("manifest object");
+        object.remove("main");
+        object.remove("activationEvents");
+        object.remove("contributes");
+        manifest["hooks"] = serde_json::json!([{
+            "name": "gateway.request.afterBodyRead",
+            "priority": 10,
+            "failurePolicy": "fail-open"
+        }]);
+        manifest["permissions"] = serde_json::json!(["request.body.read"]);
+        manifest["capabilities"] = serde_json::json!([]);
+        manifest
+    }
+
     fn invalid_checksum() -> String {
         "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string()
+    }
+
+    #[test]
+    fn plugin_local_install_preview_rejects_legacy_declarative_rules_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("plugins.db")).unwrap();
+        let package_path = dir.path().join("legacy-declarative.aio-plugin");
+        write_local_package(
+            &package_path,
+            legacy_declarative_rules_package_manifest("local.legacy-rules", "1.0.0"),
+        );
+
+        let err = preview_plugin_from_local_package_with_policy(
+            &db,
+            &package_path,
+            &dir.path().join("plugins/cache"),
+            env!("CARGO_PKG_VERSION"),
+            LocalPackageInstallPolicy {
+                allow_unsigned: true,
+                developer_mode: true,
+                ..LocalPackageInstallPolicy::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code(), "PLUGIN_UNSUPPORTED_RUNTIME");
+        assert!(repository::get_plugin(&db, "local.legacy-rules").is_err());
     }
 
     #[test]
@@ -4243,6 +4395,32 @@ DROP TABLE plugins;
             .audit_logs
             .iter()
             .any(|log| log.event_type == "plugin.installed"));
+    }
+
+    #[test]
+    fn plugin_local_install_rejects_legacy_declarative_rules_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::init_for_tests(&dir.path().join("plugins.db")).unwrap();
+        let package_path = dir.path().join("legacy-declarative-install.aio-plugin");
+        write_local_package(
+            &package_path,
+            legacy_declarative_rules_package_manifest("local.legacy-install", "1.0.0"),
+        );
+        let cache_dir = dir.path().join("plugins/cache");
+        let installed_dir = dir.path().join("plugins/installed");
+
+        let err = install_plugin_from_local_package(
+            &db,
+            &package_path,
+            &cache_dir,
+            &installed_dir,
+            env!("CARGO_PKG_VERSION"),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code(), "PLUGIN_UNSUPPORTED_RUNTIME");
+        assert!(repository::get_plugin(&db, "local.legacy-install").is_err());
+        assert!(!installed_dir.join("local.legacy-install").exists());
     }
 
     #[test]

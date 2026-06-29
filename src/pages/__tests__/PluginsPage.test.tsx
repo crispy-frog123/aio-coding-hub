@@ -100,7 +100,7 @@ function summary(overrides: Partial<PluginSummary> = {}): PluginSummary {
     name: "Community Prompt Helper",
     current_version: "1.0.0",
     status: "disabled",
-    runtime: "declarativeRules",
+    runtime: "extensionHost",
     permission_risk: "high",
     update_available: false,
     last_error: null,
@@ -119,7 +119,15 @@ function detail(overrides: Partial<PluginDetail> = {}): PluginDetail {
       name: baseSummary.name,
       version: "1.0.0",
       apiVersion: "1.0.0",
-      runtime: { kind: "declarativeRules", rules: ["rules/main.json"] },
+      runtime: { kind: "extensionHost", language: "typescript" },
+      main: "dist/extension.js",
+      activationEvents: ["onGatewayHook:gateway.request.afterBodyRead"],
+      contributes: {
+        gatewayHooks: [
+          { name: "gateway.request.afterBodyRead", priority: 100, failurePolicy: "fail-open" },
+        ],
+      },
+      capabilities: ["gateway.hooks"],
       hooks: [{ name: "gateway.request.afterBodyRead", priority: 100, failurePolicy: "fail-open" }],
       permissions: ["request.body.read", "request.body.write"],
       hostCompatibility: {
@@ -171,8 +179,8 @@ function installPreview(overrides: Partial<PluginInstallPreview> = {}): PluginIn
     license: "MIT",
     category: "productivity",
     runtime: {
-      kind: "declarativeRules",
-      label: "规则插件",
+      kind: "extensionHost",
+      label: "Extension Host",
       supported: true,
       blockingReasons: [],
     },
@@ -430,7 +438,7 @@ describe("pages/PluginsPage", () => {
 
     expect(screen.getAllByText("Community Prompt Helper").length).toBeGreaterThan(0);
     expect(screen.getAllByText("community.prompt-helper").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("规则插件").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("扩展主机插件").length).toBeGreaterThan(0);
     expect(screen.getByText("高风险")).toBeInTheDocument();
     expect(screen.getByText("可更新")).toBeInTheDocument();
     expect(screen.getByText("Last failure")).toBeInTheDocument();
@@ -438,6 +446,38 @@ describe("pages/PluginsPage", () => {
     expect(screen.getByText("request.body.write")).toBeInTheDocument();
     expect(screen.getByText("待允许")).toBeInTheDocument();
     expect(screen.getByText("Plugin installed")).toBeInTheDocument();
+  });
+
+  it("labels legacy runtimes as unsupported", () => {
+    vi.mocked(usePluginsListQuery).mockReturnValue({
+      data: [
+        summary({
+          runtime: "declarativeRules",
+          status: "disabled",
+          last_error: "Unsupported pre-release plugin runtime; reinstall an Extension Host version",
+        }),
+      ],
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    } as any);
+    vi.mocked(usePluginQuery).mockReturnValue({
+      data: detail({
+        summary: summary({
+          runtime: "declarativeRules",
+          status: "disabled",
+          last_error: "Unsupported pre-release plugin runtime; reinstall an Extension Host version",
+        }),
+      }),
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    } as any);
+
+    renderWithProviders(<PluginsPage />);
+
+    expect(screen.getAllByText("不支持的旧插件运行时").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Unsupported pre-release plugin runtime/).length).toBeGreaterThan(0);
   });
 
   it("presents plugin value, data access, settings, and developer metadata in that order", () => {

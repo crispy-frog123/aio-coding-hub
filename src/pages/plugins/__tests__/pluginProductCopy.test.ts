@@ -36,9 +36,13 @@ describe("pluginProductCopy", () => {
       label: "内置隐私过滤引擎",
       detail: "由 AIO Coding Hub 提供，用于本地处理。",
     });
+    expect(describePluginRuntime("extensionHost")).toEqual({
+      label: "扩展主机插件",
+      detail: "通过 AIO Coding Hub 扩展主机运行插件逻辑。",
+    });
     expect(describePluginRuntime("declarativeRules")).toEqual({
-      label: "规则插件",
-      detail: "根据声明式规则处理请求、响应或日志。",
+      label: "不支持的旧插件运行时",
+      detail: "该插件使用预发布时期的运行方式，请安装 Extension Host 版本。",
     });
   });
 

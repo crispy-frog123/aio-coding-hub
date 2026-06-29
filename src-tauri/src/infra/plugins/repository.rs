@@ -708,6 +708,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> Result<PluginSummary, rusqlite::
     let runtime = manifest
         .as_ref()
         .map(runtime_name)
+        .or_else(|| legacy_runtime_name(&manifest_json))
         .unwrap_or_else(|| "unknown".to_string());
     let permission_risk = manifest
         .as_ref()
@@ -731,13 +732,25 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> Result<PluginSummary, rusqlite::
 
 fn detail_from_row(row: &rusqlite::Row<'_>) -> Result<PluginDetailRow, rusqlite::Error> {
     let manifest_json: String = row.get("manifest_json")?;
-    let manifest: PluginManifest = serde_json::from_str(&manifest_json).map_err(|err| {
-        rusqlite::Error::FromSqlConversionFailure(
-            manifest_json.len(),
-            rusqlite::types::Type::Text,
-            Box::new(err),
-        )
-    })?;
+    let manifest: PluginManifest = match serde_json::from_str(&manifest_json) {
+        Ok(manifest) => manifest,
+        Err(_) if legacy_runtime_name(&manifest_json).is_some() => {
+            legacy_manifest_placeholder(&manifest_json).map_err(|placeholder_err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    manifest_json.len(),
+                    rusqlite::types::Type::Text,
+                    Box::new(placeholder_err),
+                )
+            })?
+        }
+        Err(err) => {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                manifest_json.len(),
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            ));
+        }
+    };
     let install_source_raw: String = row.get("install_source")?;
     let install_source =
         PluginInstallSource::parse(&install_source_raw).unwrap_or(PluginInstallSource::Local);
@@ -761,6 +774,50 @@ fn runtime_name(manifest: &PluginManifest) -> String {
         PluginRuntime::ExtensionHost { .. } => "extensionHost".to_string(),
         PluginRuntime::Native { ref engine } => format!("native:{engine}"),
     }
+}
+
+fn legacy_runtime_name(manifest_json: &str) -> Option<String> {
+    let raw: serde_json::Value = serde_json::from_str(manifest_json).ok()?;
+    let plugin_id = raw
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let kind = raw
+        .get("runtime")
+        .and_then(|runtime| runtime.get("kind"))
+        .and_then(serde_json::Value::as_str)?;
+    match kind {
+        "declarativeRules" | "wasm" | "process" => Some(kind.to_string()),
+        "native" if plugin_id != "official.privacy-filter" => raw
+            .get("runtime")
+            .and_then(|runtime| runtime.get("engine"))
+            .and_then(serde_json::Value::as_str)
+            .map(|engine| format!("native:{engine}"))
+            .or_else(|| Some("native".to_string())),
+        _ => None,
+    }
+}
+
+fn legacy_manifest_placeholder(manifest_json: &str) -> Result<PluginManifest, serde_json::Error> {
+    let mut raw: serde_json::Value = serde_json::from_str(manifest_json)?;
+    raw["runtime"] = serde_json::json!({
+        "kind": "extensionHost",
+        "language": "typescript"
+    });
+    raw["main"] = serde_json::json!("legacy/unsupported.js");
+    raw["hooks"] = serde_json::json!([]);
+    raw["permissions"] = serde_json::json!([]);
+    raw["activationEvents"] = serde_json::json!([]);
+    raw["contributes"] = serde_json::json!({
+        "providers": [],
+        "protocols": [],
+        "protocolBridges": [],
+        "commands": [],
+        "gatewayHooks": [],
+        "ui": {}
+    });
+    raw["capabilities"] = serde_json::json!([]);
+    serde_json::from_value(raw)
 }
 
 fn validate_manifest_for_source(
