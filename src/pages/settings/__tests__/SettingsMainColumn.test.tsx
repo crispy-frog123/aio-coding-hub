@@ -57,6 +57,10 @@ vi.mock("../../../query/plugins", () => ({
     isLoading: false,
     error: null,
   })),
+  usePluginExecuteCommandMutation: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue(null),
+    isPending: false,
+  })),
 }));
 vi.mock("../../../services/gateway/gateway", async () => {
   const actual = await vi.importActual<typeof import("../../../services/gateway/gateway")>(
