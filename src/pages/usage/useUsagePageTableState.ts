@@ -3,7 +3,7 @@ import type { UsageScope } from "../../services/usage/usage";
 import type { UsageTableTab } from "./types";
 
 export function useUsagePageTableState() {
-  const [tableTab, setTableTab] = useState<UsageTableTab>("usage");
+  const [tableTab, setTableTab] = useState<UsageTableTab>("remoteUsage");
   const [scope, setScope] = useState<UsageScope>("provider");
   const scopeBeforeCacheTrendRef = useRef<UsageScope>("provider");
 
