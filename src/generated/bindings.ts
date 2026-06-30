@@ -1929,6 +1929,76 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async serviceStatusFetch(): Promise<Result<ServiceStatusResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("service_status_fetch") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSourcesList(
+    cliKey: string | null
+  ): Promise<Result<RemoteUsageSourceSummary[], string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("remote_usage_sources_list", { cliKey }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSnapshotsRefresh(
+    input: RemoteUsageRefreshInput
+  ): Promise<Result<RemoteUsageSnapshotRow[], string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_snapshots_refresh", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceUpsert(
+    input: RemoteUsageCustomSourceUpsertInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_upsert", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceDelete(
+    input: RemoteUsageCustomSourceDeleteInput
+  ): Promise<Result<boolean, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_delete", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceSetEnabled(
+    input: RemoteUsageCustomSourceEnabledInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_set_enabled", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async workspacesList(cliKey: string): Promise<Result<WorkspacesListResult, string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("workspaces_list", { cliKey }) };
@@ -3437,6 +3507,102 @@ export type UsageSummary = {
   cache_creation_input_tokens: number;
   cache_creation_5m_input_tokens: number;
   cache_creation_1h_input_tokens: number;
+};
+export type RemoteUsageCustomSourceDeleteInput = { id: number };
+export type RemoteUsageCustomSourceEnabledInput = { id: number; enabled: boolean };
+export type RemoteUsageCustomSourceUpsertInput = {
+  id: number | null;
+  cliKey: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string | null;
+  enabled: boolean;
+};
+export type RemoteUsageRefreshInput = {
+  cliKey: string | null;
+  sourceIds: string[] | null;
+};
+export type RemoteUsageSourceType = "provider" | "custom";
+export type RemoteUsageSnapshotStatus =
+  | "fresh"
+  | "stale"
+  | "unauthorized"
+  | "not_configured"
+  | "failed";
+export type RemoteUsageBucket = {
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageUsage = {
+  today: RemoteUsageBucket | null;
+  week: RemoteUsageBucket | null;
+  month: RemoteUsageBucket | null;
+  total: RemoteUsageBucket | null;
+};
+export type RemoteUsageModelStat = {
+  model: string;
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageSnapshot = {
+  plan_name: string | null;
+  remaining: number | null;
+  unit: string | null;
+  subscription: string | null;
+  usage: RemoteUsageUsage;
+  model_stats: RemoteUsageModelStat[];
+};
+export type RemoteUsageSourceSummary = {
+  source_id: string;
+  source_type: RemoteUsageSourceType;
+  cli_key: string;
+  name: string;
+  base_url: string;
+  endpoint_url: string;
+  enabled: boolean;
+  provider_id: number | null;
+  custom_source_id: number | null;
+  api_key_configured: boolean;
+};
+export type RemoteUsageSnapshotRow = {
+  source: RemoteUsageSourceSummary;
+  status: RemoteUsageSnapshotStatus;
+  last_error: string | null;
+  last_successful_refresh_at: number | null;
+  snapshot: RemoteUsageSnapshot | null;
+};
+export type ServiceStatusCellKind = "green" | "yellow" | "red" | "gray";
+export type ServiceStatusProbe = {
+  ts: number | null;
+  ok: boolean | null;
+  latency_ms: number | null;
+  error: string | null;
+  kind: ServiceStatusCellKind;
+};
+export type ServiceStatusService = {
+  model: string;
+  uptime_pct: number | null;
+  last: ServiceStatusProbe | null;
+  history: ServiceStatusProbe[];
+  latest_kind: ServiceStatusCellKind;
+  status_text: string;
+};
+export type ServiceStatusResponse = {
+  all_ok: boolean;
+  generated_at: number | null;
+  services: ServiceStatusService[];
+};
+export type ServiceStatusSnapshot = {
+  endpoint_url: string;
+  refreshed_at: number;
+  raw_json_text: string;
+  response: ServiceStatusResponse;
+};
+export type ServiceStatusResult = {
+  snapshot: ServiceStatusSnapshot | null;
+  error: string | null;
 };
 export type WorkspaceApplyReport = {
   cli_key: string;

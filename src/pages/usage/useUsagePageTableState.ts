@@ -9,7 +9,7 @@ export function useUsagePageTableState() {
 
   function onChangeTableTab(next: UsageTableTab) {
     if (next === tableTab) return;
-    const scopeLocked = next === "cacheTrend" || next === "availability";
+    const scopeLocked = next === "cacheTrend" || next === "availability" || next === "remoteUsage";
     if (scopeLocked) {
       scopeBeforeCacheTrendRef.current = scope;
       if (scope !== "provider") setScope("provider");

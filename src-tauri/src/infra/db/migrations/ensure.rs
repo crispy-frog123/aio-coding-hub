@@ -27,6 +27,7 @@ pub(super) fn apply_ensure_patches(conn: &mut Connection) -> crate::shared::erro
     ensure_provider_upstream_retry_policy(conn)?;
     ensure_skills_update_columns(conn)?;
     ensure_plugin_tables(conn)?;
+    ensure_remote_usage_tables(conn)?;
     Ok(())
 }
 
@@ -1172,6 +1173,52 @@ CREATE INDEX IF NOT EXISTS idx_plugin_runtime_failures_plugin_created_at
 
     tx.commit()
         .map_err(|e| format!("failed to commit plugin table ensure patch: {e}"))?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// ensure_remote_usage_tables
+// ---------------------------------------------------------------------------
+
+fn ensure_remote_usage_tables(conn: &mut Connection) -> crate::shared::error::AppResult<()> {
+    conn.execute_batch(
+        r#"
+CREATE TABLE IF NOT EXISTS remote_usage_custom_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cli_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  api_key_plaintext TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_usage_custom_sources_cli_enabled_updated
+  ON remote_usage_custom_sources(cli_key, enabled, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS remote_usage_snapshot_cache (
+  source_id TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  provider_id INTEGER,
+  custom_source_id INTEGER,
+  endpoint_url TEXT NOT NULL,
+  api_key_fingerprint TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  last_successful_refresh_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_fingerprint
+  ON remote_usage_snapshot_cache(source_id, api_key_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_provider
+  ON remote_usage_snapshot_cache(provider_id);
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_custom
+  ON remote_usage_snapshot_cache(custom_source_id);
+"#,
+    )
+    .map_err(|e| format!("failed to ensure remote usage tables: {e}"))?;
 
     Ok(())
 }

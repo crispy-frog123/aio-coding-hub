@@ -313,6 +313,25 @@ export const providerLimitUsageKeys = {
   list: (cliKey: CliKey | null) => [...providerLimitUsageAllKey, "list", cliKey] as const,
 };
 
+const remoteUsageAllKey = ["remoteUsage"] as const;
+export const remoteUsageKeys = {
+  all: remoteUsageAllKey,
+  sources: (cliKey: CliKey | null) => [...remoteUsageAllKey, "sources", cliKey] as const,
+  snapshots: (input: { cliKey: CliKey | null; sourceIds?: readonly string[] | null }) =>
+    [
+      ...remoteUsageAllKey,
+      "snapshots",
+      input.cliKey,
+      ...normalizeKeyParts(input.sourceIds ?? []),
+    ] as const,
+};
+
+const serviceStatusAllKey = ["serviceStatus"] as const;
+export const serviceStatusKeys = {
+  all: serviceStatusAllKey,
+  current: () => [...serviceStatusAllKey, "current"] as const,
+};
+
 const cliSessionsAllKey = ["cliSessions"] as const;
 export const cliSessionsKeys = {
   all: cliSessionsAllKey,

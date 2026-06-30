@@ -168,6 +168,7 @@ function UsageDataPanelSection({
       availabilityLoading={availability.loading}
       availabilityRefreshing={availability.refreshing}
       onRefreshAvailability={availability.refetch}
+      cliKey={filters.cliKey === "all" ? null : filters.cliKey}
     />
   );
 }
@@ -188,7 +189,7 @@ function UsagePageView({
       <div className="shrink-0">
         <UsagePageHeader loading={model.loading} filters={filters} />
       </div>
-      {table.tableTab !== "availability" && (
+      {table.tableTab !== "availability" && table.tableTab !== "remoteUsage" && (
         <div className="shrink-0">
           <UsageSummaryCards
             summary={model.summary}
@@ -198,11 +199,13 @@ function UsagePageView({
           />
         </div>
       )}
-      <UsageErrorCard
-        errorText={model.errorText}
-        loading={model.loading}
-        onRetry={model.handleRetry}
-      />
+      {table.tableTab !== "remoteUsage" && (
+        <UsageErrorCard
+          errorText={model.errorText}
+          loading={model.loading}
+          onRetry={model.handleRetry}
+        />
+      )}
       <TauriUnavailableHint open={model.tauriAvailable === false} />
       <UsageDataPanelSection
         filters={filters}

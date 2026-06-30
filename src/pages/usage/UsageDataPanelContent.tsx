@@ -6,6 +6,7 @@ import { formatInteger } from "../../utils/formatters";
 import { PROVIDER_FILTER_ALL, SCOPE_ITEMS, USAGE_TABLE_TAB_ITEMS } from "./constants";
 import { CacheTrendBody, UsageTableBody } from "./UsageDataPanelBodies";
 import { UsageAvailabilityPanel } from "../../components/usage/UsageAvailabilityPanel";
+import { RemoteUsagePanel } from "../../components/usage/RemoteUsagePanel";
 
 function UsageScopeGroup({
   scope,
@@ -122,12 +123,14 @@ function UsageDataPanelHeader({
       </div>
       <div className="flex items-center gap-3">
         {titleText ? <div className="text-xs text-muted-foreground">{titleText}</div> : null}
-        <UsageProviderFilterSelect
-          providerSelectValue={providerSelectValue}
-          providerOptions={providerOptions}
-          onProviderIdChange={onProviderIdChange}
-          loading={loading || providersLoading}
-        />
+        {tableTab !== "remoteUsage" && (
+          <UsageProviderFilterSelect
+            providerSelectValue={providerSelectValue}
+            providerOptions={providerOptions}
+            onProviderIdChange={onProviderIdChange}
+            loading={loading || providersLoading}
+          />
+        )}
       </div>
     </div>
   );
@@ -258,6 +261,7 @@ function UsageDataPanelBody({
   availabilityLoading,
   availabilityRefreshing,
   onRefreshAvailability,
+  cliKey,
 }: Pick<
   UsageDataPanelProps,
   | "tableTab"
@@ -275,7 +279,16 @@ function UsageDataPanelBody({
   | "availabilityLoading"
   | "availabilityRefreshing"
   | "onRefreshAvailability"
+  | "cliKey"
 > & { activeStale: boolean }) {
+  if (tableTab === "remoteUsage") {
+    return (
+      <UsageDataPanelScrollArea activeStale={activeStale}>
+        <RemoteUsagePanel cliKey={cliKey} />
+      </UsageDataPanelScrollArea>
+    );
+  }
+
   if (tableTab === "availability") {
     return (
       <AvailabilityPanelBody
@@ -361,6 +374,7 @@ export function UsageDataPanelContent({
         availabilityLoading={props.availabilityLoading}
         availabilityRefreshing={props.availabilityRefreshing}
         onRefreshAvailability={props.onRefreshAvailability}
+        cliKey={props.cliKey}
       />
     </div>
   );

@@ -8,6 +8,7 @@ import { cn } from "../../utils/cn";
 import { formatInteger, formatPercent, formatDurationMs } from "../../utils/formatters";
 import { RefreshCw } from "lucide-react";
 import { StatCard, StatCardSkeleton } from "./StatCard";
+import { ServiceStatusPanel } from "./ServiceStatusPanel";
 
 function isSuccess(status: number | null) {
   return status != null && status >= 200 && status < 400;
@@ -402,6 +403,7 @@ export type UsageAvailabilityPanelProps = {
   loading: boolean;
   onRefresh: () => void;
   refreshing: boolean;
+  serviceStatusEnabled?: boolean;
 };
 
 export function UsageAvailabilityPanel({
@@ -409,10 +411,12 @@ export function UsageAvailabilityPanel({
   loading,
   onRefresh,
   refreshing,
+  serviceStatusEnabled = true,
 }: UsageAvailabilityPanelProps) {
   if (loading || !data) {
     return (
       <div className="flex flex-col gap-4 px-6 pb-6">
+        <ServiceStatusPanel enabled={serviceStatusEnabled} />
         <AvailabilitySummaryCards providers={[]} loading />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner size="sm" />
@@ -425,6 +429,7 @@ export function UsageAvailabilityPanel({
   if (data.providers.length === 0) {
     return (
       <div className="flex flex-col gap-4 px-6 pb-6">
+        <ServiceStatusPanel enabled={serviceStatusEnabled} />
         <AvailabilitySummaryCards providers={[]} loading={false} />
         <EmptyState title="暂无请求记录" description="当有请求经过网关后，可用率数据将自动展示。" />
       </div>
@@ -441,6 +446,7 @@ export function UsageAvailabilityPanel({
 
   return (
     <div className="flex flex-col gap-4 px-6 pb-6">
+      <ServiceStatusPanel enabled={serviceStatusEnabled} />
       <AvailabilitySummaryCards providers={data.providers} loading={false} />
 
       {/* Timeline section */}

@@ -9,6 +9,7 @@ import type {
   UsageSummary,
 } from "../../services/usage/usage";
 import type { AvailabilityTimelineData } from "../../components/usage/UsageAvailabilityPanel";
+import type { CliKey } from "../../services/providers/providers";
 import { Card } from "../../ui/Card";
 import type { UsageTableTab } from "./types";
 import { useAutoFocus, useInert } from "./useInert";
@@ -42,6 +43,7 @@ export type UsageDataPanelProps = {
   availabilityLoading: boolean;
   availabilityRefreshing: boolean;
   onRefreshAvailability: () => void;
+  cliKey: CliKey | null;
 };
 
 function overlayOpenForCustomPending({
@@ -59,6 +61,7 @@ function overlayOpenForCustomPending({
   if (tableTab === "cacheTrend") return cacheTrendRows.length > 0;
   if (tableTab === "availability")
     return availabilityData != null && availabilityData.providers.length > 0;
+  if (tableTab === "remoteUsage") return false;
   return rows.length > 0 || summary != null;
 }
 
@@ -103,7 +106,9 @@ export function UsageDataPanel(props: UsageDataPanelProps) {
       ? props.cacheTrendStale
       : props.tableTab === "availability"
         ? props.availabilityRefreshing
-        : props.dataStale;
+        : props.tableTab === "remoteUsage"
+          ? false
+          : props.dataStale;
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);

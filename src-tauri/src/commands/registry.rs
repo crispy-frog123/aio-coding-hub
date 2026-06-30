@@ -221,6 +221,14 @@ macro_rules! generated_command_registry {
             cli_proxy_rebind_codex_home => crate::commands::cli_proxy::cli_proxy_rebind_codex_home,
             // ── provider_limit_usage ──
             provider_limit_usage_v1 => crate::commands::provider_limit_usage::provider_limit_usage_v1,
+            // ── service_status ──
+            service_status_fetch => crate::commands::service_status::service_status_fetch,
+            // ── remote_usage ──
+            remote_usage_sources_list => crate::commands::remote_usage::remote_usage_sources_list,
+            remote_usage_snapshots_refresh => crate::commands::remote_usage::remote_usage_snapshots_refresh,
+            remote_usage_custom_source_upsert => crate::commands::remote_usage::remote_usage_custom_source_upsert,
+            remote_usage_custom_source_delete => crate::commands::remote_usage::remote_usage_custom_source_delete,
+            remote_usage_custom_source_set_enabled => crate::commands::remote_usage::remote_usage_custom_source_set_enabled,
             // ── workspaces ──
             workspaces_list => crate::commands::workspaces::workspaces_list,
             workspace_create => crate::commands::workspaces::workspace_create,
