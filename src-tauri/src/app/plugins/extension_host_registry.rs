@@ -35,6 +35,7 @@ pub(crate) struct ExtensionHostInstanceKey {
     pub(crate) runtime_kind: String,
     pub(crate) runtime_language: String,
     pub(crate) contribution_hash: String,
+    pub(crate) call_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +80,7 @@ trait ExtensionHostFactory: Send + Sync {
         &'a self,
         detail: PluginDetail,
         db: db::Db,
+        call_timeout: Duration,
     ) -> BoxFuture<'a, AppResult<Box<dyn ExtensionHostProcess>>>;
 }
 
@@ -92,16 +94,19 @@ impl ExtensionHostFactory for RealExtensionHostFactory {
         &'a self,
         detail: PluginDetail,
         db: db::Db,
+        call_timeout: Duration,
     ) -> BoxFuture<'a, AppResult<Box<dyn ExtensionHostProcess>>> {
         Box::pin(async move {
             let plugin_root = plugin_root(&detail)?;
-            let host = ExtensionHostInstance::start_with_host_api_and_privacy_redaction(
-                detail.manifest.clone(),
-                plugin_root,
-                db,
-                self.privacy_redaction.clone(),
-            )
-            .await?;
+            let host =
+                ExtensionHostInstance::start_with_host_api_and_privacy_redaction_with_timeout(
+                    detail.manifest.clone(),
+                    plugin_root,
+                    db,
+                    self.privacy_redaction.clone(),
+                    call_timeout,
+                )
+                .await?;
             Ok(Box::new(RealExtensionHostProcess { host }) as Box<dyn ExtensionHostProcess>)
         })
     }
@@ -287,7 +292,14 @@ impl ExtensionHostInstanceRegistry {
         };
         dispose_instances(disposals.drain(..)).await;
 
-        let mut process = self.factory.start(detail, self.db.clone()).await?;
+        let mut process = self
+            .factory
+            .start(
+                detail,
+                self.db.clone(),
+                crate::app::plugins::extension_host::DEFAULT_EXTENSION_HOST_CALL_TIMEOUT,
+            )
+            .await?;
         let value = match process.execute_command(command, args).await {
             Ok(value) => value,
             Err(error) => {
@@ -314,8 +326,9 @@ impl ExtensionHostInstanceRegistry {
         detail: PluginDetail,
         hook: &str,
         context: GatewayVisibleHookContext,
+        call_timeout: Duration,
     ) -> Result<GatewayHookResult, GatewayPluginError> {
-        self.execute_gateway_hook_with_now(detail, hook, context, Instant::now())
+        self.execute_gateway_hook_with_now(detail, hook, context, call_timeout, Instant::now())
             .await
     }
 
@@ -324,6 +337,7 @@ impl ExtensionHostInstanceRegistry {
         detail: PluginDetail,
         hook: &str,
         context: GatewayVisibleHookContext,
+        call_timeout: Duration,
         now: Instant,
     ) -> Result<GatewayHookResult, GatewayPluginError> {
         let context_value = serde_json::to_value(&context).map_err(|err| {
@@ -339,7 +353,7 @@ impl ExtensionHostInstanceRegistry {
             "context": context_value,
         });
         let _operation_guard = self.operation_gate.read().await;
-        let key = ExtensionHostInstanceKey::from_plugin_detail(&detail)
+        let key = ExtensionHostInstanceKey::from_gateway_plugin_detail(&detail, call_timeout)
             .map_err(extension_host_gateway_error)?;
         let plugin_lock = self.plugin_lock_for(&key.plugin_id).await;
         let _plugin_guard = plugin_lock.lock().await;
@@ -366,7 +380,7 @@ impl ExtensionHostInstanceRegistry {
 
         let mut process = self
             .factory
-            .start(detail, self.db.clone())
+            .start(detail, self.db.clone(), call_timeout)
             .await
             .map_err(extension_host_gateway_error)?;
         let value = match process.execute_gateway_hook(hook, payload).await {
@@ -667,8 +681,22 @@ impl ExtensionHostInstanceKey {
             runtime_kind,
             runtime_language,
             contribution_hash: contribution_hash(&detail.manifest),
+            call_timeout_ms: None,
         })
     }
+
+    pub(crate) fn from_gateway_plugin_detail(
+        detail: &PluginDetail,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
+        let mut key = Self::from_plugin_detail(detail)?;
+        key.call_timeout_ms = Some(call_timeout_millis(call_timeout));
+        Ok(key)
+    }
+}
+
+fn call_timeout_millis(call_timeout: Duration) -> u64 {
+    call_timeout.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 #[derive(Default)]
@@ -1038,6 +1066,7 @@ mod tests {
     struct FakeFactoryState {
         next_id: u64,
         starts: Vec<u64>,
+        start_timeouts: Vec<Duration>,
         executions: Vec<u64>,
         disposals: Vec<u64>,
     }
@@ -1108,6 +1137,10 @@ mod tests {
         fn disposed_instance_ids(&self) -> Vec<u64> {
             self.state.lock().unwrap().disposals.clone()
         }
+
+        fn start_timeouts(&self) -> Vec<Duration> {
+            self.state.lock().unwrap().start_timeouts.clone()
+        }
     }
 
     impl ExtensionHostFactory for FakeExtensionHostFactory {
@@ -1115,12 +1148,14 @@ mod tests {
             &'a self,
             _detail: PluginDetail,
             _db: db::Db,
+            call_timeout: Duration,
         ) -> BoxFuture<'a, AppResult<Box<dyn ExtensionHostProcess>>> {
             Box::pin(async move {
                 let mut state = self.state.lock().unwrap();
                 state.next_id += 1;
                 let id = state.next_id;
                 state.starts.push(id);
+                state.start_timeouts.push(call_timeout);
                 Ok(Box::new(FakeExtensionHostProcess {
                     id,
                     state: self.state.clone(),
@@ -1190,6 +1225,7 @@ mod tests {
             &'a self,
             detail: PluginDetail,
             _db: db::Db,
+            _call_timeout: Duration,
         ) -> BoxFuture<'a, AppResult<Box<dyn ExtensionHostProcess>>> {
             Box::pin(async move {
                 self.starts.fetch_add(1, Ordering::SeqCst);
@@ -1437,6 +1473,7 @@ mod tests {
                 detail.clone(),
                 GatewayPluginHookName::RequestAfterBodyRead.as_str(),
                 context.clone(),
+                Duration::from_millis(150),
                 Instant::now(),
             )
             .await
@@ -1446,6 +1483,7 @@ mod tests {
                 detail.clone(),
                 "gateway.failWarm",
                 context.clone(),
+                Duration::from_millis(150),
                 Instant::now(),
             )
             .await
@@ -1460,6 +1498,7 @@ mod tests {
                 detail,
                 GatewayPluginHookName::RequestAfterBodyRead.as_str(),
                 context,
+                Duration::from_millis(150),
                 Instant::now(),
             )
             .await
@@ -1467,6 +1506,58 @@ mod tests {
 
         assert_eq!(factory.start_count(), 2);
         assert_eq!(factory.executed_instance_ids(), vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn registry_starts_new_gateway_instance_when_call_timeout_changes() {
+        let factory = Arc::new(FakeExtensionHostFactory::default());
+        let registry = ExtensionHostInstanceRegistry::new_for_tests(
+            factory.clone(),
+            ExtensionHostRegistryLimits {
+                max_warm_instances: 8,
+                idle_recycle: Duration::from_secs(120),
+            },
+        );
+        let detail = plugin_detail("acme.gateway", "same");
+        let context = GatewayVisibleHookContext {
+            hook_name: GatewayPluginHookName::RequestAfterBodyRead
+                .as_str()
+                .to_string(),
+            trace_id: "trace-gateway-timeout".to_string(),
+            request: Default::default(),
+            response: Default::default(),
+            stream: Default::default(),
+            log: Default::default(),
+        };
+
+        registry
+            .execute_gateway_hook_with_now(
+                detail.clone(),
+                GatewayPluginHookName::RequestAfterBodyRead.as_str(),
+                context.clone(),
+                Duration::from_millis(37),
+                Instant::now(),
+            )
+            .await
+            .expect("first hook warms instance");
+        registry
+            .execute_gateway_hook_with_now(
+                detail,
+                GatewayPluginHookName::RequestAfterBodyRead.as_str(),
+                context,
+                Duration::from_millis(91),
+                Instant::now(),
+            )
+            .await
+            .expect("changed timeout should cold start a matching instance");
+
+        assert_eq!(factory.start_count(), 2);
+        assert_eq!(
+            factory.start_timeouts(),
+            vec![Duration::from_millis(37), Duration::from_millis(91)]
+        );
+        assert_eq!(factory.disposed_instance_ids(), vec![1]);
+        assert_eq!(registry.instance_count().await, 1);
     }
 
     #[tokio::test]

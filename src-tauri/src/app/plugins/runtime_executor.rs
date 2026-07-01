@@ -1,6 +1,5 @@
 //! Usage: Runtime dispatch for gateway plugin execution.
 
-use crate::app::plugins::extension_host::DEFAULT_EXTENSION_HOST_CALL_TIMEOUT;
 use crate::app::plugins::extension_host_registry::{
     ExtensionHostInstanceLifecycleRegistry, ExtensionHostInstanceRegistry,
 };
@@ -11,13 +10,11 @@ use crate::db;
 use crate::domain::plugins::PluginDetail;
 #[cfg(test)]
 use crate::gateway::plugins::context::GatewayHookResult;
-use crate::gateway::plugins::context::{GatewayPluginHookName, GatewayVisibleHookContext};
+use crate::gateway::plugins::context::GatewayVisibleHookContext;
 use crate::gateway::plugins::permissions::GatewayPluginError;
 use crate::gateway::plugins::pipeline::{GatewayHookFuture, GatewayPluginExecutor};
 use std::sync::Arc;
 use std::time::Duration;
-
-const EXTENSION_HOST_GATEWAY_TIMEOUT_GRACE: Duration = Duration::from_secs(1);
 
 pub(crate) struct RuntimeGatewayPluginExecutor {
     lifecycle: RuntimeLifecycleRegistry,
@@ -100,6 +97,7 @@ impl RuntimeGatewayPluginExecutor {
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
         let manager = PluginRuntimeManager::new();
         match manager.runtime_dispatch(&plugin.summary.plugin_id, &plugin.manifest.runtime) {
@@ -117,7 +115,11 @@ impl RuntimeGatewayPluginExecutor {
                 };
                 let detail = plugin.clone();
                 let hook = context.hook_name.clone();
-                Box::pin(async move { registry.execute_gateway_hook(detail, &hook, context).await })
+                Box::pin(async move {
+                    registry
+                        .execute_gateway_hook(detail, &hook, context, hook_timeout)
+                        .await
+                })
             }
             Err(err) => Box::pin(async move { Err(err) }),
         }
@@ -145,54 +147,40 @@ impl GatewayPluginExecutor for RuntimeGatewayPluginExecutor {
         self.retain_runtime_caches_for_plugins(plugins);
     }
 
-    fn hook_timeout(
-        &self,
-        plugin: &PluginDetail,
-        _hook_name: GatewayPluginHookName,
-        default_timeout: Duration,
-    ) -> Duration {
-        let manager = PluginRuntimeManager::new();
-        match manager.runtime_dispatch(&plugin.summary.plugin_id, &plugin.manifest.runtime) {
-            Ok(RuntimeDispatch::ExtensionHost) => default_timeout
-                .saturating_add(EXTENSION_HOST_GATEWAY_TIMEOUT_GRACE)
-                .max(
-                    DEFAULT_EXTENSION_HOST_CALL_TIMEOUT
-                        .saturating_add(EXTENSION_HOST_GATEWAY_TIMEOUT_GRACE),
-                ),
-            _ => default_timeout,
-        }
-    }
-
     fn execute_request_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        self.execute_plugin(plugin, context)
+        self.execute_plugin(plugin, context, hook_timeout)
     }
 
     fn execute_response_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        self.execute_plugin(plugin, context)
+        self.execute_plugin(plugin, context, hook_timeout)
     }
 
     fn execute_stream_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        self.execute_plugin(plugin, context)
+        self.execute_plugin(plugin, context, hook_timeout)
     }
 
     fn execute_log_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        self.execute_plugin(plugin, context)
+        self.execute_plugin(plugin, context, hook_timeout)
     }
 }
 
@@ -258,7 +246,7 @@ mod tests {
         let context = hook_context("gateway.request.afterBodyRead", "trace-extension");
 
         let result = executor()
-            .execute_request_hook(&plugin, context)
+            .execute_request_hook(&plugin, context, test_hook_timeout())
             .await
             .expect("extension host gateway hook executes");
 
@@ -277,7 +265,7 @@ mod tests {
         let context = hook_context("gateway.request.afterBodyRead", "trace-extension");
 
         let result = executor()
-            .execute_request_hook(&plugin, context)
+            .execute_request_hook(&plugin, context, test_hook_timeout())
             .await
             .expect("extension host gateway hook executes");
 
@@ -359,7 +347,7 @@ mod tests {
         let context = hook_context("gateway.response.after", "trace-extension");
 
         let result = executor()
-            .execute_response_hook(&plugin, context)
+            .execute_response_hook(&plugin, context, test_hook_timeout())
             .await
             .expect("extension host gateway hook executes");
 
@@ -380,7 +368,7 @@ mod tests {
         let context = hook_context("gateway.request.afterBodyRead", "trace-extension");
 
         let err = executor()
-            .execute_request_hook(&plugin, context)
+            .execute_request_hook(&plugin, context, test_hook_timeout())
             .await
             .expect_err("unsupported gateway hook action should be rejected");
 
@@ -448,7 +436,7 @@ mod tests {
         let context = hook_context("gateway.request.afterBodyRead", "trace-extension");
 
         executor
-            .execute_request_hook(&plugin, context)
+            .execute_request_hook(&plugin, context, test_hook_timeout())
             .await
             .expect("extension host gateway hook warms an instance");
         assert_eq!(registry.instance_count_for_tests().await, 1);
@@ -493,6 +481,10 @@ mod tests {
 
     fn executor() -> RuntimeGatewayPluginExecutor {
         RuntimeGatewayPluginExecutor::for_tests()
+    }
+
+    fn test_hook_timeout() -> Duration {
+        Duration::from_secs(5)
     }
 
     fn hook_context(hook_name: &str, trace_id: &str) -> GatewayVisibleHookContext {

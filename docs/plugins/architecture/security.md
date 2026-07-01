@@ -7,6 +7,7 @@
 - Extension Host 是唯一 community runtime。
 - 不在 Rust 主进程或 Tauri WebView 执行第三方插件代码。
 - Extension Host 只暴露 capability-gated APIs。
+- Gateway hook timeout 是 host-owned invocation budget，由 gateway pipeline 传入 runtime executor；Extension Host 使用该预算启动和执行 hook，executor 不另行固定或放大 timeout。
 - Legacy WASM、process 和第三方 native 都是 unsupported pre-release legacy runtime。
 - Hook 失败必须记录审计事件。
 - 高风险 hook 可以使用 fail-closed 策略。

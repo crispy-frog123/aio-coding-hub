@@ -27,37 +27,36 @@ pub(crate) type GatewayHookFuture =
 pub(crate) trait GatewayPluginExecutor: Send + Sync {
     fn retain_runtime_caches_for_plugins(&self, _plugins: &[PluginDetail]) {}
 
-    fn hook_timeout(
-        &self,
-        _plugin: &PluginDetail,
-        _hook_name: GatewayPluginHookName,
-        default_timeout: Duration,
-    ) -> Duration {
-        default_timeout
-    }
-
+    /// Execute the hook within the invocation budget selected by the pipeline.
+    ///
+    /// Implementations own runtime-specific cancellation and cleanup so the
+    /// pipeline can audit the result without racing worker teardown.
     fn execute_request_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture;
 
     fn execute_response_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture;
 
     fn execute_stream_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture;
 
     fn execute_log_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture;
 }
 
@@ -70,6 +69,7 @@ impl GatewayPluginExecutor for NoopGatewayPluginExecutor {
         &self,
         _plugin: &PluginDetail,
         _context: GatewayVisibleHookContext,
+        _hook_timeout: Duration,
     ) -> GatewayHookFuture {
         Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
     }
@@ -78,6 +78,7 @@ impl GatewayPluginExecutor for NoopGatewayPluginExecutor {
         &self,
         _plugin: &PluginDetail,
         _context: GatewayVisibleHookContext,
+        _hook_timeout: Duration,
     ) -> GatewayHookFuture {
         Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
     }
@@ -86,6 +87,7 @@ impl GatewayPluginExecutor for NoopGatewayPluginExecutor {
         &self,
         _plugin: &PluginDetail,
         _context: GatewayVisibleHookContext,
+        _hook_timeout: Duration,
     ) -> GatewayHookFuture {
         Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
     }
@@ -94,6 +96,7 @@ impl GatewayPluginExecutor for NoopGatewayPluginExecutor {
         &self,
         _plugin: &PluginDetail,
         _context: GatewayVisibleHookContext,
+        _hook_timeout: Duration,
     ) -> GatewayHookFuture {
         Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
     }
@@ -308,65 +311,26 @@ impl GatewayPluginPipeline {
             let started_at_ms = now_unix_millis();
             let started = Instant::now();
             let hook_timeout = self.hook_timeout(plugin, input.hook_name);
-            let future = self.executor.execute_request_hook(plugin, visible);
-            let result = match tokio::time::timeout(hook_timeout, future).await {
-                Ok(Ok(result)) => result,
-                Ok(Err(err)) => {
+            let future = self
+                .executor
+                .execute_request_hook(plugin, visible, hook_timeout);
+            let result = match future.await {
+                Ok(result) => result,
+                Err(err) => {
                     self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(audit_event(
-                        plugin,
-                        input.hook_name,
-                        "plugin.hook.failed",
-                        "high",
-                        "Plugin hook failed",
-                        serde_json::json!({ "error": err.to_string() }),
-                    ));
-                    let fail_closed =
-                        failure_policy(plugin, input.hook_name) == FailurePolicy::FailClosed;
-                    execution_reports.push(self.hook_execution_report(
-                        plugin,
-                        input.hook_name,
-                        input.trace_id.as_str(),
-                        HookReportOutcome {
-                            started_at_ms,
-                            duration_ms: duration_ms_i64(started),
-                            status: if fail_closed {
-                                "failedClosed"
-                            } else {
-                                "failedOpen"
-                            },
-                            failure_kind: Some("hook_error"),
-                            error_code: Some(err.code_for_logging()),
-                            mutation_summary: serde_json::json!({ "changed": false }),
-                            replayable: true,
-                            replay_export_reason: None,
-                        },
-                    ));
-                    if fail_closed {
-                        return Err(attach_plugin_diagnostics(
-                            err,
-                            audit_events,
-                            execution_reports,
+                    let error_code = err.code_for_logging();
+                    if is_hook_timeout_error(error_code) {
+                        audit_events.push(timeout_event(plugin, input.hook_name));
+                    } else {
+                        audit_events.push(audit_event(
+                            plugin,
+                            input.hook_name,
+                            "plugin.hook.failed",
+                            "high",
+                            "Plugin hook failed",
+                            serde_json::json!({ "error": err.to_string() }),
                         ));
                     }
-                    continue;
-                }
-                Err(_) => {
-                    self.record_failure(&plugin.summary.plugin_id);
-                    tracing::warn!(
-                        plugin_id = %plugin.summary.plugin_id,
-                        hook_name = input.hook_name.as_str(),
-                        timeout_ms = hook_timeout.as_millis(),
-                        "plugin hook timed out"
-                    );
-                    audit_events.push(audit_event(
-                        plugin,
-                        input.hook_name,
-                        "plugin.hook.failed",
-                        "high",
-                        "Plugin hook timed out",
-                        serde_json::json!({ "failureKind": "timeout" }),
-                    ));
                     let fail_closed =
                         failure_policy(plugin, input.hook_name) == FailurePolicy::FailClosed;
                     execution_reports.push(self.hook_execution_report(
@@ -381,18 +345,18 @@ impl GatewayPluginPipeline {
                             } else {
                                 "failedOpen"
                             },
-                            failure_kind: Some("timeout"),
-                            error_code: Some("PLUGIN_HOOK_TIMEOUT"),
+                            failure_kind: Some(if is_hook_timeout_error(error_code) {
+                                "timeout"
+                            } else {
+                                "hook_error"
+                            }),
+                            error_code: Some(error_code),
                             mutation_summary: serde_json::json!({ "changed": false }),
                             replayable: true,
                             replay_export_reason: None,
                         },
                     ));
                     if fail_closed {
-                        let err = GatewayPluginError::new(
-                            "PLUGIN_HOOK_TIMEOUT",
-                            format!("plugin hook timed out: {}", plugin.summary.plugin_id),
-                        );
                         return Err(attach_plugin_diagnostics(
                             err,
                             audit_events,
@@ -606,16 +570,20 @@ impl GatewayPluginPipeline {
             let started_at_ms = now_unix_millis();
             let started = Instant::now();
             let hook_timeout = self.hook_timeout(plugin, input.hook_name);
-            let result = match tokio::time::timeout(
-                hook_timeout,
-                self.executor.execute_response_hook(plugin, visible),
-            )
-            .await
+            let result = match self
+                .executor
+                .execute_response_hook(plugin, visible, hook_timeout)
+                .await
             {
-                Ok(Ok(result)) => result,
-                Ok(Err(err)) => {
+                Ok(result) => result,
+                Err(err) => {
                     self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(failed_event(plugin, input.hook_name, &err.to_string()));
+                    let error_code = err.code_for_logging();
+                    if is_hook_timeout_error(error_code) {
+                        audit_events.push(timeout_event(plugin, input.hook_name));
+                    } else {
+                        audit_events.push(failed_event(plugin, input.hook_name, &err.to_string()));
+                    }
                     let fail_closed =
                         failure_policy(plugin, input.hook_name) == FailurePolicy::FailClosed;
                     execution_reports.push(self.hook_execution_report(
@@ -630,8 +598,12 @@ impl GatewayPluginPipeline {
                             } else {
                                 "failedOpen"
                             },
-                            failure_kind: Some("hook_error"),
-                            error_code: Some(err.code_for_logging()),
+                            failure_kind: Some(if is_hook_timeout_error(error_code) {
+                                "timeout"
+                            } else {
+                                "hook_error"
+                            }),
+                            error_code: Some(error_code),
                             mutation_summary: serde_json::json!({ "changed": false }),
                             replayable: true,
                             replay_export_reason: None,
@@ -640,39 +612,6 @@ impl GatewayPluginPipeline {
                     if fail_closed {
                         return Err(attach_plugin_diagnostics(
                             err,
-                            audit_events,
-                            execution_reports,
-                        ));
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(timeout_event(plugin, input.hook_name));
-                    let fail_closed =
-                        failure_policy(plugin, input.hook_name) == FailurePolicy::FailClosed;
-                    execution_reports.push(self.hook_execution_report(
-                        plugin,
-                        input.hook_name,
-                        input.trace_id.as_str(),
-                        HookReportOutcome {
-                            started_at_ms,
-                            duration_ms: duration_ms_i64(started),
-                            status: if fail_closed {
-                                "failedClosed"
-                            } else {
-                                "failedOpen"
-                            },
-                            failure_kind: Some("timeout"),
-                            error_code: Some("PLUGIN_HOOK_TIMEOUT"),
-                            mutation_summary: serde_json::json!({ "changed": false }),
-                            replayable: true,
-                            replay_export_reason: None,
-                        },
-                    ));
-                    if fail_closed {
-                        return Err(attach_plugin_diagnostics(
-                            timeout_error(&plugin.summary.plugin_id),
                             audit_events,
                             execution_reports,
                         ));
@@ -862,16 +801,20 @@ impl GatewayPluginPipeline {
             let started_at_ms = now_unix_millis();
             let started = Instant::now();
             let hook_timeout = self.hook_timeout(plugin, hook_name);
-            let result = match tokio::time::timeout(
-                hook_timeout,
-                self.executor.execute_stream_hook(plugin, visible),
-            )
-            .await
+            let result = match self
+                .executor
+                .execute_stream_hook(plugin, visible, hook_timeout)
+                .await
             {
-                Ok(Ok(result)) => result,
-                Ok(Err(err)) => {
+                Ok(result) => result,
+                Err(err) => {
                     self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(failed_event(plugin, hook_name, &err.to_string()));
+                    let error_code = err.code_for_logging();
+                    if is_hook_timeout_error(error_code) {
+                        audit_events.push(timeout_event(plugin, hook_name));
+                    } else {
+                        audit_events.push(failed_event(plugin, hook_name, &err.to_string()));
+                    }
                     let fail_closed =
                         failure_policy(plugin, hook_name) == FailurePolicy::FailClosed;
                     execution_reports.push(self.hook_execution_report(
@@ -886,8 +829,12 @@ impl GatewayPluginPipeline {
                             } else {
                                 "failedOpen"
                             },
-                            failure_kind: Some("hook_error"),
-                            error_code: Some(err.code_for_logging()),
+                            failure_kind: Some(if is_hook_timeout_error(error_code) {
+                                "timeout"
+                            } else {
+                                "hook_error"
+                            }),
+                            error_code: Some(error_code),
                             mutation_summary: serde_json::json!({ "changed": false }),
                             replayable: true,
                             replay_export_reason: None,
@@ -896,39 +843,6 @@ impl GatewayPluginPipeline {
                     if fail_closed {
                         return Err(attach_plugin_diagnostics(
                             err,
-                            audit_events,
-                            execution_reports,
-                        ));
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(timeout_event(plugin, hook_name));
-                    let fail_closed =
-                        failure_policy(plugin, hook_name) == FailurePolicy::FailClosed;
-                    execution_reports.push(self.hook_execution_report(
-                        plugin,
-                        hook_name,
-                        input.trace_id.as_str(),
-                        HookReportOutcome {
-                            started_at_ms,
-                            duration_ms: duration_ms_i64(started),
-                            status: if fail_closed {
-                                "failedClosed"
-                            } else {
-                                "failedOpen"
-                            },
-                            failure_kind: Some("timeout"),
-                            error_code: Some("PLUGIN_HOOK_TIMEOUT"),
-                            mutation_summary: serde_json::json!({ "changed": false }),
-                            replayable: true,
-                            replay_export_reason: None,
-                        },
-                    ));
-                    if fail_closed {
-                        return Err(attach_plugin_diagnostics(
-                            timeout_error(&plugin.summary.plugin_id),
                             audit_events,
                             execution_reports,
                         ));
@@ -1089,16 +1003,20 @@ impl GatewayPluginPipeline {
             let started_at_ms = now_unix_millis();
             let started = Instant::now();
             let hook_timeout = self.hook_timeout(plugin, hook_name);
-            let result = match tokio::time::timeout(
-                hook_timeout,
-                self.executor.execute_log_hook(plugin, visible),
-            )
-            .await
+            let result = match self
+                .executor
+                .execute_log_hook(plugin, visible, hook_timeout)
+                .await
             {
-                Ok(Ok(result)) => result,
-                Ok(Err(err)) => {
+                Ok(result) => result,
+                Err(err) => {
                     self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(failed_event(plugin, hook_name, &err.to_string()));
+                    let error_code = err.code_for_logging();
+                    if is_hook_timeout_error(error_code) {
+                        audit_events.push(timeout_event(plugin, hook_name));
+                    } else {
+                        audit_events.push(failed_event(plugin, hook_name, &err.to_string()));
+                    }
                     let fail_closed =
                         failure_policy(plugin, hook_name) == FailurePolicy::FailClosed;
                     execution_reports.push(self.hook_execution_report(
@@ -1113,8 +1031,12 @@ impl GatewayPluginPipeline {
                             } else {
                                 "failedOpen"
                             },
-                            failure_kind: Some("hook_error"),
-                            error_code: Some(err.code_for_logging()),
+                            failure_kind: Some(if is_hook_timeout_error(error_code) {
+                                "timeout"
+                            } else {
+                                "hook_error"
+                            }),
+                            error_code: Some(error_code),
                             mutation_summary: serde_json::json!({ "changed": false }),
                             replayable: true,
                             replay_export_reason: None,
@@ -1123,39 +1045,6 @@ impl GatewayPluginPipeline {
                     if fail_closed {
                         return Err(attach_plugin_diagnostics(
                             err,
-                            audit_events,
-                            execution_reports,
-                        ));
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    self.record_failure(&plugin.summary.plugin_id);
-                    audit_events.push(timeout_event(plugin, hook_name));
-                    let fail_closed =
-                        failure_policy(plugin, hook_name) == FailurePolicy::FailClosed;
-                    execution_reports.push(self.hook_execution_report(
-                        plugin,
-                        hook_name,
-                        input.trace_id.as_str(),
-                        HookReportOutcome {
-                            started_at_ms,
-                            duration_ms: duration_ms_i64(started),
-                            status: if fail_closed {
-                                "failedClosed"
-                            } else {
-                                "failedOpen"
-                            },
-                            failure_kind: Some("timeout"),
-                            error_code: Some("PLUGIN_HOOK_TIMEOUT"),
-                            mutation_summary: serde_json::json!({ "changed": false }),
-                            replayable: true,
-                            replay_export_reason: None,
-                        },
-                    ));
-                    if fail_closed {
-                        return Err(attach_plugin_diagnostics(
-                            timeout_error(&plugin.summary.plugin_id),
                             audit_events,
                             execution_reports,
                         ));
@@ -1270,9 +1159,8 @@ impl GatewayPluginPipeline {
         !self.plugins_for_hook(hook_name).is_empty()
     }
 
-    fn hook_timeout(&self, plugin: &PluginDetail, hook_name: GatewayPluginHookName) -> Duration {
-        self.executor
-            .hook_timeout(plugin, hook_name, self.config.hook_timeout)
+    fn hook_timeout(&self, _plugin: &PluginDetail, _hook_name: GatewayPluginHookName) -> Duration {
+        self.config.hook_timeout
     }
 
     #[cfg(test)]
@@ -1734,10 +1622,18 @@ fn push_warning_event(
     ));
 }
 
+#[cfg(test)]
 fn timeout_error(plugin_id: &str) -> GatewayPluginError {
     GatewayPluginError::new(
         "PLUGIN_HOOK_TIMEOUT",
         format!("plugin hook timed out: {plugin_id}"),
+    )
+}
+
+fn is_hook_timeout_error(error_code: &str) -> bool {
+    matches!(
+        error_code,
+        "PLUGIN_HOOK_TIMEOUT" | "PLUGIN_EXTENSION_HOST_TIMEOUT"
     )
 }
 
@@ -1778,7 +1674,8 @@ fn is_reserved_gateway_header(name: &str) -> bool {
 }
 
 #[cfg(test)]
-type TestRequestHandler = Arc<dyn Fn(GatewayVisibleHookContext) -> GatewayHookFuture + Send + Sync>;
+type TestRequestHandler =
+    Arc<dyn Fn(GatewayVisibleHookContext, Duration) -> GatewayHookFuture + Send + Sync>;
 
 #[cfg(test)]
 pub(crate) struct InMemoryGatewayPluginExecutor {
@@ -1786,7 +1683,7 @@ pub(crate) struct InMemoryGatewayPluginExecutor {
     response_handlers: HashMap<String, TestRequestHandler>,
     stream_handlers: HashMap<String, TestRequestHandler>,
     log_handlers: HashMap<String, TestRequestHandler>,
-    hook_timeouts: HashMap<String, Duration>,
+    observed_timeouts: Arc<Mutex<Vec<Duration>>>,
 }
 
 #[cfg(test)]
@@ -1797,13 +1694,12 @@ impl InMemoryGatewayPluginExecutor {
             response_handlers: HashMap::new(),
             stream_handlers: HashMap::new(),
             log_handlers: HashMap::new(),
-            hook_timeouts: HashMap::new(),
+            observed_timeouts: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    pub(crate) fn with_hook_timeout(mut self, plugin_id: &str, timeout: Duration) -> Self {
-        self.hook_timeouts.insert(plugin_id.to_string(), timeout);
-        self
+    pub(crate) fn observed_timeouts(&self) -> Arc<Mutex<Vec<Duration>>> {
+        self.observed_timeouts.clone()
     }
 
     pub(crate) fn with_request_handler<F>(mut self, plugin_id: &str, handler: F) -> Self
@@ -1812,7 +1708,7 @@ impl InMemoryGatewayPluginExecutor {
     {
         self.request_handlers.insert(
             plugin_id.to_string(),
-            Arc::new(move |ctx| {
+            Arc::new(move |ctx, _timeout| {
                 let result = handler(ctx);
                 Box::pin(async move { Ok(result) })
             }),
@@ -1827,7 +1723,7 @@ impl InMemoryGatewayPluginExecutor {
     {
         self.request_handlers.insert(
             plugin_id.to_string(),
-            Arc::new(move |ctx| {
+            Arc::new(move |ctx, _timeout| {
                 let future = handler(ctx);
                 Box::pin(async move { Ok(future.await) })
             }),
@@ -1841,7 +1737,7 @@ impl InMemoryGatewayPluginExecutor {
     {
         self.response_handlers.insert(
             plugin_id.to_string(),
-            Arc::new(move |ctx| {
+            Arc::new(move |ctx, _timeout| {
                 let result = handler(ctx);
                 Box::pin(async move { Ok(result) })
             }),
@@ -1855,7 +1751,7 @@ impl InMemoryGatewayPluginExecutor {
     {
         self.stream_handlers.insert(
             plugin_id.to_string(),
-            Arc::new(move |ctx| {
+            Arc::new(move |ctx, _timeout| {
                 let result = handler(ctx);
                 Box::pin(async move { Ok(result) })
             }),
@@ -1869,7 +1765,7 @@ impl InMemoryGatewayPluginExecutor {
     {
         self.log_handlers.insert(
             plugin_id.to_string(),
-            Arc::new(move |ctx| {
+            Arc::new(move |ctx, _timeout| {
                 let result = handler(ctx);
                 Box::pin(async move { Ok(result) })
             }),
@@ -1880,61 +1776,91 @@ impl InMemoryGatewayPluginExecutor {
 
 #[cfg(test)]
 impl GatewayPluginExecutor for InMemoryGatewayPluginExecutor {
-    fn hook_timeout(
-        &self,
-        plugin: &PluginDetail,
-        _hook_name: GatewayPluginHookName,
-        default_timeout: Duration,
-    ) -> Duration {
-        self.hook_timeouts
-            .get(&plugin.summary.plugin_id)
-            .copied()
-            .unwrap_or(default_timeout)
-    }
-
     fn execute_request_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        match self.request_handlers.get(&plugin.summary.plugin_id) {
-            Some(handler) => handler(context),
+        self.observed_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(hook_timeout);
+        let plugin_id = plugin.summary.plugin_id.clone();
+        let future = match self.request_handlers.get(&plugin.summary.plugin_id) {
+            Some(handler) => handler(context, hook_timeout),
             None => Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) }),
-        }
+        };
+        enforce_test_hook_timeout(plugin_id, hook_timeout, future)
     }
 
     fn execute_response_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        match self.response_handlers.get(&plugin.summary.plugin_id) {
-            Some(handler) => handler(context),
+        self.observed_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(hook_timeout);
+        let plugin_id = plugin.summary.plugin_id.clone();
+        let future = match self.response_handlers.get(&plugin.summary.plugin_id) {
+            Some(handler) => handler(context, hook_timeout),
             None => Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) }),
-        }
+        };
+        enforce_test_hook_timeout(plugin_id, hook_timeout, future)
     }
 
     fn execute_stream_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        match self.stream_handlers.get(&plugin.summary.plugin_id) {
-            Some(handler) => handler(context),
+        self.observed_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(hook_timeout);
+        let plugin_id = plugin.summary.plugin_id.clone();
+        let future = match self.stream_handlers.get(&plugin.summary.plugin_id) {
+            Some(handler) => handler(context, hook_timeout),
             None => Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) }),
-        }
+        };
+        enforce_test_hook_timeout(plugin_id, hook_timeout, future)
     }
 
     fn execute_log_hook(
         &self,
         plugin: &PluginDetail,
         context: GatewayVisibleHookContext,
+        hook_timeout: Duration,
     ) -> GatewayHookFuture {
-        match self.log_handlers.get(&plugin.summary.plugin_id) {
-            Some(handler) => handler(context),
+        self.observed_timeouts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(hook_timeout);
+        let plugin_id = plugin.summary.plugin_id.clone();
+        let future = match self.log_handlers.get(&plugin.summary.plugin_id) {
+            Some(handler) => handler(context, hook_timeout),
             None => Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) }),
-        }
+        };
+        enforce_test_hook_timeout(plugin_id, hook_timeout, future)
     }
+}
+
+#[cfg(test)]
+fn enforce_test_hook_timeout(
+    plugin_id: String,
+    hook_timeout: Duration,
+    future: GatewayHookFuture,
+) -> GatewayHookFuture {
+    Box::pin(async move {
+        match tokio::time::timeout(hook_timeout, future).await {
+            Ok(result) => result,
+            Err(_) => Err(timeout_error(&plugin_id)),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -2113,6 +2039,7 @@ mod tests {
             &self,
             _plugin: &PluginDetail,
             _context: GatewayVisibleHookContext,
+            _hook_timeout: Duration,
         ) -> GatewayHookFuture {
             Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
         }
@@ -2121,6 +2048,7 @@ mod tests {
             &self,
             _plugin: &PluginDetail,
             _context: GatewayVisibleHookContext,
+            _hook_timeout: Duration,
         ) -> GatewayHookFuture {
             Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
         }
@@ -2129,6 +2057,7 @@ mod tests {
             &self,
             _plugin: &PluginDetail,
             _context: GatewayVisibleHookContext,
+            _hook_timeout: Duration,
         ) -> GatewayHookFuture {
             Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
         }
@@ -2137,6 +2066,7 @@ mod tests {
             &self,
             _plugin: &PluginDetail,
             _context: GatewayVisibleHookContext,
+            _hook_timeout: Duration,
         ) -> GatewayHookFuture {
             Box::pin(async { Ok(GatewayHookResult::continue_unchanged()) })
         }
@@ -3138,32 +3068,33 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn gateway_plugin_pipeline_uses_executor_specific_hook_timeout() {
+    async fn gateway_plugin_pipeline_passes_invocation_timeout_to_executor() {
         let executor = InMemoryGatewayPluginExecutor::new()
-            .with_hook_timeout("plugin.slow", Duration::from_millis(40))
-            .with_request_async_handler("plugin.slow", |_ctx| async {
-                tokio::time::sleep(Duration::from_millis(20)).await;
+            .with_request_handler("plugin.timeout", |_ctx| {
                 GatewayHookResult::continue_unchanged()
             });
-        let plugin = plugin("plugin.slow", 10, vec!["request.body.read"]);
+        let observed_timeouts = executor.observed_timeouts();
+        let plugin = plugin("plugin.timeout", 10, vec!["request.body.read"]);
         let pipeline = GatewayPluginPipeline::for_tests(
             vec![plugin],
             Arc::new(executor),
             GatewayPluginPipelineConfig {
-                hook_timeout: Duration::from_millis(1),
-                circuit_failure_threshold: 1,
-                circuit_cooldown: Duration::from_secs(60),
+                hook_timeout: Duration::from_millis(37),
                 ..GatewayPluginPipelineConfig::default()
             },
         );
 
-        let output = pipeline
+        pipeline
             .run_request_hook(request_input())
             .await
-            .expect("executor-specific hook timeout should allow hook cleanup authority");
+            .expect("request hook should complete");
 
-        assert_eq!(output.body.as_ref(), request_input().body.as_ref());
-        assert_eq!(output.execution_reports[0].status, "completed");
+        assert_eq!(
+            *observed_timeouts
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            vec![Duration::from_millis(37)]
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

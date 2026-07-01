@@ -32,4 +32,4 @@ Use Extension Host instead:
 }
 ```
 
-`dist/extension.js` registers behavior with `api.gateway.registerHook`. Host lifecycle, activation, hook timeout, failure policy, and dispose remain host-owned.
+`dist/extension.js` registers behavior with `api.gateway.registerHook`. Host lifecycle, activation, per-invocation hook timeout budget, failure policy, and dispose remain host-owned.

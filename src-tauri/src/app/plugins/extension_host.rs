@@ -54,17 +54,35 @@ impl ExtensionHostInstance {
         .await
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn start_with_host_api_and_privacy_redaction(
         manifest: PluginManifest,
         plugin_root: PathBuf,
         db: db::Db,
         privacy_redaction: Arc<PrivacyRedactionService>,
     ) -> AppResult<Self> {
+        Self::start_with_host_api_and_privacy_redaction_with_timeout(
+            manifest,
+            plugin_root,
+            db,
+            privacy_redaction,
+            DEFAULT_EXTENSION_HOST_CALL_TIMEOUT,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_with_host_api_and_privacy_redaction_with_timeout(
+        manifest: PluginManifest,
+        plugin_root: PathBuf,
+        db: db::Db,
+        privacy_redaction: Arc<PrivacyRedactionService>,
+        call_timeout: Duration,
+    ) -> AppResult<Self> {
         let handler_plugin_root = plugin_root.clone();
         Self::start_with_timeout_and_host_handler(
             manifest.clone(),
             plugin_root,
-            DEFAULT_EXTENSION_HOST_CALL_TIMEOUT,
+            call_timeout,
             Some(Arc::new(ExtensionHostApiHandler {
                 db,
                 plugin_id: manifest.id,
