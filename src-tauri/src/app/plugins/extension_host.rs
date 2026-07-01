@@ -26,14 +26,11 @@ pub(crate) const DEFAULT_EXTENSION_HOST_CALL_TIMEOUT: Duration = Duration::from_
 const DEFAULT_EXTENSION_HOST_IDLE_RECYCLE: Duration = Duration::from_secs(30);
 const PLUGIN_STORAGE_MAX_BYTES: usize = 64 * 1024;
 
-fn extension_host_start_timeout(call_timeout: Duration) -> Duration {
-    DEFAULT_EXTENSION_HOST_START_TIMEOUT.min(call_timeout)
-}
-
 #[derive(Debug)]
 pub(crate) struct ExtensionHostInstance {
     manifest: PluginManifest,
     runtime: ExtensionHostChildProcess,
+    startup_timeout: Duration,
     _config_file: ExtensionHostConfigFile,
 }
 
@@ -137,8 +134,13 @@ impl ExtensionHostInstance {
         host_handler: Option<Arc<dyn ExtensionHostMethodHandler>>,
     ) -> AppResult<Self> {
         let contribution_hash = contribution_hash(&manifest);
-        let config_file =
-            write_worker_config(&plugin_root, call_timeout, contribution_hash.clone())?;
+        let startup_timeout = DEFAULT_EXTENSION_HOST_START_TIMEOUT;
+        let config_file = write_worker_config(
+            &plugin_root,
+            startup_timeout,
+            call_timeout,
+            contribution_hash.clone(),
+        )?;
         #[cfg(not(test))]
         let args = vec![
             "--extension-host-worker".to_string(),
@@ -159,7 +161,7 @@ impl ExtensionHostInstance {
         let runtime = ExtensionHostChildProcess::start(ExtensionHostProcessConfig {
             program: program.display().to_string(),
             args,
-            start_timeout: extension_host_start_timeout(call_timeout),
+            start_timeout: DEFAULT_EXTENSION_HOST_START_TIMEOUT,
             hook_timeout: call_timeout,
             idle_recycle: DEFAULT_EXTENSION_HOST_IDLE_RECYCLE,
             max_line_bytes,
@@ -173,6 +175,7 @@ impl ExtensionHostInstance {
         let mut host = Self {
             manifest,
             runtime,
+            startup_timeout,
             _config_file: config_file,
         };
         host.handshake().await?;
@@ -181,7 +184,7 @@ impl ExtensionHostInstance {
 
     async fn handshake(&mut self) -> AppResult<()> {
         self.runtime
-            .call_method(
+            .call_method_with_timeout(
                 "extension.handshake",
                 json!({
                     "pluginId": self.manifest.id,
@@ -189,6 +192,7 @@ impl ExtensionHostInstance {
                     "apiVersion": self.manifest.api_version,
                     "contributionHash": contribution_hash(&self.manifest),
                 }),
+                self.startup_timeout,
             )
             .await
             .map(|_| ())
@@ -198,7 +202,7 @@ impl ExtensionHostInstance {
     #[allow(dead_code)]
     pub(crate) async fn activate(&mut self) -> AppResult<()> {
         self.runtime
-            .call_method("extension.activate", Value::Null)
+            .call_method_with_timeout("extension.activate", Value::Null, self.startup_timeout)
             .await
             .map(|_| ())
             .map_err(map_extension_host_process_error)
@@ -286,7 +290,7 @@ impl ExtensionHostInstance {
     pub(crate) async fn dispose(&mut self) {
         let _ = self
             .runtime
-            .call_method("extension.deactivate", Value::Null)
+            .call_method_with_timeout("extension.deactivate", Value::Null, self.startup_timeout)
             .await;
         self.runtime.shutdown().await;
     }
@@ -549,6 +553,7 @@ impl Drop for ExtensionHostConfigFile {
 
 fn write_worker_config(
     plugin_root: &Path,
+    startup_timeout: Duration,
     call_timeout: Duration,
     contribution_hash: String,
 ) -> AppResult<ExtensionHostConfigFile> {
@@ -556,6 +561,7 @@ fn write_worker_config(
         plugin_root: plugin_root.to_path_buf(),
         contribution_hash: Some(contribution_hash),
         max_line_bytes: default_extension_host_max_line_bytes(),
+        startup_js_timeout_ms: startup_timeout.as_millis().try_into().unwrap_or(u64::MAX),
         js_timeout_ms: call_timeout.as_millis().try_into().unwrap_or(u64::MAX),
     };
     let mut nonce = [0_u8; 8];
@@ -849,13 +855,83 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extension_host_gateway_hook_call_timeout_covers_activation() {
+    async fn extension_host_gateway_hook_call_timeout_does_not_cover_activation() {
         let temp = tempfile::tempdir().expect("tempdir");
         write_gateway_extension_plugin(
             temp.path(),
             r#"
             module.exports.activate = function(api) {
-              while (true) {}
+              const start = Date.now();
+              while (Date.now() - start < 100) {}
+              api.gateway.registerHook("gateway.request.afterBodyRead", function() {
+                return { action: "continue" };
+              });
+            };
+            "#,
+            "gateway.request.afterBodyRead",
+        );
+
+        let mut host = super::ExtensionHost::start_for_tests_with_timeout(
+            temp.path(),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("start extension host");
+
+        let result = host
+            .execute_gateway_hook("gateway.request.afterBodyRead", json!({}))
+            .await
+            .expect("activation should use startup budget, not hook invocation budget");
+
+        assert_eq!(result, json!({ "action": "continue" }));
+        assert!(host.is_running());
+        host.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn extension_host_gateway_hook_call_timeout_does_not_cover_module_load() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_gateway_extension_plugin(
+            temp.path(),
+            r#"
+            const start = Date.now();
+            while (Date.now() - start < 100) {}
+            module.exports.activate = function(api) {
+              api.gateway.registerHook("gateway.request.afterBodyRead", function() {
+                return { action: "continue" };
+              });
+            };
+            "#,
+            "gateway.request.afterBodyRead",
+        );
+
+        let mut host = super::ExtensionHost::start_for_tests_with_timeout(
+            temp.path(),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("module load should use startup budget, not hook invocation budget");
+
+        let result = host
+            .execute_gateway_hook("gateway.request.afterBodyRead", json!({}))
+            .await
+            .expect("execute gateway hook");
+
+        assert_eq!(result, json!({ "action": "continue" }));
+        assert!(host.is_running());
+        host.dispose().await;
+    }
+
+    #[tokio::test]
+    async fn extension_host_gateway_hook_call_timeout_covers_handler_execution() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_gateway_extension_plugin(
+            temp.path(),
+            r#"
+            module.exports.activate = function(api) {
+              api.gateway.registerHook("gateway.request.afterBodyRead", function() {
+                while (true) {}
+              });
             };
             "#,
             "gateway.request.afterBodyRead",
@@ -872,27 +948,15 @@ mod tests {
         let err = host
             .execute_gateway_hook("gateway.request.afterBodyRead", json!({}))
             .await
-            .expect_err("gateway hook activation should be inside gateway timeout");
+            .expect_err("gateway hook handler should be inside hook timeout");
 
         assert_eq!(err.code(), "PLUGIN_EXTENSION_CALL_TIMEOUT");
         assert!(
             started.elapsed() < Duration::from_secs(1),
-            "gateway hook timeout should cover activation, elapsed {:?}",
+            "gateway hook timeout should cover handler execution, elapsed {:?}",
             started.elapsed()
         );
         assert!(!host.is_running());
-    }
-
-    #[test]
-    fn extension_host_start_timeout_is_capped_by_call_budget() {
-        assert_eq!(
-            super::extension_host_start_timeout(Duration::from_millis(50)),
-            Duration::from_millis(50)
-        );
-        assert_eq!(
-            super::extension_host_start_timeout(Duration::from_secs(30)),
-            Duration::from_secs(5)
-        );
     }
 
     #[tokio::test]

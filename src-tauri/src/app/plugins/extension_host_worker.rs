@@ -32,6 +32,8 @@ pub(crate) struct ExtensionHostWorkerConfig {
     #[serde(default = "default_max_line_bytes")]
     pub(crate) max_line_bytes: usize,
     #[serde(default = "default_js_timeout_ms")]
+    pub(crate) startup_js_timeout_ms: u64,
+    #[serde(default = "default_js_timeout_ms")]
     pub(crate) js_timeout_ms: u64,
 }
 
@@ -59,6 +61,7 @@ struct WorkerState {
     context: Context,
     activated: bool,
     deadline: Arc<Mutex<Option<Instant>>>,
+    startup_js_timeout: Duration,
     js_timeout: Duration,
     host_calls: Arc<Mutex<WorkerHostCallState>>,
 }
@@ -256,6 +259,7 @@ impl WorkerState {
             context,
             activated: false,
             deadline,
+            startup_js_timeout: Duration::from_millis(config.startup_js_timeout_ms),
             js_timeout: Duration::from_millis(config.js_timeout_ms),
             host_calls: Arc::new(Mutex::new(WorkerHostCallState {
                 next_host_call_id: 1,
@@ -353,7 +357,7 @@ impl WorkerState {
             }})(globalThis.module, globalThis.exports);
             "#
         );
-        self.with_js_deadline(|| {
+        self.with_startup_js_deadline(|| {
             self.context.with(|ctx| {
                 ctx.eval::<(), _>(bootstrap.as_str())
                     .catch(&ctx)
@@ -405,7 +409,7 @@ impl WorkerState {
         let plugin_id = self.manifest.id.clone();
         let capabilities: BTreeSet<String> = self.manifest.capabilities.iter().cloned().collect();
         let host_calls = Arc::clone(&self.host_calls);
-        self.with_js_deadline(|| {
+        self.with_startup_js_deadline(|| {
             self.context.with(|ctx| {
                 let globals = ctx.globals();
                 let api = Object::new(ctx.clone()).map_err(js_runtime_error)?;
@@ -609,7 +613,7 @@ impl WorkerState {
         if !self.activated {
             return Ok(());
         }
-        self.with_js_deadline(|| {
+        self.with_startup_js_deadline(|| {
             self.context.with(|ctx| {
                 let globals = ctx.globals();
                 let module: Object = globals.get("module").map_err(js_runtime_error)?;
@@ -773,12 +777,27 @@ impl WorkerState {
         &self,
         f: impl FnOnce() -> Result<T, WorkerError>,
     ) -> Result<T, WorkerError> {
+        self.with_js_deadline_for(self.js_timeout, f)
+    }
+
+    fn with_startup_js_deadline<T>(
+        &self,
+        f: impl FnOnce() -> Result<T, WorkerError>,
+    ) -> Result<T, WorkerError> {
+        self.with_js_deadline_for(self.startup_js_timeout, f)
+    }
+
+    fn with_js_deadline_for<T>(
+        &self,
+        timeout: Duration,
+        f: impl FnOnce() -> Result<T, WorkerError>,
+    ) -> Result<T, WorkerError> {
         {
             let mut deadline = self
                 .deadline
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *deadline = Some(Instant::now() + self.js_timeout);
+            *deadline = Some(Instant::now() + timeout);
         }
         let result = f();
         let mut deadline = self

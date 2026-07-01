@@ -150,6 +150,16 @@ impl ExtensionHostChildProcess {
         method: &str,
         params: JsonValue,
     ) -> AppResult<JsonValue> {
+        self.call_method_with_timeout(method, params, self.config.hook_timeout)
+            .await
+    }
+
+    pub(crate) async fn call_method_with_timeout(
+        &mut self,
+        method: &str,
+        params: JsonValue,
+        timeout: Duration,
+    ) -> AppResult<JsonValue> {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         let request = json!({
@@ -174,8 +184,7 @@ impl ExtensionHostChildProcess {
             ));
         }
 
-        let hook_timeout = self.config.hook_timeout;
-        let result = tokio::time::timeout(hook_timeout, async {
+        let result = tokio::time::timeout(timeout, async {
             self.write_line(&line).await?;
             let response = self.read_response_for_request(id).await?;
             validate_json_rpc_response(id, response)
