@@ -552,6 +552,20 @@ fn backup_for_enable<R: tauri::Runtime>(
     base_origin: &str,
     existing: Option<CliProxyManifest>,
 ) -> crate::shared::error::AppResult<CliProxyManifest> {
+    if cli_key == "codex"
+        && existing.as_ref().is_some_and(|manifest| !manifest.enabled)
+        && codex::has_local_proxy_config_applied(app)
+    {
+        let mut manifest = existing.clone().expect("checked above");
+        let _ = restore_from_manifest(app, &manifest);
+        if codex::has_local_proxy_config_applied(app) {
+            manifest.enabled = true;
+            manifest.base_origin = Some(base_origin.to_string());
+            manifest.updated_at = now_unix_seconds();
+            return Ok(manifest);
+        }
+    }
+
     let root = cli_proxy_root_dir(app, cli_key)?;
     let files_dir = cli_proxy_files_dir(&root);
     std::fs::create_dir_all(&files_dir)
@@ -1221,11 +1235,38 @@ pub fn restore_enabled_keep_state<R: tauri::Runtime>(
         let Some(manifest) = read_manifest(app, cli_key)? else {
             continue;
         };
-        if !manifest.enabled {
-            continue;
-        }
 
         let trace_id = new_trace_id("cli-proxy-restore");
+        if !manifest.enabled {
+            let stale_proxy_applied = manifest
+                .base_origin
+                .as_deref()
+                .is_some_and(|base_origin| is_proxy_config_applied(app, cli_key, base_origin))
+                || (cli_key == "codex" && codex::has_local_proxy_config_applied(app));
+
+            if !stale_proxy_applied {
+                continue;
+            }
+
+            match restore_from_manifest(app, &manifest) {
+                Ok(()) => out.push(CliProxyResult::success(
+                    trace_id,
+                    cli_key,
+                    false,
+                    "已恢复残留代理配置（保持关闭状态）".to_string(),
+                    manifest.base_origin.clone(),
+                )),
+                Err(err) => out.push(CliProxyResult::failure(
+                    trace_id,
+                    cli_key,
+                    false,
+                    "CLI_PROXY_RESTORE_STALE_DISABLED_FAILED",
+                    err.to_string(),
+                    manifest.base_origin.clone(),
+                )),
+            }
+            continue;
+        }
 
         match restore_from_manifest(app, &manifest) {
             Ok(()) => out.push(CliProxyResult::success(

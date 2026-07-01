@@ -116,7 +116,7 @@ fn normal_claude_message_requests_remain_observed() {
 }
 
 #[test]
-fn only_observed_claude_message_requests_seed_in_progress_request_logs() {
+fn observed_claude_messages_and_codex_responses_seed_in_progress_request_logs() {
     assert!(should_seed_in_progress_request_log(
         "claude",
         "/v1/messages",
@@ -132,9 +132,24 @@ fn only_observed_claude_message_requests_seed_in_progress_request_logs() {
         "/v1/messages/count_tokens",
         true
     ));
+    assert!(should_seed_in_progress_request_log(
+        "codex",
+        "/v1/responses",
+        true
+    ));
+    assert!(should_seed_in_progress_request_log(
+        "codex",
+        "/responses",
+        true
+    ));
     assert!(!should_seed_in_progress_request_log(
         "codex",
         "/v1/responses",
+        false
+    ));
+    assert!(!should_seed_in_progress_request_log(
+        "codex",
+        "/v1/models",
         true
     ));
 }

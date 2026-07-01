@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.60.12](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.11...aio-coding-hub-v0.60.12) (2026-07-01)
+
+
+### Bug Fixes
+
+* restore Codex direct provider config when disabling CLI proxy
+* seed in-progress logs for Codex Responses requests
+
+
+### Documentation
+
+* document codex-retry-gateway integration mapping
+
 ## [0.60.11](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.10...aio-coding-hub-v0.60.11) (2026-07-01)
 
 

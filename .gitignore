@@ -29,6 +29,8 @@ dist-ssr
 .local/
 docs/*
 !docs/
+!docs/integrations/
+!docs/integrations/**
 !docs/plugin-system-development-plan.md
 !docs/plugin-system-rfc.md
 !docs/plugin-manifest-v1.md

@@ -57,6 +57,14 @@ fn is_codex_model_discovery_request(forwarded_path: &str) -> bool {
     )
 }
 
+fn is_codex_logged_responses_request(cli_key: &str, forwarded_path: &str) -> bool {
+    cli_key == "codex"
+        && matches!(
+            forwarded_path.trim_end_matches('/'),
+            "/v1/responses" | "/responses"
+        )
+}
+
 fn is_claude_probe_request(
     forwarded_path: &str,
     introspection_json: Option<&serde_json::Value>,
@@ -124,7 +132,9 @@ fn compute_observe_request(
 }
 
 fn should_seed_in_progress_request_log(cli_key: &str, forwarded_path: &str, observe: bool) -> bool {
-    observe && cli_key == "claude" && forwarded_path == CLAUDE_LOGGED_MESSAGES_PATH
+    observe
+        && ((cli_key == "claude" && forwarded_path == CLAUDE_LOGGED_MESSAGES_PATH)
+            || is_codex_logged_responses_request(cli_key, forwarded_path))
 }
 
 fn build_claude_probe_response_body() -> serde_json::Value {

@@ -1581,6 +1581,37 @@ fn merge_restore_codex_config_preserves_user_changes() {
     assert!(result.contains("foo = \"bar\""));
 }
 
+#[test]
+fn merge_restore_codex_config_restores_user_provider_named_aio() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let backup = write_temp(
+        tmp.path(),
+        "backup.toml",
+        b"model_provider = \"aio\"\nmodel = \"gpt-5.4\"\n\n[model_providers.aio]\nname = \"AI INPUT\"\nbase_url = \"https://ai.input.im\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n\n[user_section]\nfoo = \"bar\"\n",
+    );
+
+    let target = write_temp(
+        tmp.path(),
+        "config.toml",
+        b"model_provider = \"aio\"\nmodel = \"gpt-5.4\"\npreferred_auth_method = \"apikey\"\n\n[model_providers.aio]\nname = \"aio\"\nbase_url = \"http://127.0.0.1:37124/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n\n[user_section]\nfoo = \"bar\"\n",
+    );
+
+    merge_restore_codex_config_toml(&target, &backup).unwrap();
+
+    let result = std::fs::read_to_string(&target).unwrap();
+    assert!(result.contains("model_provider = \"aio\""));
+    assert!(result.contains("[model_providers.aio]"));
+    assert!(result.contains("name = \"AI INPUT\""));
+    assert!(result.contains("base_url = \"https://ai.input.im\""));
+    assert!(result.contains("wire_api = \"responses\""));
+    assert!(result.contains("requires_openai_auth = true"));
+    assert!(!result.contains("preferred_auth_method"));
+    assert!(!result.contains("http://127.0.0.1:37124/v1"));
+    assert!(result.contains("[user_section]"));
+    assert!(result.contains("foo = \"bar\""));
+}
+
 /// Simulates the app lifecycle that causes the "修复" button to appear:
 ///
 /// 1. Enable proxy → config files point to gateway
@@ -1643,4 +1674,95 @@ fn sync_enabled_resolves_drift_after_restore_enabled_keep_state() {
         Some(true),
         "sync_enabled should resolve the drift"
     );
+}
+
+#[test]
+fn restore_enabled_keep_state_restores_disabled_stale_codex_proxy_config() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let manifest_origin = "http://127.0.0.1:37123";
+    let current_proxy_origin = "http://127.0.0.1:37124";
+    let direct_config = r#"model_provider = "openai"
+model = "gpt-5.4"
+
+[model_providers.openai]
+name = "openai"
+base_url = "https://api.openai.com/v1"
+"#;
+    let direct_auth = r#"{"OPENAI_API_KEY":"direct-key","auth_mode":"apikey"}"#;
+
+    write_codex_direct_files(&handle, direct_config, direct_auth);
+
+    let enable_result = set_enabled(&handle, "codex", true, manifest_origin).expect("enable");
+    assert!(enable_result.ok, "enable should succeed: {enable_result:?}");
+    write_codex_proxy_files(&handle, current_proxy_origin);
+    assert!(
+        is_proxy_config_applied(&handle, "codex", current_proxy_origin),
+        "test setup should leave codex pointing at current AIO port"
+    );
+
+    let mut manifest = read_manifest(&handle, "codex")
+        .expect("read manifest")
+        .expect("manifest");
+    manifest.enabled = false;
+    write_manifest(&handle, "codex", &manifest).expect("write disabled manifest");
+
+    let restore_results = restore_enabled_keep_state(&handle).expect("restore");
+    let codex_restore = restore_results
+        .iter()
+        .find(|r| r.cli_key == "codex")
+        .expect("codex restore");
+    assert!(
+        codex_restore.ok,
+        "disabled stale proxy config should be restored: {codex_restore:?}"
+    );
+    assert!(
+        !codex_restore.enabled,
+        "restore should preserve disabled manifest state"
+    );
+
+    assert!(
+        !is_proxy_config_applied(&handle, "codex", current_proxy_origin),
+        "codex should no longer point at AIO after stale restore"
+    );
+    let config_after =
+        std::fs::read_to_string(codex_config_path(&handle).expect("config path")).unwrap();
+    assert!(config_after.contains("model_provider = \"openai\""));
+    assert!(config_after.contains("[model_providers.openai]"));
+    assert!(!config_after.contains("model_provider = \"aio\""));
+    assert!(!config_after.contains("[model_providers.aio]"));
+    assert!(!config_after.contains("http://127.0.0.1:37123/v1"));
+
+    let auth_after = std::fs::read_to_string(codex_auth_path(&handle).expect("auth path")).unwrap();
+    assert!(auth_after.contains("direct-key"));
+}
+
+#[test]
+fn restore_enabled_keep_state_does_not_restore_disabled_remote_provider_named_aio() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let direct_config = r#"model_provider = "aio"
+model = "gpt-5.4"
+
+[model_providers.aio]
+name = "AI INPUT"
+base_url = "https://ai.input.im"
+wire_api = "responses"
+requires_openai_auth = true
+"#;
+    let direct_auth = r#"{"OPENAI_API_KEY":"direct-key","auth_mode":"apikey"}"#;
+
+    write_codex_direct_files(&handle, direct_config, direct_auth);
+    write_cli_proxy_manifest(&handle, "codex", false, Some("http://127.0.0.1:37123"));
+
+    let restore_results = restore_enabled_keep_state(&handle).expect("restore");
+    assert!(
+        restore_results.iter().all(|r| r.cli_key != "codex"),
+        "remote provider named aio should not be treated as a stale local proxy: {restore_results:?}"
+    );
+
+    let config_after =
+        std::fs::read_to_string(codex_config_path(&handle).expect("config path")).unwrap();
+    assert!(config_after.contains("name = \"AI INPUT\""));
+    assert!(config_after.contains("base_url = \"https://ai.input.im\""));
 }
