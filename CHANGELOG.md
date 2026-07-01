@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.60.11](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.10...aio-coding-hub-v0.60.11) (2026-07-01)
+
+
+### Features
+
+* add remote usage and service status panels ([e55c13f](https://github.com/crispy-frog123/aio-coding-hub/commit/e55c13f))
+* enhance remote usage panel overview ([de34fe6](https://github.com/crispy-frog123/aio-coding-hub/commit/de34fe6))
+
+
+### Miscellaneous Chores
+
+* configure updater for fork releases ([5a5e38d](https://github.com/crispy-frog123/aio-coding-hub/commit/5a5e38d))
+
 ## [0.60.10](https://github.com/FingerCaster/aio-coding-hub/compare/aio-coding-hub-v0.60.9...aio-coding-hub-v0.60.10) (2026-06-30)
 
 
