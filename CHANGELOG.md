@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.14](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.13...aio-coding-hub-v0.60.14) (2026-07-02)
+
+
+### Bug Fixes
+
+* resolve automatic release changelog range ([eb6f1be](https://github.com/crispy-frog123/aio-coding-hub/commit/eb6f1beb3e531fd49259d39d5ccce8761e0c2900))
+
 ## [0.60.12](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.11...aio-coding-hub-v0.60.12) (2026-07-01)
 
 
