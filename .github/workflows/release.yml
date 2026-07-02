@@ -6,17 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing or new release tag to build, e.g. aio-coding-hub-v0.60.6"
+        description: "Optional existing or new release tag to build. Leave blank to use the current source version."
         required: false
         type: string
       target_commitish:
-        description: "Commit SHA for a new manual release tag"
+        description: "Optional commit SHA to tag/build. Defaults to the current workflow SHA."
         required: false
         type: string
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -24,12 +23,13 @@ concurrency:
 
 jobs:
   release-please:
+    name: prepare-release
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.manual_release.outputs.release_created || steps.release.outputs.release_created }}
-      tag_name: ${{ steps.manual_release.outputs.tag_name || steps.release.outputs.tag_name }}
-      release_id: ${{ steps.manual_release.outputs.id || steps.release.outputs.id }}
-      checkout_ref: ${{ steps.manual_release.outputs.checkout_ref || steps.release.outputs.tag_name }}
+      release_created: ${{ steps.prepare_release.outputs.release_created }}
+      tag_name: ${{ steps.prepare_release.outputs.tag_name }}
+      release_id: ${{ steps.prepare_release.outputs.release_id }}
+      checkout_ref: ${{ steps.prepare_release.outputs.checkout_ref }}
       build_matrix: ${{ steps.support_matrix.outputs.build_matrix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -51,35 +51,54 @@ jobs:
           set -euo pipefail
           echo "build_matrix=$(node scripts/support-matrix.mjs build-matrix)" >> "$GITHUB_OUTPUT"
 
-      - id: release
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_tag == '' }}
-        uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          target-branch: main
-          skip-github-pull-request: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release aio-coding-hub ') }}"
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      - name: Fetch release tags
+        run: git fetch --force --tags origin
 
-      - id: manual_release
-        name: Use or create manual release
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
+      - id: version_meta
+        name: Resolve source release version
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_tag == '' }}
+        run: node scripts/resolve-release-version.mjs >> "$GITHUB_OUTPUT"
+
+      - id: prepare_release
+        name: Use or create release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          TARGET_COMMITISH: ${{ inputs.target_commitish || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          TARGET_COMMITISH_INPUT: ${{ inputs.target_commitish }}
+          DERIVED_VERSION: ${{ steps.version_meta.outputs.version }}
+          DERIVED_TAG: ${{ steps.version_meta.outputs.tag_name }}
         run: |
           set -euo pipefail
 
-          tag="$RELEASE_TAG"
-          target="$TARGET_COMMITISH"
+          tag="${RELEASE_TAG_INPUT:-}"
+          target="${TARGET_COMMITISH_INPUT:-${GITHUB_SHA}}"
+          version="${DERIVED_VERSION:-}"
+
+          if [[ -z "$tag" ]]; then
+            tag="${DERIVED_TAG:-}"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "Unable to determine release tag." >&2
+            exit 1
+          fi
+          if [[ -z "$version" ]]; then
+            version="${tag#aio-coding-hub-v}"
+          fi
+
+          if [[ "$EVENT_NAME" == "push" ]] && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Release tag $tag already exists on origin; skipping automatic release."
+            echo "release_created=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=$target" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if release_id="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId 2>/dev/null)"; then
             echo "Using existing release for $tag"
             checkout_ref="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
           else
-            version="${tag#aio-coding-hub-v}"
             notes_file="$(mktemp)"
             node - "$version" > "$notes_file" <<'NODE'
           const fs = require('fs');
@@ -113,19 +132,8 @@ jobs:
 
           echo "release_created=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
-          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
           echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch release tags
-        if: steps.release.outputs.prs_created == 'true'
-        run: git fetch --force --tags origin
-
-      - name: Check release PR changelog range
-        if: steps.release.outputs.prs_created == 'true'
-        env:
-          RELEASE_PLEASE_PRS: ${{ steps.release.outputs.prs }}
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        run: node scripts/check-release-pr-changelog.mjs
 
   build:
     needs: release-please
