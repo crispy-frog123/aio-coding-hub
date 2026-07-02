@@ -116,6 +116,10 @@ jobs:
           echo "id=$release_id" >> "$GITHUB_OUTPUT"
           echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch release tags
+        if: steps.release.outputs.prs_created == 'true'
+        run: git fetch --force --tags origin
+
       - name: Check release PR changelog range
         if: steps.release.outputs.prs_created == 'true'
         env:

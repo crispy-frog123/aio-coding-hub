@@ -74,7 +74,7 @@ function getPrNumbers(args) {
     .filter((item) => Number.isInteger(item) && item > 0);
 }
 
-function getReleaseTag() {
+function getReleaseTagMetadata() {
   const manifest = readJson(".release-please-manifest.json");
   const config = readJson("release-please-config.json");
   const rootPackage = config.packages?.["."] ?? {};
@@ -85,9 +85,41 @@ function getReleaseTag() {
     throw new Error("Cannot derive release tag from release-please config and manifest.");
   }
 
-  return rootPackage["include-v-in-tag"] === true
-    ? `${packageName}-v${version}`
-    : `${packageName}-${version}`;
+  const includeVInTag = rootPackage["include-v-in-tag"] === true;
+
+  return {
+    packageName,
+    version,
+    targetTag: includeVInTag ? `${packageName}-v${version}` : `${packageName}-${version}`,
+    tagPattern: includeVInTag ? `${packageName}-v*` : `${packageName}-*`,
+  };
+}
+
+function resolvePreviousReleaseTag(baseRef) {
+  const { targetTag, tagPattern } = getReleaseTagMetadata();
+  const availableTags = run("git", ["tag", "--merged", baseRef, "--sort=-v:refname", "--list", tagPattern])
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const previousTag = availableTags.find((tag) => tag !== targetTag);
+  if (!previousTag) {
+    throw new Error(
+      [
+        `Cannot resolve previous release tag for ${targetTag}.`,
+        `Looked for tags matching ${tagPattern} merged into ${baseRef}.`,
+        "Ensure the repository checkout includes release tags before running changelog validation.",
+      ].join("\n")
+    );
+  }
+
+  if (availableTags.includes(targetTag)) {
+    logger.info(`检测到目标 tag ${targetTag} 已存在，改用上一个发布 tag ${previousTag} 作为校验基线。`);
+  } else {
+    logger.info(`目标 tag ${targetTag} 尚不存在，使用最近已存在的发布 tag ${previousTag} 作为校验基线。`);
+  }
+
+  return previousTag;
 }
 
 function getAllowedCommitPrefixes(baseTag, baseRef) {
@@ -203,7 +235,7 @@ function main() {
   }
 
   // 1.4 推导上个版本 tag 和合法提交集合
-  const baseTag = args.get("base-tag") ?? getReleaseTag();
+  const baseTag = args.get("base-tag") ?? resolvePreviousReleaseTag(baseRef);
   const allowedPrefixes = getAllowedCommitPrefixes(baseTag, baseRef);
   logger.info(`上下文准备完成, PR 数: ${prNumbers.length}, 合法提交数: ${allowedPrefixes.size}`);
 
