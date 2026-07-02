@@ -1236,6 +1236,46 @@ async requestLogsCodexReasoningGuardStats(sinceCreatedAtMs: number | null) : Pro
     else return { status: "error", error: e  as any };
 }
 },
+async codexReasoningAnalyticsBackfillFromRequestLogs(input: CodexReasoningAnalyticsBackfillInput) : Promise<Result<CodexReasoningAnalyticsBackfillReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("codex_reasoning_analytics_backfill_from_request_logs", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async codexReasoningAnalyticsSnapshot(input: CodexReasoningAnalyticsSnapshotInput) : Promise<Result<CodexReasoningAnalyticsSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("codex_reasoning_analytics_snapshot", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async codexReasoningAnalyticsImportJson(input: CodexReasoningAnalyticsImportJsonInput) : Promise<Result<CodexReasoningAnalyticsImportReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("codex_reasoning_analytics_import_json", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async codexReasoningAnalyticsExport(input: CodexReasoningAnalyticsExportInput) : Promise<Result<CodexReasoningAnalyticsExport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("codex_reasoning_analytics_export", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async codexReasoningAnalyticsAnalyze(input: CodexReasoningAnalyticsAnalyzeInput) : Promise<Result<CodexReasoningAnalysisResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("codex_reasoning_analytics_analyze", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cliSessionsFolderLookupByIds(items: CliSessionsFolderLookupInput[], wslDistro: string | null) : Promise<Result<CliSessionsFolderLookupEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cli_sessions_folder_lookup_by_ids", { items, wslDistro }) };
@@ -1592,12 +1632,35 @@ export type CodexConfigTomlState = { config_path: string; exists: boolean; toml:
 export type CodexConfigTomlValidationError = { message: string; line: number | null; column: number | null }
 export type CodexConfigTomlValidationResult = { ok: boolean; error: CodexConfigTomlValidationError | null }
 export type CodexHomeMode = "user_home_default" | "follow_codex_home" | "custom"
+export type CodexReasoningAnalysisResult = { ok: boolean; analysis_profile: string; analysis_value: string; conclusion: string; field_coverage: CodexReasoningFieldCoverage; missing_core_fields: string[]; decision_reason: string; sample_count: number; candidate_summary: CodexReasoningCandidateSummary; baseline_comparison: CodexReasoningBaselineComparison; samples_preview: CodexReasoningAnalyticsSample[] }
+export type CodexReasoningAnalyticsAnalyzeInput = { dateFrom: string | null; dateTo: string | null; reasoningTokens: number[] | null }
+export type CodexReasoningAnalyticsBackfillInput = { sinceCreatedAtMs: number | null; limit: number | null }
+export type CodexReasoningAnalyticsBackfillReport = { scanned: number; inserted_or_updated: number; skipped: number; latest_request_log_id: number | null }
+export type CodexReasoningAnalyticsExport = { format: string; file_name: string; content: string }
+export type CodexReasoningAnalyticsExportFormat = "json" | "csv"
+export type CodexReasoningAnalyticsExportInput = { dateFrom: string | null; dateTo: string | null; format: CodexReasoningAnalyticsExportFormat }
+export type CodexReasoningAnalyticsImportJsonInput = { sourceName: string | null; jsonText: string }
+export type CodexReasoningAnalyticsImportReport = { source_name: string; imported: number; skipped: number }
+export type CodexReasoningAnalyticsSample = { sample_id: string; gateway_request_id: string; request_log_id: number | null; trace_id: string | null; ts: string; date_key: string; path: string; method: string; request_kind: string; intercept_exempt_reason: string | null; request_model: string | null; request_model_family: string; effective_local_model_family: string; request_reasoning_effort: string | null; input_tokens: number | null; reasoning_tokens: number | null; output_tokens: number | null; total_tokens: number | null; duration_total_ms: number | null; output_tps: number | null; reasoning_adjusted_tps: number | null; time_normalization_deviation: number | null; final_answer_only: boolean; has_commentary: boolean; commentary_observed: boolean; has_final_answer: boolean; has_tool_call: boolean; has_reasoning_item: boolean; matched_current_rule: boolean; blocked_by_gateway: boolean; internal_retry_attempt_index: number | null; internal_retry_remaining: number | null; final_action: string; upstream_http_status: number | null; client_http_status: number | null; source_kind: string; source_name: string | null }
+export type CodexReasoningAnalyticsSnapshot = { ok: boolean; schema_version: number; analytics_ready: boolean; date_from: string | null; date_to: string | null; summary: CodexReasoningAnalyticsSummary; top_reasoning_tokens: CodexReasoningTokenCount[]; output_tps_buckets: CodexReasoningOutputTpsBucket[]; by_model_family: CodexReasoningModelFamilyRow[]; by_reasoning_effort: CodexReasoningEffortRow[]; by_model_family_and_effort: CodexReasoningFamilyEffortRow[]; by_reasoning_token: CodexReasoningTokenRow[]; candidate_patterns: CodexReasoningCandidatePattern[]; recent_samples: CodexReasoningAnalyticsSample[] }
+export type CodexReasoningAnalyticsSnapshotInput = { dateFrom: string | null; dateTo: string | null; recentLimit: number | null }
+export type CodexReasoningAnalyticsSummary = { total_samples: number; final_answer_only_ratio: number; commentary_present_ratio: number; commentary_observed_ratio: number; avg_duration_total_ms: number; avg_output_tps: number; avg_reasoning_adjusted_tps: number; wording: string }
+export type CodexReasoningBaselineComparison = { baseline_count: number; candidate_avg_time_normalization_deviation: number; baseline_avg_time_normalization_deviation: number; candidate_final_answer_only_ratio: number; baseline_final_answer_only_ratio: number; candidate_commentary_not_observed_ratio: number; baseline_commentary_not_observed_ratio: number }
+export type CodexReasoningCandidatePattern = { pattern_key: string; count: number; ratio: number; avg_duration_total_ms: number; avg_output_tps: number; avg_time_normalization_deviation: number; last_seen_at: string | null; status: string }
+export type CodexReasoningCandidateSummary = { candidate_count: number; candidate_ratio: number; reasoning_516_count: number; final_answer_only_count: number; commentary_not_observed_count: number; high_time_normalization_deviation_count: number; last_seen_at: string | null }
+export type CodexReasoningEffortRow = ({ key: string; count: number; ratio: number; final_answer_only_ratio: number; commentary_observed_ratio: number; avg_duration_total_ms: number; avg_output_tps: number; top_reasoning_tokens: CodexReasoningTokenCount[] }) & { reasoning_effort: string }
+export type CodexReasoningFamilyEffortRow = ({ key: string; count: number; ratio: number; final_answer_only_ratio: number; commentary_observed_ratio: number; avg_duration_total_ms: number; avg_output_tps: number; top_reasoning_tokens: CodexReasoningTokenCount[] }) & { group_key: string; group_label: string; model_family: string; reasoning_effort: string }
+export type CodexReasoningFieldCoverage = { reasoning_tokens: number; final_answer_only: number; commentary_observed: number; duration_total_ms: number; output_tokens: number; model_family: number; reasoning_effort: number; status: number; retry_status: number; blocked_status: number }
 export type CodexReasoningGuardCompareMode = "equals" | "less_than_or_equal"
 export type CodexReasoningGuardExhaustedAction = "return_error" | "switch_provider"
 export type CodexReasoningGuardModelRule = { requested_model: string; compare_mode?: CodexReasoningGuardCompareMode; reasoning_equals: number[] }
 export type CodexReasoningGuardModelStat = { requested_model: string; total_request_count: number; hit_request_count: number; normal_request_count: number; hit_attempt_count: number; hit_rate: number }
 export type CodexReasoningGuardRuleMode = "reasoning_tokens" | "final_answer_only_high_xhigh"
 export type CodexReasoningGuardStats = { hit_request_count: number; hit_attempt_count: number; normal_request_count: number; total_request_count: number; hit_rate: number; by_model: CodexReasoningGuardModelStat[] }
+export type CodexReasoningModelFamilyRow = ({ key: string; count: number; ratio: number; final_answer_only_ratio: number; commentary_observed_ratio: number; avg_duration_total_ms: number; avg_output_tps: number; top_reasoning_tokens: CodexReasoningTokenCount[] }) & { model_family: string }
+export type CodexReasoningOutputTpsBucket = { label: string; count: number }
+export type CodexReasoningTokenCount = { value: number; count: number; ratio: number }
+export type CodexReasoningTokenRow = { value: number; count: number; final_answer_only_ratio: number; commentary_observed_ratio: number; avg_duration_total_ms: number; avg_output_tps: number; avg_time_normalization_deviation: number; last_seen_at: string | null }
 export type CodexSessionIdCompletionUpdate = { enableCodexSessionIdCompletion: boolean }
 export type ConfigImportResult = { providers_imported: number; sort_modes_imported: number; workspaces_imported: number; prompts_imported: number; mcp_servers_imported: number; skill_repos_imported: number; installed_skills_imported: number; local_skills_imported: number }
 export type CostBackfillReportV1 = { scanned: number; updated: number; skipped_no_model: number; skipped_no_usage: number; skipped_no_price: number; skipped_other: number; capped: boolean; max_rows: number }

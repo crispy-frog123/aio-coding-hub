@@ -189,6 +189,12 @@ macro_rules! generated_command_registry {
             request_log_get_by_trace_id => crate::commands::request_logs::request_log_get_by_trace_id,
             request_attempt_logs_by_trace_id => crate::commands::request_logs::request_attempt_logs_by_trace_id,
             request_logs_codex_reasoning_guard_stats => crate::commands::request_logs::request_logs_codex_reasoning_guard_stats,
+            // ── codex_reasoning_analytics ──
+            codex_reasoning_analytics_backfill_from_request_logs => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_backfill_from_request_logs,
+            codex_reasoning_analytics_snapshot => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_snapshot,
+            codex_reasoning_analytics_import_json => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_import_json,
+            codex_reasoning_analytics_export => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_export,
+            codex_reasoning_analytics_analyze => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_analyze,
             cli_sessions_folder_lookup_by_ids => crate::commands::cli_sessions::cli_sessions_folder_lookup_by_ids,
             // ── data_management ──
             db_disk_usage_get => crate::commands::data_management::db_disk_usage_get,

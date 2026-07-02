@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   BarChart3,
@@ -10,8 +10,16 @@ import {
   ShieldAlert,
   Table2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAppSessionStartedAtMs } from "../app/appSession";
+import {
+  useCodexReasoningAnalyticsAnalyzeQuery,
+  useCodexReasoningAnalyticsBackfillMutation,
+  useCodexReasoningAnalyticsExportMutation,
+  useCodexReasoningAnalyticsImportJsonMutation,
+  useCodexReasoningAnalyticsSnapshotQuery,
+} from "../query/codexReasoningAnalytics";
 import { useRequestLogsCodexReasoningGuardStatsQuery } from "../query/requestLogs";
 import {
   getSettingsReadProtection,
@@ -50,6 +58,15 @@ import { cn } from "../utils/cn";
 
 type StatsWindow = "session" | "all";
 type ReasoningGuardPageTab = "rules" | "analytics";
+
+const ANALYTICS_REFETCH_INTERVAL_MS = 10_000;
+const ANALYTICS_RECENT_LIMIT = 50;
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 type DraftState = {
   enabled: boolean;
@@ -91,6 +108,20 @@ function formatExhaustedAction(value: CodexReasoningGuardExhaustedAction) {
 
 function formatRate(value: number | null | undefined) {
   return PERCENT_FORMATTER.format(value ?? 0);
+}
+
+function formatDateTime(valueMs: number) {
+  return DATE_TIME_FORMATTER.format(new Date(valueMs));
+}
+
+function downloadTextFile(filename: string, mimeType: string, text: string) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function createDraft(settings: AppSettings | null | undefined): DraftState {
@@ -212,27 +243,70 @@ function PageTabButton({
   );
 }
 
-function AnalyticsPlaceholderCard({
+function AnalyticsDataCard({
   icon: Icon,
   title,
-  description,
+  badge,
+  children,
 }: {
-  icon: typeof BarChart3;
+  icon: LucideIcon;
   title: string;
-  description: string;
+  badge?: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="cursor-default rounded-lg border border-dashed border-line-subtle bg-surface-inset px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex h-80 flex-col rounded-lg border border-line-subtle bg-surface-inset px-3 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm font-semibold text-foreground">{title}</span>
         </div>
-        <Badge variant="outline" className="shrink-0 text-[10px]">
-          待接入
-        </Badge>
+        {badge ? (
+          <Badge variant="outline" className="shrink-0 text-[10px]">
+            {badge}
+          </Badge>
+        ) : null}
       </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{description}</p>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div>
+    </div>
+  );
+}
+
+function MiniRows({
+  rows,
+  emptyText,
+}: {
+  rows: Array<{ label: string; value: string; hint?: string }>;
+  emptyText: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-line-subtle px-3 py-4 text-xs text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {rows.map((row) => (
+        <div
+          key={`${row.label}-${row.hint ?? ""}`}
+          className="flex items-center justify-between gap-3 rounded-md bg-surface-panel px-2.5 py-2"
+        >
+          <div className="min-w-0">
+            <div className="truncate font-mono text-xs font-semibold text-foreground">
+              {row.label}
+            </div>
+            {row.hint ? (
+              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{row.hint}</div>
+            ) : null}
+          </div>
+          <div className="shrink-0 font-mono text-xs font-semibold text-muted-foreground">
+            {row.value}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -246,9 +320,35 @@ export function ReasoningGuardPage() {
   const [statsWindow, setStatsWindow] = useState<StatsWindow>("session");
   const [draft, setDraft] = useState<DraftState>(() => createDraft(null));
   const [formError, setFormError] = useState<string | null>(null);
+  const [importJsonText, setImportJsonText] = useState("");
 
-  const sessionStatsQuery = useRequestLogsCodexReasoningGuardStatsQuery(appSessionStartedAtMs);
-  const allStatsQuery = useRequestLogsCodexReasoningGuardStatsQuery(null);
+  const analyticsPollingMs =
+    activePageTab === "analytics" ? ANALYTICS_REFETCH_INTERVAL_MS : false;
+  const sessionStatsQuery = useRequestLogsCodexReasoningGuardStatsQuery(appSessionStartedAtMs, {
+    refetchIntervalMs: analyticsPollingMs,
+  });
+  const allStatsQuery = useRequestLogsCodexReasoningGuardStatsQuery(null, {
+    refetchIntervalMs: analyticsPollingMs,
+  });
+  const analyticsSnapshotQuery = useCodexReasoningAnalyticsSnapshotQuery({
+    dateFrom: null,
+    dateTo: null,
+    recentLimit: ANALYTICS_RECENT_LIMIT,
+  }, {
+    enabled: activePageTab === "analytics",
+    refetchIntervalMs: analyticsPollingMs,
+  });
+  const analyticsAnalyzeQuery = useCodexReasoningAnalyticsAnalyzeQuery({
+    dateFrom: null,
+    dateTo: null,
+    reasoningTokens: [516],
+  }, {
+    enabled: activePageTab === "analytics",
+    refetchIntervalMs: analyticsPollingMs,
+  });
+  const analyticsBackfillMutation = useCodexReasoningAnalyticsBackfillMutation();
+  const analyticsImportMutation = useCodexReasoningAnalyticsImportJsonMutation();
+  const analyticsExportMutation = useCodexReasoningAnalyticsExportMutation();
   const statsQuery = statsWindow === "session" ? sessionStatsQuery : allStatsQuery;
   const stats = statsQuery.data ?? null;
   const { settingsReadErrorMessage, settingsWriteBlocked } =
@@ -271,6 +371,14 @@ export function ReasoningGuardPage() {
       return right.total_request_count - left.total_request_count;
     });
   }, [stats?.by_model]);
+
+  const analyticsSnapshot = analyticsSnapshotQuery.data ?? null;
+  const analyticsAnalysis = analyticsAnalyzeQuery.data ?? null;
+  const topReasoningTokens = analyticsSnapshot?.top_reasoning_tokens ?? [];
+  const modelFamilyAndEffortRows = analyticsSnapshot?.by_model_family_and_effort ?? [];
+  const candidatePatternRows = analyticsSnapshot?.candidate_patterns ?? [];
+  const recentSamples = analyticsSnapshot?.recent_samples ?? [];
+  const analyticsSampleCount = analyticsSnapshot?.summary.total_samples ?? 0;
 
   const guardEnabledLabel = draft.enabled ? "已开启" : "已关闭";
   const usesFinalOnlyMode = draft.ruleMode === "final_answer_only_high_xhigh";
@@ -361,14 +469,29 @@ export function ReasoningGuardPage() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                void Promise.all([sessionStatsQuery.refetch(), allStatsQuery.refetch()]);
+                void Promise.all([
+                  sessionStatsQuery.refetch(),
+                  allStatsQuery.refetch(),
+                  analyticsSnapshotQuery.refetch(),
+                  analyticsAnalyzeQuery.refetch(),
+                ]);
               }}
-              disabled={sessionStatsQuery.isFetching || allStatsQuery.isFetching}
+              disabled={
+                sessionStatsQuery.isFetching ||
+                allStatsQuery.isFetching ||
+                analyticsSnapshotQuery.isFetching ||
+                analyticsAnalyzeQuery.isFetching
+              }
             >
               <RefreshCw
                 className={cn(
                   "h-3.5 w-3.5",
-                  sessionStatsQuery.isFetching || allStatsQuery.isFetching ? "animate-spin" : null
+                  sessionStatsQuery.isFetching ||
+                    allStatsQuery.isFetching ||
+                    analyticsSnapshotQuery.isFetching ||
+                    analyticsAnalyzeQuery.isFetching
+                    ? "animate-spin"
+                    : null
                 )}
               />
               刷新统计
@@ -468,10 +591,14 @@ export function ReasoningGuardPage() {
               </p>
             </div>
 
-            <div className="space-y-1.5">
-              <FieldLabel label="比较模式" hint={usesFinalOnlyMode ? "仅 reasoning_tokens 模式生效" : undefined} />
+            <div
+              className={cn("space-y-1.5", usesFinalOnlyMode ? "opacity-60" : null)}
+              aria-disabled={usesFinalOnlyMode}
+            >
+              <FieldLabel label="比较模式" />
               <Select
                 value={draft.compareMode}
+                disabled={usesFinalOnlyMode}
                 onChange={(event) => {
                   const value = event.currentTarget.value as CodexReasoningGuardCompareMode;
                   setDraft((prev) => ({
@@ -483,16 +610,25 @@ export function ReasoningGuardPage() {
                 <option value="equals">等于任一 token 值</option>
                 <option value="less_than_or_equal">小于等于任一 token 值</option>
               </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {usesFinalOnlyMode
+                  ? "当前模式不会使用 token 比较规则，但会保留配置，切回 Tokens 后继续生效。"
+                  : "用于判断 reasoning_tokens 是否命中全局或模型级 token 规则。"}
+              </p>
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div
+            className={cn("space-y-1.5", usesFinalOnlyMode ? "opacity-60" : null)}
+            aria-disabled={usesFinalOnlyMode}
+          >
             <FieldLabel
               label="全局 reasoning_tokens"
               hint={usesFinalOnlyMode ? "当前模式不会使用 token 规则，但会保留配置，切回 Tokens 后继续生效。" : "多个值用英文逗号分隔。"}
             />
             <Input
               value={draft.valuesText}
+              disabled={usesFinalOnlyMode}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setDraft((prev) => ({ ...prev, valuesText: value }));
@@ -593,12 +729,17 @@ export function ReasoningGuardPage() {
         </Card>
       </div>
 
-      <Card className="space-y-3">
+      <Card
+        className={cn("space-y-3", usesFinalOnlyMode ? "opacity-60" : null)}
+        aria-disabled={usesFinalOnlyMode}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-foreground">模型级规则</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              第一版先展示当前配置；完整新增/编辑仍保留在 CLI 管理的 Codex 降智拦截弹窗中。
+              {usesFinalOnlyMode
+                ? "当前 Final-only 模式不会使用模型级 token 规则；配置会保留，切回 Tokens 后继续生效。"
+                : "第一版先展示当前配置；完整新增/编辑仍保留在 CLI 管理的 Codex 降智拦截弹窗中。"}
             </p>
           </div>
           <Badge variant={modelRules.length > 0 ? "secondary" : "outline"}>
@@ -648,30 +789,35 @@ export function ReasoningGuardPage() {
                   </h2>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  当前版本使用 AIO 请求日志聚合；完整 analytics 的 top token、样本、导出和历史导入模块已预留页面位置。
+                  当前版本使用后端 SQLite analytics 样本表；analytics 页打开时每 10 秒自动刷新，并自动回填最近请求日志。
                 </p>
               </div>
-              <div className="flex rounded-lg border border-line bg-surface-inset p-0.5">
-                {(
-                  [
-                    ["session", "本次"],
-                    ["all", "全部"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setStatsWindow(value)}
-                    className={cn(
-                      "rounded-md px-2.5 py-1 text-xs font-semibold transition",
-                      statsWindow === value
-                        ? "bg-surface-panel text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-[10px]">
+                  {analyticsSnapshotQuery.isFetching ? "刷新中" : "10s 轮询"}
+                </Badge>
+                <div className="flex rounded-lg border border-line bg-surface-inset p-0.5">
+                  {(
+                    [
+                      ["session", "本次"],
+                      ["all", "最近"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setStatsWindow(value)}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 text-xs font-semibold transition",
+                        statsWindow === value
+                          ? "bg-surface-panel text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -732,36 +878,212 @@ export function ReasoningGuardPage() {
           </Card>
 
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-            <AnalyticsPlaceholderCard
+            <AnalyticsDataCard
               icon={BarChart3}
               title="Top reasoning tokens"
-              description="对应 gateway 原版 top_reasoning_tokens / by_reasoning_token。AIO 后续需要新增样本级 reasoning analytics 存储后接入。"
-            />
-            <AnalyticsPlaceholderCard
+              badge={`${topReasoningTokens.length} 项`}
+            >
+              <MiniRows
+                rows={topReasoningTokens.map((row) => ({
+                  label: String(row.value),
+                  value: `${row.count} 次`,
+                  hint: `占比 ${formatRate(row.ratio)}`,
+                }))}
+                emptyText="后端样本表里还没有带 reasoning_tokens 的样本。"
+              />
+            </AnalyticsDataCard>
+
+            <AnalyticsDataCard
               icon={Table2}
-              title="模型家族与 effort 分桶"
-              description="对应 by_model_family、by_reasoning_effort、by_model_family_and_effort，用于判断降智是否集中在某类模型或思考等级。"
-            />
-            <AnalyticsPlaceholderCard
+              title="模型与思考等级"
+              badge={`${modelFamilyAndEffortRows.length} 组`}
+            >
+              <MiniRows
+                rows={modelFamilyAndEffortRows.map((row) => ({
+                  label: row.group_label,
+                  value: `${row.count} 条`,
+                  hint: `final-only ${formatRate(row.final_answer_only_ratio)} / commentary ${formatRate(row.commentary_observed_ratio)}`,
+                }))}
+                emptyText="后端样本表里还没有 Codex 样本。"
+              />
+            </AnalyticsDataCard>
+
+            <AnalyticsDataCard
               icon={FileSearch}
               title="最近样本与候选特征"
-              description="对应 recent_samples 与 candidate_patterns，后续展示 request_kind、final_answer_only、commentary、tool call 等证据字段。"
-            />
-            <AnalyticsPlaceholderCard
+              badge={`${recentSamples.length} 条`}
+            >
+              <div className="space-y-2">
+                <MiniRows
+                  rows={recentSamples.map((sample) => ({
+                    label: `${formatDateTime(Date.parse(sample.ts))} · ${sample.request_model ?? "unknown"}`,
+                    value: sample.client_http_status == null ? "进行中" : String(sample.client_http_status),
+                    hint: `reasoning=${sample.reasoning_tokens ?? "unknown"} | effort=${sample.request_reasoning_effort ?? "unknown"} | final-only=${sample.final_answer_only ? "yes" : "no"} | kind=${sample.request_kind}`,
+                  }))}
+                  emptyText="后端样本表里还没有 Codex 请求。"
+                />
+                {candidatePatternRows.length > 0 ? (
+                  <div className="border-t border-line-subtle pt-2">
+                    <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">
+                      候选特征
+                    </div>
+                    <MiniRows
+                      rows={candidatePatternRows.map((row) => ({
+                        label: row.pattern_key,
+                        value: `${row.count} 条`,
+                        hint: row.status,
+                      }))}
+                      emptyText="暂无候选特征。"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </AnalyticsDataCard>
+
+            <AnalyticsDataCard
               icon={Download}
               title="JSON / CSV 导出"
-              description="对应 gateway 原版导出与后台大范围导出。AIO 需要先落地 analytics 日文件或 SQLite 样本表。"
-            />
-            <AnalyticsPlaceholderCard
+              badge={`${analyticsSampleCount} 条`}
+            >
+              <div className="space-y-3">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  导出后端 analytics 样本表聚合结果；JSON 为完整 snapshot，CSV 为样本明细。
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      const result = await analyticsExportMutation.mutateAsync({
+                        dateFrom: null,
+                        dateTo: null,
+                        format: "json",
+                      });
+                      downloadTextFile(
+                        result.file_name,
+                        "application/json;charset=utf-8",
+                        result.content
+                      );
+                    }}
+                    disabled={analyticsSampleCount === 0 || analyticsExportMutation.isPending}
+                  >
+                    导出 JSON
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      const result = await analyticsExportMutation.mutateAsync({
+                        dateFrom: null,
+                        dateTo: null,
+                        format: "csv",
+                      });
+                      downloadTextFile(
+                        result.file_name,
+                        "text/csv;charset=utf-8",
+                        result.content
+                      );
+                    }}
+                    disabled={analyticsSampleCount === 0 || analyticsExportMutation.isPending}
+                  >
+                    导出 CSV
+                  </Button>
+                </div>
+              </div>
+            </AnalyticsDataCard>
+
+            <AnalyticsDataCard
               icon={CalendarDays}
-              title="时间范围"
-              description="预留今日、本周、本月、自定义日期范围筛选；当前本次/全部统计仍来自请求日志聚合。"
-            />
-            <AnalyticsPlaceholderCard
+              title="存储与回填"
+              badge="SQLite"
+            >
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricTile label="存储样本" value={String(analyticsSampleCount)} />
+                  <MetricTile
+                    label="结构覆盖"
+                    value={formatRate(analyticsAnalysis?.field_coverage.final_answer_only)}
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    const report = await analyticsBackfillMutation.mutateAsync({
+                      sinceCreatedAtMs: null,
+                      limit: 10_000,
+                    });
+                    toast(`已回填 ${report.inserted_or_updated} 条，扫描 ${report.scanned} 条`);
+                    void Promise.all([
+                      analyticsSnapshotQuery.refetch(),
+                      analyticsAnalyzeQuery.refetch(),
+                    ]);
+                  }}
+                  disabled={analyticsBackfillMutation.isPending}
+                >
+                  回填最近 10000 条
+                </Button>
+              </div>
+            </AnalyticsDataCard>
+
+            <AnalyticsDataCard
               icon={Activity}
               title="历史导入与分析 Profile"
-              description="对应 historical import 和 /analyze。后续可从 Codex 历史日志预检并生成 analysis_value / conclusion。"
-            />
+              badge={analyticsAnalysis?.analysis_value ?? "暂无样本"}
+            >
+              <div className="space-y-2">
+                <MiniRows
+                  rows={[
+                    {
+                      label: "reasoning_tokens 覆盖",
+                      value: formatRate(analyticsAnalysis?.field_coverage.reasoning_tokens),
+                    },
+                    {
+                      label: "final_answer_only 覆盖",
+                      value: formatRate(analyticsAnalysis?.field_coverage.final_answer_only),
+                    },
+                    {
+                      label: "commentary 覆盖",
+                      value: formatRate(analyticsAnalysis?.field_coverage.commentary_observed),
+                    },
+                    {
+                      label: "候选样本",
+                      value: String(analyticsAnalysis?.candidate_summary.candidate_count ?? 0),
+                    },
+                    {
+                      label: "结论",
+                      value: analyticsAnalysis?.conclusion ?? "-",
+                    },
+                  ]}
+                  emptyText="暂无样本可生成 Profile。"
+                />
+                <textarea
+                  value={importJsonText}
+                  onChange={(event) => setImportJsonText(event.currentTarget.value)}
+                  className="min-h-20 w-full resize-y rounded-lg border border-line bg-surface-panel px-3 py-2 font-mono text-xs text-foreground outline-none focus:border-state-selected-border"
+                  placeholder="粘贴 gateway reasoning analytics JSON / export JSON，可导入到后端样本表"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    const report = await analyticsImportMutation.mutateAsync({
+                      sourceName: "gateway-json-import",
+                      jsonText: importJsonText,
+                    });
+                    setImportJsonText("");
+                    toast(`已导入 ${report.imported} 条，跳过 ${report.skipped} 条`);
+                    void Promise.all([
+                      analyticsSnapshotQuery.refetch(),
+                      analyticsAnalyzeQuery.refetch(),
+                    ]);
+                  }}
+                  disabled={!importJsonText.trim() || analyticsImportMutation.isPending}
+                >
+                  导入 JSON
+                </Button>
+              </div>
+            </AnalyticsDataCard>
           </div>
 
           <Card className="space-y-3">

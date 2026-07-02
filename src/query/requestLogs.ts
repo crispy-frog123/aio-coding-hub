@@ -156,7 +156,7 @@ export function useRequestAttemptLogsByTraceIdQuery(traceId: string | null, limi
 
 export function useRequestLogsCodexReasoningGuardStatsQuery(
   sinceCreatedAtMs?: number | null,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; refetchIntervalMs?: number | false }
 ) {
   const normalizedSinceCreatedAtMs = sinceCreatedAtMs ?? null;
 
@@ -165,5 +165,6 @@ export function useRequestLogsCodexReasoningGuardStatsQuery(
     queryFn: () => requestLogsCodexReasoningGuardStats(normalizedSinceCreatedAtMs),
     enabled: isRequestLogsQueryEnabled(options?.enabled),
     placeholderData: keepPreviousData,
+    refetchInterval: options?.refetchIntervalMs ?? false,
   });
 }

@@ -55,6 +55,27 @@ export const requestLogsKeys = {
     [...requestLogsAllKey, "codexReasoningGuardStats", sinceCreatedAtMs] as const,
 };
 
+const codexReasoningAnalyticsAllKey = ["codexReasoningAnalytics"] as const;
+export const codexReasoningAnalyticsKeys = {
+  all: codexReasoningAnalyticsAllKey,
+  snapshot: (input: { dateFrom: string | null; dateTo: string | null; recentLimit: number | null }) =>
+    [
+      ...codexReasoningAnalyticsAllKey,
+      "snapshot",
+      input.dateFrom,
+      input.dateTo,
+      input.recentLimit,
+    ] as const,
+  analyze: (input: { dateFrom: string | null; dateTo: string | null; reasoningTokens: readonly number[] | null }) =>
+    [
+      ...codexReasoningAnalyticsAllKey,
+      "analyze",
+      input.dateFrom,
+      input.dateTo,
+      normalizeKeyParts((input.reasoningTokens ?? []).map(String)),
+    ] as const,
+};
+
 const sortModesAllKey = ["sortModes"] as const;
 export const sortModesKeys = {
   all: sortModesAllKey,
