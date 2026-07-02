@@ -6,6 +6,7 @@
 
 use super::is_claude_count_tokens_request;
 use super::logging::enqueue_request_log_placeholder;
+use super::request_context::CodexRequestKind;
 use super::request_context::RequestContext;
 
 use crate::gateway::events::{emit_gateway_debug_log_lazy, emit_request_start_event};
@@ -135,6 +136,8 @@ where
         special_settings: new_special_settings(),
         requested_model: None,
         requested_model_location: None,
+        codex_request_kind: CodexRequestKind::Normal,
+        codex_reasoning_effort: None,
         runtime_settings: None,
         session_id: None,
         allow_session_reuse: false,

@@ -84,6 +84,7 @@ pub(crate) struct SettingsUpdate {
     pub codex_oauth_compatible_proxy_mode: Option<bool>,
     pub codex_provider_test_model: Option<String>,
     pub codex_reasoning_guard_enabled: Option<bool>,
+    pub codex_reasoning_guard_rule_mode: Option<settings::CodexReasoningGuardRuleMode>,
     pub codex_reasoning_guard_compare_mode: Option<settings::CodexReasoningGuardCompareMode>,
     pub codex_reasoning_guard_reasoning_equals: Option<Vec<i64>>,
     pub codex_reasoning_guard_model_rules: Option<Vec<settings::CodexReasoningGuardModelRule>>,
@@ -160,6 +161,7 @@ pub(crate) struct SettingsView {
     pub codex_oauth_compatible_proxy_mode: bool,
     pub codex_provider_test_model: String,
     pub codex_reasoning_guard_enabled: bool,
+    pub codex_reasoning_guard_rule_mode: settings::CodexReasoningGuardRuleMode,
     pub codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
     pub codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub codex_reasoning_guard_model_rules: Vec<settings::CodexReasoningGuardModelRule>,
@@ -291,6 +293,7 @@ impl From<&settings::AppSettings> for SettingsView {
             codex_oauth_compatible_proxy_mode: value.codex_oauth_compatible_proxy_mode,
             codex_provider_test_model: value.codex_provider_test_model.clone(),
             codex_reasoning_guard_enabled: value.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode: value.codex_reasoning_guard_rule_mode,
             codex_reasoning_guard_compare_mode: value.codex_reasoning_guard_compare_mode,
             codex_reasoning_guard_reasoning_equals: value
                 .codex_reasoning_guard_reasoning_equals
@@ -622,6 +625,7 @@ pub(crate) async fn settings_set_impl(
         codex_oauth_compatible_proxy_mode,
         codex_provider_test_model,
         codex_reasoning_guard_enabled,
+        codex_reasoning_guard_rule_mode,
         codex_reasoning_guard_compare_mode,
         codex_reasoning_guard_reasoning_equals,
         codex_reasoning_guard_model_rules,
@@ -702,6 +706,8 @@ pub(crate) async fn settings_set_impl(
             };
             let codex_reasoning_guard_enabled = codex_reasoning_guard_enabled
                 .unwrap_or(previous.codex_reasoning_guard_enabled);
+            let codex_reasoning_guard_rule_mode =
+                codex_reasoning_guard_rule_mode.unwrap_or(previous.codex_reasoning_guard_rule_mode);
             let codex_reasoning_guard_compare_mode = codex_reasoning_guard_compare_mode
                 .unwrap_or(previous.codex_reasoning_guard_compare_mode);
             let codex_reasoning_guard_reasoning_equals = codex_reasoning_guard_reasoning_equals
@@ -852,6 +858,7 @@ pub(crate) async fn settings_set_impl(
                 codex_oauth_compatible_proxy_mode,
                 codex_provider_test_model,
                 codex_reasoning_guard_enabled,
+                codex_reasoning_guard_rule_mode,
                 codex_reasoning_guard_compare_mode,
                 codex_reasoning_guard_reasoning_equals,
                 codex_reasoning_guard_model_rules,

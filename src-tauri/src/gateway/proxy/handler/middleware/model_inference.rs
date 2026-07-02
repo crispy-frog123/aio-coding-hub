@@ -13,8 +13,12 @@ use crate::gateway::proxy::compute_observe_request;
 use crate::gateway::proxy::handler::early_error::{
     build_early_error_log_ctx, early_error_contract, respond_early_error_with_spawn, EarlyErrorKind,
 };
+use crate::gateway::proxy::request_context::CodexRequestKind;
 use crate::gateway::response_fixer;
 use crate::gateway::util::{infer_requested_model_info, LARGE_REQUEST_BODY_BYTES};
+use axum::http::HeaderMap;
+
+const CONTEXT_COMPACTION_MARKERS: &[&str] = &["remote_compaction", "context_compaction"];
 
 pub(in crate::gateway::proxy::handler) struct ModelInferenceMiddleware;
 
@@ -30,12 +34,14 @@ impl ModelInferenceMiddleware {
         ctx.requested_model = model_info.model;
         ctx.requested_model_location = model_info.location;
 
-        record_codex_reasoning_effort(
+        ctx.codex_reasoning_effort = record_codex_reasoning_effort(
             &ctx.cli_key,
             ctx.introspection_json.as_ref(),
             ctx.requested_model.as_deref(),
             &ctx.special_settings,
         );
+        ctx.codex_request_kind =
+            detect_codex_request_kind(&ctx.cli_key, &ctx.headers, ctx.introspection_json.as_ref());
 
         ctx.observe_request = compute_observe_request(
             &ctx.cli_key,
@@ -55,6 +61,69 @@ impl ModelInferenceMiddleware {
 
         MiddlewareAction::Continue(Box::new(ctx))
     }
+}
+
+pub(in crate::gateway::proxy::handler) fn detect_codex_request_kind(
+    cli_key: &str,
+    headers: &HeaderMap,
+    request_json: Option<&serde_json::Value>,
+) -> CodexRequestKind {
+    if cli_key != "codex" {
+        return CodexRequestKind::Normal;
+    }
+
+    let header_signals = [
+        header_value(headers, "x-codex-request-kind"),
+        header_value(headers, "x-codex-purpose"),
+        header_value(headers, "x-codex-turn-metadata"),
+    ]
+    .join(" ");
+    if includes_context_compaction_marker(&header_signals) {
+        return CodexRequestKind::ContextCompaction;
+    }
+
+    let Some(root) = request_json else {
+        return CodexRequestKind::Normal;
+    };
+    let metadata_signals = [
+        stringify_request_kind_signal(root.get("metadata")),
+        stringify_request_kind_signal(root.get("codex_request_kind")),
+        stringify_request_kind_signal(root.get("request_kind")),
+        stringify_request_kind_signal(root.get("purpose")),
+    ]
+    .join(" ");
+    if includes_context_compaction_marker(&metadata_signals) {
+        CodexRequestKind::ContextCompaction
+    } else {
+        CodexRequestKind::Normal
+    }
+}
+
+fn header_value(headers: &HeaderMap, name: &str) -> String {
+    headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn stringify_request_kind_signal(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(value) => value.to_string(),
+        None => String::new(),
+    }
+}
+
+fn includes_context_compaction_marker(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    !normalized.is_empty()
+        && CONTEXT_COMPACTION_MARKERS
+            .iter()
+            .any(|marker| normalized.contains(marker))
 }
 
 pub(in crate::gateway::proxy::handler) fn is_large_body_missing_model(
@@ -82,18 +151,19 @@ fn record_codex_reasoning_effort(
     introspection_json: Option<&serde_json::Value>,
     requested_model: Option<&str>,
     special_settings: &std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
-) {
+) -> Option<String> {
     if cli_key != "codex" {
-        return;
+        return None;
     }
 
     let Some(root) = introspection_json else {
-        return;
+        return None;
     };
     let Some(extracted) = extract_codex_reasoning_effort(root) else {
-        return;
+        return None;
     };
 
+    let effort = extracted.effort.clone();
     response_fixer::push_special_setting(
         special_settings,
         serde_json::json!({
@@ -106,6 +176,7 @@ fn record_codex_reasoning_effort(
             "pointer": extracted.pointer,
         }),
     );
+    effort
 }
 
 struct ExtractedCodexReasoningEffort {
@@ -245,5 +316,77 @@ mod tests {
         assert_eq!(extracted.pointer, "/reasoning/effort");
         assert!(normalize_codex_reasoning_effort("medium").is_some());
         assert!(normalize_codex_reasoning_effort("unknown").is_none());
+    }
+
+    #[test]
+    fn detects_context_compaction_from_codex_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-request-kind",
+            "remote_compaction_v2".parse().unwrap(),
+        );
+
+        assert_eq!(
+            detect_codex_request_kind("codex", &headers, None),
+            CodexRequestKind::ContextCompaction
+        );
+    }
+
+    #[test]
+    fn detects_context_compaction_from_codex_turn_metadata() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-turn-metadata",
+            r#"{"source":"remote_compaction_v2"}"#.parse().unwrap(),
+        );
+
+        assert_eq!(
+            detect_codex_request_kind("codex", &headers, None),
+            CodexRequestKind::ContextCompaction
+        );
+    }
+
+    #[test]
+    fn ignores_beta_feature_flags_for_context_compaction() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-beta-features",
+            "remote_compaction_v2".parse().unwrap(),
+        );
+        headers.insert("openai-beta", "remote_compaction_v2".parse().unwrap());
+
+        assert_eq!(
+            detect_codex_request_kind("codex", &headers, None),
+            CodexRequestKind::Normal
+        );
+    }
+
+    #[test]
+    fn detects_context_compaction_from_metadata() {
+        let headers = HeaderMap::new();
+        let body = serde_json::json!({
+            "metadata": {
+                "source": "remote_compaction_v2"
+            }
+        });
+
+        assert_eq!(
+            detect_codex_request_kind("codex", &headers, Some(&body)),
+            CodexRequestKind::ContextCompaction
+        );
+    }
+
+    #[test]
+    fn ignores_context_compaction_markers_for_non_codex_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-request-kind",
+            "remote_compaction_v2".parse().unwrap(),
+        );
+
+        assert_eq!(
+            detect_codex_request_kind("claude", &headers, None),
+            CodexRequestKind::Normal
+        );
     }
 }

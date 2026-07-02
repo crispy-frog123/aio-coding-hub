@@ -73,6 +73,14 @@ pub enum CodexReasoningGuardCompareMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum CodexReasoningGuardRuleMode {
+    #[default]
+    ReasoningTokens,
+    FinalAnswerOnlyHighXhigh,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum CodexReasoningGuardExhaustedAction {
     #[default]
     ReturnError,
@@ -188,6 +196,8 @@ pub struct AppSettings {
     // retry the same provider without affecting circuit breaker state.
     pub codex_reasoning_guard_enabled: bool,
     #[serde(default)]
+    pub codex_reasoning_guard_rule_mode: CodexReasoningGuardRuleMode,
+    #[serde(default)]
     pub codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode,
     pub codex_reasoning_guard_reasoning_equals: Vec<i64>,
     #[serde(default)]
@@ -290,6 +300,7 @@ impl Default for AppSettings {
             codex_oauth_compatible_proxy_mode: DEFAULT_CODEX_OAUTH_COMPATIBLE_PROXY_MODE,
             codex_provider_test_model: DEFAULT_CODEX_PROVIDER_TEST_MODEL.to_string(),
             codex_reasoning_guard_enabled: DEFAULT_CODEX_REASONING_GUARD_ENABLED,
+            codex_reasoning_guard_rule_mode: CodexReasoningGuardRuleMode::default(),
             codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode::default(),
             codex_reasoning_guard_reasoning_equals: DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS
                 .to_vec(),

@@ -206,6 +206,13 @@ function normalizeCodexReasoningGuardCompareSymbol(
   return null;
 }
 
+function normalizeCodexReasoningGuardRuleMode(value: unknown): string | null {
+  const mode = parsedSettingString(value);
+  if (mode === "final_answer_only_high_xhigh") return mode;
+  if (mode === "reasoning_tokens") return mode;
+  return null;
+}
+
 export function resolveCodexReasoningGuardSummary(
   specialSettingsJson: string | null | undefined
 ): CodexReasoningGuardSummary {
@@ -223,6 +230,7 @@ export function resolveCodexReasoningGuardSummary(
   for (const setting of settings) {
     if (setting.type === "codex_reasoning_guard") {
       count += 1;
+      const ruleMode = normalizeCodexReasoningGuardRuleMode(setting.ruleMode);
       const compareSymbol = normalizeCodexReasoningGuardCompareSymbol(
         setting.compareMode,
         setting.compareModeSymbol
@@ -230,9 +238,11 @@ export function resolveCodexReasoningGuardSummary(
       const matchedRuleValue = parsedSettingNumber(setting.matchedRuleValue);
       const reasoningTokens = parsedSettingNumber(setting.reasoningTokens);
       latestRuleLabel =
-        compareSymbol && Number.isFinite(matchedRuleValue)
-          ? `${compareSymbol} ${matchedRuleValue}`
-          : null;
+        ruleMode === "final_answer_only_high_xhigh"
+          ? "final-answer-only / high,xhigh"
+          : compareSymbol && Number.isFinite(matchedRuleValue)
+            ? `${compareSymbol} ${matchedRuleValue}`
+            : null;
       latestReasoningTokens = Number.isFinite(reasoningTokens) ? reasoningTokens : null;
       latestPhase = parsedSettingString(setting.guardRetryPhase) || null;
       latestActionTaken =

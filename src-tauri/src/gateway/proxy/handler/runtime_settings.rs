@@ -20,6 +20,7 @@ pub(super) struct HandlerRuntimeSettings {
     pub(super) provider_base_url_ping_cache_ttl_seconds: u32,
     pub(super) enable_codex_session_id_completion: bool,
     pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: settings::CodexReasoningGuardRuleMode,
     pub(super) codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
     pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub(super) codex_reasoning_guard_model_rules: Vec<settings::CodexReasoningGuardModelRule>,
@@ -125,6 +126,9 @@ pub(super) fn handler_runtime_settings(
         codex_reasoning_guard_enabled: settings_cfg
             .map(|cfg| cfg.codex_reasoning_guard_enabled)
             .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_ENABLED),
+        codex_reasoning_guard_rule_mode: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_rule_mode)
+            .unwrap_or_default(),
         codex_reasoning_guard_compare_mode: settings_cfg
             .map(|cfg| cfg.codex_reasoning_guard_compare_mode)
             .unwrap_or_default(),

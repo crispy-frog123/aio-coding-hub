@@ -429,6 +429,7 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
 
     expect(persistCodexReasoningGuardSettings).toHaveBeenCalledWith({
+      codex_reasoning_guard_rule_mode: "reasoning_tokens",
       codex_reasoning_guard_compare_mode: "equals",
       codex_reasoning_guard_reasoning_equals: [516, 1024],
       codex_reasoning_guard_model_rules: [],
@@ -483,6 +484,7 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
 
     expect(persistCodexReasoningGuardSettings).toHaveBeenCalledWith({
+      codex_reasoning_guard_rule_mode: "reasoning_tokens",
       codex_reasoning_guard_compare_mode: "equals",
       codex_reasoning_guard_reasoning_equals: [516, 1034, 1552],
       codex_reasoning_guard_model_rules: [],
@@ -572,6 +574,7 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
 
     expect(persistCodexReasoningGuardSettings).toHaveBeenCalledWith({
+      codex_reasoning_guard_rule_mode: "reasoning_tokens",
       codex_reasoning_guard_compare_mode: "less_than_or_equal",
       codex_reasoning_guard_reasoning_equals: [516, 1034, 1552],
       codex_reasoning_guard_immediate_retry_budget: 5,
@@ -636,6 +639,7 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存规则" }));
 
     expect(persistCodexReasoningGuardSettings).toHaveBeenCalledWith({
+      codex_reasoning_guard_rule_mode: "reasoning_tokens",
       codex_reasoning_guard_compare_mode: "equals",
       codex_reasoning_guard_reasoning_equals: [516, 1034, 1552],
       codex_reasoning_guard_immediate_retry_budget: 5,

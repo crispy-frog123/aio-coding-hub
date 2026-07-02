@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   Boxes,
+  BrainCircuit,
   Command,
   Cpu,
   FileText,
@@ -65,6 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: "/mcp", label: "MCP", icon: Command, theme: "indigo" },
       { to: "/skills", label: "Skill", icon: Cpu, theme: "pink" },
       { to: "/plugins", label: "插件", icon: Puzzle, theme: "emerald" },
+      { to: "/reasoning-guard", label: "降智拦截", icon: BrainCircuit, theme: "rose" },
       { to: "/usage", label: "用量", icon: TrendingDown, theme: "orange" },
       { to: "/logs", label: "请求日志", icon: FileText, theme: "slate" },
       { to: "/cli-manager", label: "CLI 管理", icon: Wrench, theme: "sky" },

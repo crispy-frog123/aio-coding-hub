@@ -90,6 +90,7 @@ describe("pages/UsagePage (error)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     await waitFor(() => {
       expect(toast).toHaveBeenCalledWith("加载用量失败：请重试（详情见页面错误信息）");
     });

@@ -8,8 +8,8 @@ It is intentionally a mapping and update checklist, not a user guide.
 
 - Upstream repository: `https://github.com/nonononull/codex-retry-gateway`
 - Upstream branch: `main`
-- Last reviewed upstream commit: `590ab74d29af6a13d07ee4ffc2c4bf50e3369631`
-- Last reviewed upstream subject: `Merge pull request #12 from nonononull/codex/ui-theme-toggle`
+- Last reviewed upstream commit: `e97d205bc0d0a2e0308fbf6d91f940347379fcaa`
+- Last reviewed upstream subject: `Merge pull request #18 from nonononull/codex/document-local-ci-default`
 - AIO integration style: manual Rust/React reimplementation inside AIO, not vendoring or executing upstream `gateway.mjs`.
 
 When updating this integration, first compare upstream changes from the commit above. Do not replace AIO gateway code with `gateway.mjs`.
@@ -22,11 +22,16 @@ The upstream project is centered on `gateway.mjs`.
 | --- | --- |
 | `DEFAULT_CONFIG` | Defaults for listen address, endpoints, `reasoning_equals`, interception flags, retry count, stream action, and active probe. |
 | `extractReasoningTokens` | Reads `reasoning_tokens` from known JSON pointer locations. |
+| `intercept_rule_mode` | Selects between `reasoning_tokens` matching and final-answer-only high/xhigh matching. |
+| final-answer-only helpers | Classifies Responses JSON/SSE output as final text only, commentary, tool call, or reasoning item. |
+| context compaction detection | Detects Codex remote/context compaction requests and exempts them from interception. |
+| upstream capacity retry | Detects the specific upstream capacity message and retries internally with guard retry budget. |
 | `handleNonStreaming` | Buffers non-stream JSON responses, checks reasoning tokens, retries or returns a guard error. |
 | `handleStreaming` | Buffers or relays SSE streams depending on `stream_action`; in strict mode, detects guard hits before returning a final response. |
 | `proxyRequest` | Routes supported Codex/OpenAI paths to the upstream provider and applies guard handling. |
 | model insight helpers | Tracks local/upstream model consistency and suspicious model samples. |
 | active probe helpers | Runs scheduled/manual probes for long context, image input, response structure, identity consistency, and knowledge cutoff. |
+| reasoning analytics helpers | Tracks richer reasoning/interception observations, dashboard API data, exports, and imports. |
 | install/restore scripts | Rewrites and restores Codex local config for the standalone Node gateway. |
 
 ## AIO Implementation Map
@@ -38,6 +43,7 @@ AIO has its own gateway runtime, provider routing, failover, logging, settings, 
 | `src-tauri/src/gateway/routes.rs` | Axum routes for AIO gateway. `/v1` and `/v1/*path` are treated as Codex routes; `/:cli_key/*path` handles explicit CLI routes. |
 | `src-tauri/src/gateway/control_service.rs` | Starts and stops the AIO gateway listener. |
 | `src-tauri/src/gateway/proxy/handler/runtime_settings.rs` | Reads runtime settings for the proxy handler, including Codex reasoning guard settings. |
+| `src-tauri/src/gateway/proxy/handler/middleware/model_inference.rs` | Extracts requested model, explicit Codex reasoning effort, and Codex context-compaction request kind. |
 | `src-tauri/src/gateway/proxy/handler/failover_loop/response/codex_reasoning_guard.rs` | Core degraded-reasoning detection, rule resolution, retry-budget decision, special-setting payloads, and attempt logging helpers. |
 | `src-tauri/src/gateway/proxy/handler/failover_loop/response/success_non_stream.rs` | Applies Codex reasoning guard to successful non-stream responses after response body buffering and optional response fixing. |
 | `src-tauri/src/gateway/proxy/handler/failover_loop/response/success_event_stream.rs` | Buffers Codex Responses SSE for guard inspection, aggregates the stream, and applies the same guard decision path. |
@@ -73,6 +79,7 @@ Default frontend rule values are `516`, `1034`, and `1552`.
 
 AIO adds behavior beyond upstream:
 
+- Rule mode setting: `reasoning_tokens` or `final_answer_only_high_xhigh`.
 - `equals` and `less_than_or_equal` compare modes.
 - Per-requested-model rules.
 - Immediate retry budget.
@@ -80,6 +87,18 @@ AIO adds behavior beyond upstream:
 - Exhausted action: return guard error or switch provider.
 - Attempt/request log special settings for UI statistics.
 - Provider failover integration instead of only retrying the same upstream URL.
+
+In `reasoning_tokens` mode, AIO preserves its existing global and per-model token rules.
+
+In `final_answer_only_high_xhigh` mode, AIO ignores token compare/model rules for matching but preserves their saved values. A request only matches when it explicitly asks for `reasoning.effort` `high` or `xhigh`, and the response has visible final answer text without commentary, tool/function calls, or reasoning items. This mode still uses AIO's existing immediate/delayed retry budget and exhausted action.
+
+Codex context-compaction request detection follows upstream `e97d205`: AIO checks Codex headers (`x-codex-request-kind`, `x-codex-purpose`, `x-codex-turn-metadata`) and body fields (`metadata`, `codex_request_kind`, `request_kind`, `purpose`) when they contain `remote_compaction_v2`, `remote_compaction`, or `context_compaction`. AIO intentionally does not treat `x-codex-beta-features` or `openai-beta` alone as context-compaction evidence, because those can appear on ordinary turns.
+
+Context compaction is only intercept-exempt when the observed response has `reasoning_tokens = 0`. Context compaction responses with nonzero reasoning values such as `516`, `1034`, or `1552` still use the active guard rule mode and can be retried.
+
+In `final_answer_only_high_xhigh` mode, `reasoning_tokens = 0` is treated as a normal successful response and is not intercepted. Missing/null reasoning tokens and positive reasoning token values can still match when the response is final-answer-only and the request explicitly asked for `high` or `xhigh`.
+
+For non-success upstream responses, AIO also ports upstream's specific capacity retry behavior: if a Codex upstream response body contains `Selected model is at capacity. Please try a different model.` or the equivalent lower-case phrase pair (`selected model is at capacity` and `try a different model`), AIO records a `codex_upstream_capacity_retry` attempt and retries the same provider using the existing Codex guard retry budget. This does not generalize ordinary 429 or 5xx responses.
 
 ### Non-Stream Responses
 
@@ -132,9 +151,11 @@ These upstream areas are not fully ported as one-to-one features:
 | `config.json` endpoint list | Not directly used. AIO routes are Rust routes and settings. |
 | `intercept_streaming` / `intercept_non_streaming` flags | Not exposed with the same names. AIO has one Codex reasoning guard enable switch. |
 | `guard_retry_attempts` | Replaced by AIO immediate/delayed retry budgets. |
+| `retry_upstream_capacity_errors` UI toggle | Not exposed as a separate AIO setting. AIO ports the default upstream behavior for Codex capacity errors and uses the existing guard retry budget. |
 | `stream_action = strict_502/disconnect` | Not exposed as-is. AIO stream guard buffers selected Codex Responses streams. |
 | model consistency monitor | Not fully ported. AIO request logs and provider availability are separate systems. |
 | `active_probe` scheduled probes | Not fully ported. AIO has provider availability/service status features, but not upstream's exact active-probe suite. |
+| reasoning analytics dashboard/API/export/import/background jobs | Not ported. AIO only records guard special settings and existing request-log statistics for now. |
 | upstream install/restore scripts | Not used. AIO uses `src-tauri/src/infra/cli_proxy`. |
 
 ## Future Update Checklist
@@ -146,14 +167,14 @@ Use this process whenever upstream `codex-retry-gateway` changes.
    ```powershell
    $up = "$env:TEMP\codex-retry-gateway-upstream"
    git -C $up fetch origin main
-   git -C $up log --oneline 590ab74d29af6a13d07ee4ffc2c4bf50e3369631..origin/main
-   git -C $up diff --name-status 590ab74d29af6a13d07ee4ffc2c4bf50e3369631..origin/main
+   git -C $up log --oneline e97d205bc0d0a2e0308fbf6d91f940347379fcaa..origin/main
+   git -C $up diff --name-status e97d205bc0d0a2e0308fbf6d91f940347379fcaa..origin/main
    ```
 
 2. Review the upstream diff by concern.
 
    ```powershell
-   git -C $up diff 590ab74d29af6a13d07ee4ffc2c4bf50e3369631..origin/main -- gateway.mjs config.example.json README.md err.md
+   git -C $up diff e97d205bc0d0a2e0308fbf6d91f940347379fcaa..origin/main -- gateway.mjs config.example.json README.md err.md
    ```
 
 3. Classify upstream changes before editing AIO.
@@ -161,6 +182,9 @@ Use this process whenever upstream `codex-retry-gateway` changes.
 | Upstream changed area | AIO port target |
 | --- | --- |
 | `REASONING_POINTERS`, `extractReasoningTokens`, rule matching | `codex_reasoning_guard.rs`, Rust tests, frontend defaults if needed |
+| `intercept_rule_mode`, final-only matching, response structure classification | `codex_reasoning_guard.rs`, `CodexTab.tsx`, `requestLogSpecialSettings.ts`, Rust/frontend tests |
+| context compaction markers or detection | `model_inference.rs`, `request_context.rs`, `codex_reasoning_guard.rs`, Rust tests |
+| upstream capacity retry | `upstream_error.rs`, guard retry budget state, request-log special settings |
 | `reasoning_equals` default | `src-tauri/src/infra/settings/types.rs`, `src/services/settings/settingsValidation.ts`, tests |
 | non-stream guard behavior | `success_non_stream.rs`, route/failover tests |
 | stream guard behavior or SSE parsing | `success_event_stream.rs`, `protocol_bridge/stream.rs`, stream tests |
@@ -169,6 +193,7 @@ Use this process whenever upstream `codex-retry-gateway` changes.
 | supported paths/endpoints | `routes.rs`, `proxy/mod.rs`, stream/non-stream guard gating |
 | install/restore behavior | `infra/cli_proxy/codex.rs`, `infra/cli_proxy/mod.rs`, CLI proxy tests |
 | active probe | Decide product scope first; likely new domain/commands/UI work, not a small guard patch |
+| reasoning analytics dashboard/API/export/import/background jobs | Decide product scope first; not part of the core guard behavior port |
 | model consistency insights | Decide product scope first; likely request-log or provider-observability work |
 | upstream UI-only changes | Usually no AIO port unless they reveal new behavior |
 
@@ -176,7 +201,7 @@ Use this process whenever upstream `codex-retry-gateway` changes.
 
 Prefer small tests near the target module:
 
-- `codex_reasoning_guard.rs` unit tests for JSON pointers and match semantics.
+- `codex_reasoning_guard.rs` unit tests for JSON pointers, rule modes, response structure, context compaction exemption, and match semantics.
 - `routes.rs` gateway tests for non-stream and stream end-to-end behavior.
 - `gateway/proxy/tests.rs` for observation and in-progress log seeding.
 - `infra/cli_proxy/tests.rs` for config backup/restore behavior.

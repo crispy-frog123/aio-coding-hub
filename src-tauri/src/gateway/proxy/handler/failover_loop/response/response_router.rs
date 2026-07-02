@@ -204,6 +204,9 @@ where
                     .thinking_signature_rectifier_retried,
                 thinking_budget_rectifier_retried: &mut retry_state
                     .thinking_budget_rectifier_retried,
+                allow_next_retry_beyond_max_attempts: &mut retry_state
+                    .allow_next_retry_beyond_max_attempts,
+                codex_reasoning_guard_hits: &mut retry_state.codex_reasoning_guard_hits,
             },
         },
     )

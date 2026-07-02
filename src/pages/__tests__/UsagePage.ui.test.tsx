@@ -140,6 +140,7 @@ describe("pages/UsagePage (ui)", () => {
 
     expect(screen.getByRole("tab", { name: "用量" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "缓存走势图" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     expect(screen.getByText("Provider-1")).toBeInTheDocument();
     expect(screen.getAllByText("$1.230000").length).toBeGreaterThan(0);
     expect(screen.getByText("总计")).toBeInTheDocument();
@@ -183,6 +184,7 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     fireEvent.click(screen.getByRole("button", { name: "CLI" }));
     expect(screen.getByLabelText("供应商筛选")).toBeInTheDocument();
 
@@ -240,6 +242,7 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     fireEvent.click(screen.getByRole("button", { name: "自定义" }));
     expect(await screen.findByLabelText("开始日期")).toBeInTheDocument();
 
@@ -293,6 +296,7 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     fireEvent.change(screen.getByLabelText("供应商筛选"), { target: { value: "11" } });
 
     expect(useUsageSummaryV2Query).toHaveBeenLastCalledWith(

@@ -6,7 +6,7 @@ use super::migration::{
 };
 use super::types::{
     AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
-    GatewayListenMode, WslHostAddressMode,
+    CodexReasoningGuardRuleMode, GatewayListenMode, WslHostAddressMode,
 };
 use crate::app_paths;
 use crate::shared::error::AppResult;
@@ -398,6 +398,10 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
         CodexReasoningGuardCompareMode::Equals
         | CodexReasoningGuardCompareMode::LessThanOrEqual => {}
     }
+    match settings.codex_reasoning_guard_rule_mode {
+        CodexReasoningGuardRuleMode::ReasoningTokens
+        | CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh => {}
+    }
     match settings.codex_reasoning_guard_exhausted_action {
         CodexReasoningGuardExhaustedAction::ReturnError
         | CodexReasoningGuardExhaustedAction::SwitchProvider => {}
@@ -734,6 +738,10 @@ mod tests {
         assert_eq!(
             settings.codex_reasoning_guard_exhausted_action,
             CodexReasoningGuardExhaustedAction::ReturnError
+        );
+        assert_eq!(
+            settings.codex_reasoning_guard_rule_mode,
+            CodexReasoningGuardRuleMode::ReasoningTokens
         );
     }
 

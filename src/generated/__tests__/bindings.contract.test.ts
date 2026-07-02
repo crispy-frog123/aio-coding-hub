@@ -129,7 +129,7 @@ describe("generated/bindings.ts contract", () => {
     for (const body of [settingsGet, gatewayStart, requestLogsList]) {
       expect(body).toContain("Promise<Result<");
       expect(body).toContain('return { status: "ok", data: await TAURI_INVOKE(');
-      expect(body).toContain('return { status: "error", error: e as any };');
+      expect(body).toMatch(/return \{ status: "error", error: e\s+as any \};/);
     }
 
     expect(gatewayStatus).toContain("Promise<GatewayStatus>");

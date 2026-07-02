@@ -2,6 +2,7 @@ import type {
   CodexReasoningGuardCompareMode,
   CodexReasoningGuardExhaustedAction,
   CodexReasoningGuardModelRule,
+  CodexReasoningGuardRuleMode,
   GatewayListenMode,
   SensitiveStringUpdate,
   UpstreamRetryPolicy,
@@ -392,6 +393,7 @@ export type SettingsSetValidationInput = {
   cx2CcServiceTier?: string | null;
   codexProviderTestModel?: string | null;
   codexReasoningGuardReasoningEquals?: number[] | null;
+  codexReasoningGuardRuleMode?: CodexReasoningGuardRuleMode | null;
   codexReasoningGuardCompareMode?: CodexReasoningGuardCompareMode | null;
   codexReasoningGuardModelRules?: CodexReasoningGuardModelRule[] | null;
   codexReasoningGuardImmediateRetryBudget?: number | null;
@@ -548,6 +550,15 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
       input.codexReasoningGuardCompareMode !== "less_than_or_equal"
     ) {
       return "Codex 降智拦截比较模式仅支持 equals 或 less_than_or_equal";
+    }
+  }
+
+  if (input.codexReasoningGuardRuleMode != null) {
+    if (
+      input.codexReasoningGuardRuleMode !== "reasoning_tokens" &&
+      input.codexReasoningGuardRuleMode !== "final_answer_only_high_xhigh"
+    ) {
+      return "Codex 降智拦截规则模式仅支持 reasoning_tokens 或 final_answer_only_high_xhigh";
     }
   }
 

@@ -22,6 +22,7 @@ import type {
   CodexReasoningGuardCompareMode,
   CodexReasoningGuardExhaustedAction,
   CodexReasoningGuardModelRule,
+  CodexReasoningGuardRuleMode,
 } from "../../../services/settings/settings";
 import {
   DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
@@ -72,6 +73,7 @@ const DEFAULT_CODEX_PROVIDER_TEST_MODEL = "gpt-5.4-mini";
 const GPT_54_CONTEXT_WINDOW = 1_000_000;
 const GPT_54_AUTO_COMPACT_TOKEN_LIMIT = 900_000;
 const FAST_SERVICE_TIER = "fast";
+const DEFAULT_CODEX_REASONING_GUARD_RULE_MODE: CodexReasoningGuardRuleMode = "reasoning_tokens";
 type PersistConfigLocationResult = "saved" | "validation_failed" | "persist_failed";
 type CodexReasoningGuardDetailsTab = "rules" | "stats";
 type CodexReasoningGuardStatsWindow = "session" | "all";
@@ -107,6 +109,12 @@ function formatCodexReasoningGuardRuleLabel(
   return `${symbol} ${formatCodexReasoningGuardValues(values)}`;
 }
 
+function formatCodexReasoningGuardRuleModeLabel(ruleMode: CodexReasoningGuardRuleMode) {
+  return ruleMode === "final_answer_only_high_xhigh"
+    ? "final-answer-only / high,xhigh"
+    : "reasoning_tokens";
+}
+
 function formatCodexReasoningGuardHitRate(value: number | null | undefined) {
   return CODEX_REASONING_GUARD_PERCENT_FORMATTER.format(value ?? 0);
 }
@@ -133,6 +141,12 @@ function resolveCodexReasoningGuardRuleForModel(
 ) {
   if (!settings) {
     return { label: "—", sourceLabel: "—" };
+  }
+  if (settings.codex_reasoning_guard_rule_mode === "final_answer_only_high_xhigh") {
+    return {
+      label: formatCodexReasoningGuardRuleModeLabel(settings.codex_reasoning_guard_rule_mode),
+      sourceLabel: "规则模式",
+    };
   }
   const modelRule = settings.codex_reasoning_guard_model_rules.find(
     (rule) => rule.requested_model === requestedModel
@@ -254,6 +268,7 @@ export type CliManagerCodexTabProps = {
       Pick<
         AppSettings,
         | "codex_reasoning_guard_enabled"
+        | "codex_reasoning_guard_rule_mode"
         | "codex_reasoning_guard_compare_mode"
         | "codex_reasoning_guard_reasoning_equals"
         | "codex_reasoning_guard_model_rules"
@@ -352,6 +367,8 @@ export function CliManagerCodexTab({
   const [configLocationError, setConfigLocationError] = useState<string | null>(null);
   const [selectingCodexHomeDir, setSelectingCodexHomeDir] = useState(false);
   const [codexReasoningGuardValuesText, setCodexReasoningGuardValuesText] = useState("");
+  const [codexReasoningGuardRuleMode, setCodexReasoningGuardRuleMode] =
+    useState<CodexReasoningGuardRuleMode>(DEFAULT_CODEX_REASONING_GUARD_RULE_MODE);
   const [codexReasoningGuardCompareMode, setCodexReasoningGuardCompareMode] =
     useState<CodexReasoningGuardCompareMode>("equals");
   const [codexReasoningGuardValuesError, setCodexReasoningGuardValuesError] = useState<
@@ -454,6 +471,9 @@ export function CliManagerCodexTab({
         source?.codex_reasoning_guard_reasoning_equals ??
         DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS;
       setCodexReasoningGuardValuesText(values.join(", "));
+      setCodexReasoningGuardRuleMode(
+        source?.codex_reasoning_guard_rule_mode ?? DEFAULT_CODEX_REASONING_GUARD_RULE_MODE
+      );
       setCodexReasoningGuardCompareMode(source?.codex_reasoning_guard_compare_mode ?? "equals");
       setCodexReasoningGuardImmediateBudgetText(
         String(
@@ -532,6 +552,11 @@ export function CliManagerCodexTab({
     codexReasoningGuardStatsWindow === "session"
       ? "只统计当前应用打开以后产生的 Codex 请求，方便先判断这次使用过程里的降智拦截。"
       : "统计所有历史 Codex 请求，适合看长期趋势、模型差异和整体拦截比例。";
+  const codexReasoningGuardUsesFinalOnlyMode =
+    codexReasoningGuardRuleMode === "final_answer_only_high_xhigh";
+  const codexReasoningGuardTokenRulesModeNote = codexReasoningGuardUsesFinalOnlyMode
+    ? "当前为 final-answer-only 模式；这些 reasoning_tokens 规则会保留，但只在切回 reasoning_tokens 模式后生效。"
+    : null;
   const appSessionStartedAtLabel =
     appSessionStartedAtMs && Number.isFinite(appSessionStartedAtMs)
       ? new Date(appSessionStartedAtMs).toLocaleString("zh-CN", { hour12: false })
@@ -1052,6 +1077,7 @@ export function CliManagerCodexTab({
     setCodexReasoningGuardModelRuleDrafts(buildCodexReasoningGuardModelRuleDrafts(nextModelRules));
 
     const saved = await persistCodexReasoningGuardSettings({
+      codex_reasoning_guard_rule_mode: codexReasoningGuardRuleMode,
       codex_reasoning_guard_compare_mode: codexReasoningGuardCompareMode,
       codex_reasoning_guard_reasoning_equals: parsedGlobalValues.values,
       codex_reasoning_guard_model_rules: nextModelRules,
@@ -1562,10 +1588,15 @@ export function CliManagerCodexTab({
                     <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                       <span>全局默认规则</span>
                       <span className="font-mono text-secondary-foreground">
-                        {formatCodexReasoningGuardRuleLabel(
-                          appSettings.codex_reasoning_guard_compare_mode,
-                          appSettings.codex_reasoning_guard_reasoning_equals
-                        )}
+                        {appSettings.codex_reasoning_guard_rule_mode ===
+                        "final_answer_only_high_xhigh"
+                          ? formatCodexReasoningGuardRuleModeLabel(
+                              appSettings.codex_reasoning_guard_rule_mode
+                            )
+                          : formatCodexReasoningGuardRuleLabel(
+                              appSettings.codex_reasoning_guard_compare_mode,
+                              appSettings.codex_reasoning_guard_reasoning_equals
+                            )}
                       </span>
                     </div>
                     <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
@@ -1719,9 +1750,48 @@ export function CliManagerCodexTab({
                 {codexReasoningGuardDetailsTab === "rules" ? (
                   <div className="space-y-4">
                     <div className="rounded-lg border border-border/70 bg-secondary/60 p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">规则模式</div>
+                          <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            reasoning_tokens 模式沿用数值规则；final-answer-only
+                            模式只拦截显式 high/xhigh 且响应只有最终文本的 Codex 请求。
+                          </div>
+                        </div>
+                        <RadioGroup
+                          name="codex_reasoning_guard_rule_mode"
+                          value={codexReasoningGuardRuleMode}
+                          onChange={(value) =>
+                            setCodexReasoningGuardRuleMode(
+                              value === "final_answer_only_high_xhigh"
+                                ? "final_answer_only_high_xhigh"
+                                : "reasoning_tokens"
+                            )
+                          }
+                          options={[
+                            { value: "reasoning_tokens", label: "reasoning_tokens" },
+                            {
+                              value: "final_answer_only_high_xhigh",
+                              label: "final-answer-only",
+                            },
+                          ]}
+                          disabled={reasoningGuardControlsDisabled}
+                        />
+                      </div>
+                      <div className="mt-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                        {codexReasoningGuardUsesFinalOnlyMode
+                          ? "当前命中条件：请求显式 reasoning.effort 为 high 或 xhigh，响应有最终文本，且没有 commentary、tool/function call、reasoning item。仍使用下方完整重试预算。"
+                          : "当前命中条件：按全局规则或模型规则检查响应 usage 中的 reasoning_tokens。"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-secondary/60 p-4">
                       <div className="text-sm font-semibold text-foreground">全局回退规则</div>
                       <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         只有在当前请求模型没有精确匹配到模型规则时，才会回落到这里。
+                        {codexReasoningGuardTokenRulesModeNote
+                          ? ` ${codexReasoningGuardTokenRulesModeNote}`
+                          : ""}
                       </div>
                       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
                         <label className="text-xs font-medium text-secondary-foreground">
@@ -1775,6 +1845,7 @@ export function CliManagerCodexTab({
                         )}
                       >
                         {codexReasoningGuardValuesError ??
+                          codexReasoningGuardTokenRulesModeNote ??
                           codexReasoningGuardCompareModeHelperText(codexReasoningGuardCompareMode)}
                       </div>
                     </div>
@@ -1888,6 +1959,9 @@ export function CliManagerCodexTab({
                           <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
                             这里按 <span className="font-mono">requested_model</span>{" "}
                             精确匹配；没匹配到的请求，才会走上面的全局回退规则。
+                            {codexReasoningGuardTokenRulesModeNote
+                              ? ` ${codexReasoningGuardTokenRulesModeNote}`
+                              : ""}
                           </div>
                         </div>
                         <Button

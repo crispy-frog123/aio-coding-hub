@@ -5,6 +5,7 @@ use crate::gateway::events::{ClaudeModelMapping, FailoverAttempt};
 use crate::gateway::proxy::abort_guard::RequestAbortGuard;
 use crate::gateway::proxy::cx2cc::settings::Cx2ccSettings;
 use crate::gateway::proxy::gemini_oauth;
+use crate::gateway::proxy::request_context::CodexRequestKind;
 use crate::gateway::response_fixer;
 use crate::gateway::runtime::GatewayAppState;
 use crate::gateway::streams::StreamFinalizeCtx;
@@ -28,6 +29,8 @@ pub(super) struct CommonCtxArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) created_at: i64,
     pub(super) session_id: &'a Option<String>,
     pub(super) requested_model: &'a Option<String>,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: &'a Option<String>,
     pub(super) cx2cc_settings: &'a Cx2ccSettings,
     pub(super) effective_sort_mode_id: Option<i64>,
     pub(super) special_settings: &'a Arc<Mutex<Vec<serde_json::Value>>>,
@@ -38,6 +41,7 @@ pub(super) struct CommonCtxArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) upstream_request_timeout_non_streaming: Option<Duration>,
     pub(super) verbose_provider_error: bool,
     pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: crate::settings::CodexReasoningGuardRuleMode,
     pub(super) codex_reasoning_guard_compare_mode: crate::settings::CodexReasoningGuardCompareMode,
     pub(super) codex_reasoning_guard_reasoning_equals: &'a [i64],
     pub(super) codex_reasoning_guard_model_rules:
@@ -66,6 +70,8 @@ pub(super) struct CommonCtx<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) created_at: i64,
     pub(super) session_id: &'a Option<String>,
     pub(super) requested_model: &'a Option<String>,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: &'a Option<String>,
     pub(super) cx2cc_settings: &'a Cx2ccSettings,
     pub(super) effective_sort_mode_id: Option<i64>,
     pub(super) special_settings: &'a Arc<Mutex<Vec<serde_json::Value>>>,
@@ -76,6 +82,7 @@ pub(super) struct CommonCtx<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) upstream_request_timeout_non_streaming: Option<Duration>,
     pub(super) verbose_provider_error: bool,
     pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: crate::settings::CodexReasoningGuardRuleMode,
     pub(super) codex_reasoning_guard_compare_mode: crate::settings::CodexReasoningGuardCompareMode,
     pub(super) codex_reasoning_guard_reasoning_equals: &'a [i64],
     pub(super) codex_reasoning_guard_model_rules:
@@ -114,6 +121,8 @@ impl<'a, R: tauri::Runtime> CommonCtx<'a, R> {
             created_at: args.created_at,
             session_id: args.session_id,
             requested_model: args.requested_model,
+            codex_request_kind: args.codex_request_kind,
+            codex_reasoning_effort: args.codex_reasoning_effort,
             cx2cc_settings: args.cx2cc_settings,
             effective_sort_mode_id: args.effective_sort_mode_id,
             special_settings: args.special_settings,
@@ -124,6 +133,7 @@ impl<'a, R: tauri::Runtime> CommonCtx<'a, R> {
             upstream_request_timeout_non_streaming: args.upstream_request_timeout_non_streaming,
             verbose_provider_error: args.verbose_provider_error,
             codex_reasoning_guard_enabled: args.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode: args.codex_reasoning_guard_rule_mode,
             codex_reasoning_guard_compare_mode: args.codex_reasoning_guard_compare_mode,
             codex_reasoning_guard_reasoning_equals: args.codex_reasoning_guard_reasoning_equals,
             codex_reasoning_guard_model_rules: args.codex_reasoning_guard_model_rules,
@@ -160,6 +170,8 @@ pub(super) struct CommonCtxOwned<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) created_at: i64,
     pub(super) session_id: Option<String>,
     pub(super) requested_model: Option<String>,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: Option<String>,
     pub(super) cx2cc_settings: Cx2ccSettings,
     pub(super) effective_sort_mode_id: Option<i64>,
     pub(super) special_settings: Arc<Mutex<Vec<serde_json::Value>>>,
@@ -169,6 +181,7 @@ pub(super) struct CommonCtxOwned<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) upstream_stream_idle_timeout: Option<Duration>,
     pub(super) upstream_request_timeout_non_streaming: Option<Duration>,
     pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: crate::settings::CodexReasoningGuardRuleMode,
     pub(super) codex_reasoning_guard_compare_mode: crate::settings::CodexReasoningGuardCompareMode,
     pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
     pub(super) codex_reasoning_guard_model_rules:
@@ -199,6 +212,8 @@ impl<'a, R: tauri::Runtime> From<CommonCtx<'a, R>> for CommonCtxOwned<'a, R> {
             created_at: ctx.created_at,
             session_id: ctx.session_id.clone(),
             requested_model: ctx.requested_model.clone(),
+            codex_request_kind: ctx.codex_request_kind,
+            codex_reasoning_effort: ctx.codex_reasoning_effort.clone(),
             cx2cc_settings: ctx.cx2cc_settings.clone(),
             effective_sort_mode_id: ctx.effective_sort_mode_id,
             special_settings: Arc::clone(ctx.special_settings),
@@ -208,6 +223,7 @@ impl<'a, R: tauri::Runtime> From<CommonCtx<'a, R>> for CommonCtxOwned<'a, R> {
             upstream_stream_idle_timeout: ctx.upstream_stream_idle_timeout,
             upstream_request_timeout_non_streaming: ctx.upstream_request_timeout_non_streaming,
             codex_reasoning_guard_enabled: ctx.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode: ctx.codex_reasoning_guard_rule_mode,
             codex_reasoning_guard_compare_mode: ctx.codex_reasoning_guard_compare_mode,
             codex_reasoning_guard_reasoning_equals: ctx
                 .codex_reasoning_guard_reasoning_equals

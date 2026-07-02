@@ -1,11 +1,12 @@
 //! Usage: Codex degraded-reasoning detection helpers.
 
 use crate::gateway::events::{decision_chain as dc, FailoverAttempt};
+use crate::gateway::proxy::request_context::CodexRequestKind;
 use crate::gateway::proxy::ErrorCategory;
 use crate::gateway::response_fixer;
 use crate::settings::{
     CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
-    CodexReasoningGuardModelRule,
+    CodexReasoningGuardModelRule, CodexReasoningGuardRuleMode,
 };
 use axum::http::StatusCode;
 use std::sync::{Arc, Mutex};
@@ -15,16 +16,50 @@ pub(super) const CODEX_REASONING_GUARD_ERROR_CODE: &str = "GW_CODEX_REASONING_GU
 pub(super) const CODEX_REASONING_GUARD_REASON_CODE: &str = "codex_reasoning_guard";
 const CODEX_REASONING_GUARD_RULE_SOURCE_GLOBAL_DEFAULT: &str = "global_default";
 const CODEX_REASONING_GUARD_RULE_SOURCE_MODEL_RULE: &str = "model_rule";
+const CODEX_REASONING_GUARD_RULE_SOURCE_FINAL_ANSWER_ONLY: &str = "final_answer_only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CodexReasoningGuardMatch {
-    pub(super) reasoning_tokens: i64,
-    pub(super) pointer: &'static str,
+    pub(super) rule_mode: CodexReasoningGuardRuleMode,
+    pub(super) reasoning_tokens: Option<i64>,
+    pub(super) pointer: Option<&'static str>,
     pub(super) compare_mode: CodexReasoningGuardCompareMode,
-    pub(super) matched_rule_value: i64,
+    pub(super) matched_rule_value: Option<i64>,
     pub(super) requested_model: Option<String>,
     pub(super) rule_source: &'static str,
     pub(super) rule_model: Option<String>,
+    pub(super) final_answer_only: bool,
+    pub(super) commentary_observed: bool,
+    pub(super) has_tool_call: bool,
+    pub(super) has_reasoning_item: bool,
+    pub(super) request_kind: CodexRequestKind,
+    pub(super) intercept_exempt_reason: Option<&'static str>,
+    pub(super) reasoning_effort: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct CodexResponseStructure {
+    pub(super) has_final_answer: bool,
+    pub(super) has_output_text: bool,
+    pub(super) has_commentary: bool,
+    pub(super) has_tool_call: bool,
+    pub(super) has_reasoning_item: bool,
+}
+
+impl CodexResponseStructure {
+    pub(super) fn final_answer_only(&self) -> bool {
+        self.has_final_answer
+            && !self.has_commentary
+            && !self.has_tool_call
+            && !self.has_reasoning_item
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CodexReasoningObservation {
+    pub(super) reasoning_tokens: Option<i64>,
+    pub(super) reasoning_pointer: Option<&'static str>,
+    pub(super) structure: CodexResponseStructure,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +81,9 @@ pub(super) fn detect_from_json(
     cli_key: &str,
     requested_model: Option<&str>,
     value: &serde_json::Value,
+    rule_mode: CodexReasoningGuardRuleMode,
+    request_kind: CodexRequestKind,
+    requested_reasoning_effort: Option<&str>,
     fallback_compare_mode: CodexReasoningGuardCompareMode,
     fallback_values: &[i64],
     model_rules: &[CodexReasoningGuardModelRule],
@@ -53,47 +91,238 @@ pub(super) fn detect_from_json(
     if cli_key != "codex" {
         return None;
     }
-    let resolved_rule = resolve_guard_rule(
-        requested_model,
-        fallback_compare_mode,
-        fallback_values,
-        model_rules,
-    )?;
 
+    let observation = observe_response(value);
+    if is_context_compaction_exempt(request_kind, observation.reasoning_tokens) {
+        return None;
+    }
+    let requested_model = requested_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(ToOwned::to_owned);
+    let reasoning_effort = requested_reasoning_effort
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .map(|effort| effort.to_ascii_lowercase());
+
+    match rule_mode {
+        CodexReasoningGuardRuleMode::ReasoningTokens => {
+            let resolved_rule = resolve_guard_rule(
+                requested_model.as_deref(),
+                fallback_compare_mode,
+                fallback_values,
+                model_rules,
+            )?;
+            let reasoning_tokens = observation.reasoning_tokens?;
+            let matched_rule_value = find_matched_rule_value(
+                resolved_rule.compare_mode,
+                reasoning_tokens,
+                resolved_rule.configured_values,
+            )?;
+            Some(CodexReasoningGuardMatch {
+                rule_mode,
+                reasoning_tokens: Some(reasoning_tokens),
+                pointer: observation.reasoning_pointer,
+                compare_mode: resolved_rule.compare_mode,
+                matched_rule_value: Some(matched_rule_value),
+                requested_model,
+                rule_source: resolved_rule.rule_source,
+                rule_model: resolved_rule.rule_model.map(ToOwned::to_owned),
+                final_answer_only: observation.structure.final_answer_only(),
+                commentary_observed: observation.structure.has_commentary,
+                has_tool_call: observation.structure.has_tool_call,
+                has_reasoning_item: observation.structure.has_reasoning_item,
+                request_kind,
+                intercept_exempt_reason: None,
+                reasoning_effort,
+            })
+        }
+        CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh => {
+            if !should_intercept_final_answer_only_reasoning(observation.reasoning_tokens) {
+                return None;
+            }
+            if !is_final_answer_only_intercept_effort(reasoning_effort.as_deref()) {
+                return None;
+            }
+            if !observation.structure.final_answer_only() {
+                return None;
+            }
+            Some(CodexReasoningGuardMatch {
+                rule_mode,
+                reasoning_tokens: observation.reasoning_tokens,
+                pointer: observation.reasoning_pointer,
+                compare_mode: fallback_compare_mode,
+                matched_rule_value: None,
+                requested_model,
+                rule_source: CODEX_REASONING_GUARD_RULE_SOURCE_FINAL_ANSWER_ONLY,
+                rule_model: None,
+                final_answer_only: true,
+                commentary_observed: false,
+                has_tool_call: false,
+                has_reasoning_item: false,
+                request_kind,
+                intercept_exempt_reason: None,
+                reasoning_effort,
+            })
+        }
+    }
+}
+
+pub(super) fn observe_response(value: &serde_json::Value) -> CodexReasoningObservation {
+    let (reasoning_tokens, reasoning_pointer) = extract_reasoning_tokens(value);
+    let mut structure = CodexResponseStructure::default();
+    observe_structure_value(value, false, &mut structure);
+    CodexReasoningObservation {
+        reasoning_tokens,
+        reasoning_pointer,
+        structure,
+    }
+}
+
+fn extract_reasoning_tokens(value: &serde_json::Value) -> (Option<i64>, Option<&'static str>) {
     for pointer in REASONING_POINTERS {
         let Some(raw) = value.pointer(pointer) else {
             continue;
         };
-        let reasoning_tokens = match raw {
-            serde_json::Value::Number(number) => number
-                .as_i64()
-                .or_else(|| number.as_u64().and_then(|v| i64::try_from(v).ok())),
-            _ => None,
-        };
-        let Some(reasoning_tokens) = reasoning_tokens else {
-            continue;
-        };
-        if let Some(matched_rule_value) = find_matched_rule_value(
-            resolved_rule.compare_mode,
-            reasoning_tokens,
-            resolved_rule.configured_values,
-        ) {
-            return Some(CodexReasoningGuardMatch {
-                reasoning_tokens,
-                pointer,
-                compare_mode: resolved_rule.compare_mode,
-                matched_rule_value,
-                requested_model: requested_model
-                    .map(str::trim)
-                    .filter(|model| !model.is_empty())
-                    .map(ToOwned::to_owned),
-                rule_source: resolved_rule.rule_source,
-                rule_model: resolved_rule.rule_model.map(ToOwned::to_owned),
-            });
+        if let Some(reasoning_tokens) = parse_reasoning_tokens(raw) {
+            return (Some(reasoning_tokens), Some(pointer));
         }
     }
+    (None, None)
+}
 
-    None
+fn parse_reasoning_tokens(raw: &serde_json::Value) -> Option<i64> {
+    match raw {
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|v| i64::try_from(v).ok())),
+        serde_json::Value::String(text) => text.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn observe_structure_value(
+    value: &serde_json::Value,
+    in_visible_output: bool,
+    structure: &mut CodexResponseStructure,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                observe_structure_value(item, in_visible_output, structure);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            let type_name = object
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            let channel = object
+                .get("channel")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            if channel == "commentary" {
+                structure.has_commentary = true;
+            }
+            if is_tool_call_type(&type_name)
+                || object
+                    .get("tool_calls")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|items| !items.is_empty())
+                || object
+                    .get("function_call")
+                    .is_some_and(|value| !value.is_null())
+            {
+                structure.has_tool_call = true;
+            }
+            if is_reasoning_item_type(&type_name) {
+                structure.has_reasoning_item = true;
+            }
+
+            let role = object
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            let is_visible_text_item = type_name == "output_text" || type_name == "text";
+            let is_assistant_message = type_name == "message" && role == "assistant";
+            let visible_here = in_visible_output || is_visible_text_item || is_assistant_message;
+
+            if is_visible_text_item {
+                mark_text_if_present(object.get("text"), structure);
+            }
+            mark_text_if_present(object.get("output_text"), structure);
+            if visible_here && !is_reasoning_item_type(&type_name) {
+                mark_text_if_present(object.get("text"), structure);
+            }
+
+            for (key, child) in object {
+                let child_visible = match key.as_str() {
+                    "content" => visible_here || is_assistant_message,
+                    "output" => false,
+                    _ => visible_here && (key == "text" || key == "output_text"),
+                };
+                if key == "reasoning" && !child.is_array() {
+                    continue;
+                }
+                observe_structure_value(child, child_visible, structure);
+            }
+        }
+        serde_json::Value::String(text) => {
+            if in_visible_output && !text.trim().is_empty() {
+                structure.has_final_answer = true;
+                structure.has_output_text = true;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mark_text_if_present(value: Option<&serde_json::Value>, structure: &mut CodexResponseStructure) {
+    if value
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|text| !text.trim().is_empty())
+    {
+        structure.has_final_answer = true;
+        structure.has_output_text = true;
+    }
+}
+
+fn is_tool_call_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "function_call"
+            | "tool_call"
+            | "web_search_call"
+            | "computer_call"
+            | "local_shell_call"
+            | "mcp_call"
+            | "code_interpreter_call"
+    ) || type_name.ends_with("_tool_call")
+}
+
+fn is_reasoning_item_type(type_name: &str) -> bool {
+    matches!(type_name, "reasoning" | "reasoning_item")
+}
+
+fn is_final_answer_only_intercept_effort(effort: Option<&str>) -> bool {
+    matches!(effort, Some("high" | "xhigh"))
+}
+
+fn is_context_compaction_exempt(
+    request_kind: CodexRequestKind,
+    reasoning_tokens: Option<i64>,
+) -> bool {
+    request_kind == CodexRequestKind::ContextCompaction && reasoning_tokens == Some(0)
+}
+
+fn should_intercept_final_answer_only_reasoning(reasoning_tokens: Option<i64>) -> bool {
+    reasoning_tokens != Some(0)
 }
 
 fn resolve_guard_rule<'a>(
@@ -170,9 +399,17 @@ pub(super) fn push_special_setting(
             "type": "codex_reasoning_guard",
             "scope": "attempt",
             "hit": true,
+            "ruleMode": matched.rule_mode,
             "providerId": provider_id,
             "providerName": provider_name,
             "reasoningTokens": matched.reasoning_tokens,
+            "finalAnswerOnly": matched.final_answer_only,
+            "commentaryObserved": matched.commentary_observed,
+            "hasToolCall": matched.has_tool_call,
+            "hasReasoningItem": matched.has_reasoning_item,
+            "requestKind": matched.request_kind.as_str(),
+            "interceptExemptReason": matched.intercept_exempt_reason,
+            "reasoningEffort": matched.reasoning_effort,
             "compareMode": matched.compare_mode,
             "compareModeSymbol": compare_mode_symbol(matched.compare_mode),
             "matchedRuleValue": matched.matched_rule_value,
@@ -337,17 +574,7 @@ pub(super) fn record_guard_retry_attempt(
         error_category: Some(ErrorCategory::SystemError.as_str()),
         error_code: Some(CODEX_REASONING_GUARD_ERROR_CODE),
         decision: Some(decision),
-        reason: Some(format!(
-            "codex reasoning guard matched reasoning_tokens={} {} {} via {} ({}) hit={} phase={} action={}",
-            matched.reasoning_tokens,
-            compare_mode_symbol(matched.compare_mode),
-            matched.matched_rule_value,
-            matched.pointer,
-            matched.rule_source,
-            budget.hit_number,
-            budget.phase,
-            budget.action_taken
-        )),
+        reason: Some(guard_attempt_reason(matched, budget)),
         selection_method: dc::selection_method(provider_index, retry_index, session_reuse),
         reason_code: Some(CODEX_REASONING_GUARD_REASON_CODE),
         attempt_started_ms: Some(attempt_started_ms),
@@ -359,9 +586,65 @@ pub(super) fn record_guard_retry_attempt(
     });
 }
 
+fn guard_attempt_reason(
+    matched: &CodexReasoningGuardMatch,
+    budget: CodexReasoningGuardBudgetDecision,
+) -> String {
+    match matched.rule_mode {
+        CodexReasoningGuardRuleMode::ReasoningTokens => format!(
+            "codex reasoning guard matched reasoning_tokens={} {} {} via {} ({}) hit={} phase={} action={}",
+            matched
+                .reasoning_tokens
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string()),
+            compare_mode_symbol(matched.compare_mode),
+            matched
+                .matched_rule_value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string()),
+            matched.pointer.unwrap_or("unknown"),
+            matched.rule_source,
+            budget.hit_number,
+            budget.phase,
+            budget.action_taken
+        ),
+        CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh => format!(
+            "codex reasoning guard matched final-answer-only effort={} hit={} phase={} action={}",
+            matched
+                .reasoning_effort
+                .as_deref()
+                .unwrap_or("unknown"),
+            budget.hit_number,
+            budget.phase,
+            budget.action_taken
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn detect_token_mode(
+        cli_key: &str,
+        requested_model: Option<&str>,
+        value: &serde_json::Value,
+        fallback_compare_mode: CodexReasoningGuardCompareMode,
+        fallback_values: &[i64],
+        model_rules: &[CodexReasoningGuardModelRule],
+    ) -> Option<CodexReasoningGuardMatch> {
+        detect_from_json(
+            cli_key,
+            requested_model,
+            value,
+            CodexReasoningGuardRuleMode::ReasoningTokens,
+            CodexRequestKind::Normal,
+            None,
+            fallback_compare_mode,
+            fallback_values,
+            model_rules,
+        )
+    }
 
     #[test]
     fn detect_from_json_matches_equals_rule() {
@@ -369,7 +652,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 516 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -379,8 +662,8 @@ mod tests {
         )
         .expect("should match");
 
-        assert_eq!(matched.reasoning_tokens, 516);
-        assert_eq!(matched.matched_rule_value, 516);
+        assert_eq!(matched.reasoning_tokens, Some(516));
+        assert_eq!(matched.matched_rule_value, Some(516));
         assert_eq!(matched.compare_mode, CodexReasoningGuardCompareMode::Equals);
         assert_eq!(
             matched.rule_source,
@@ -517,7 +800,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 300 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -535,7 +818,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 300 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -545,8 +828,8 @@ mod tests {
         )
         .expect("should match");
 
-        assert_eq!(matched.reasoning_tokens, 300);
-        assert_eq!(matched.matched_rule_value, 516);
+        assert_eq!(matched.reasoning_tokens, Some(300));
+        assert_eq!(matched.matched_rule_value, Some(516));
         assert_eq!(
             matched.compare_mode,
             CodexReasoningGuardCompareMode::LessThanOrEqual
@@ -559,7 +842,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 300 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -569,7 +852,7 @@ mod tests {
         )
         .expect("should match");
 
-        assert_eq!(matched.matched_rule_value, 516);
+        assert_eq!(matched.matched_rule_value, Some(516));
     }
 
     #[test]
@@ -578,7 +861,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 800 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -596,7 +879,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 600 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-codex"),
             &value,
@@ -610,7 +893,7 @@ mod tests {
         )
         .expect("should match model rule");
 
-        assert_eq!(matched.matched_rule_value, 700);
+        assert_eq!(matched.matched_rule_value, Some(700));
         assert_eq!(
             matched.rule_source,
             CODEX_REASONING_GUARD_RULE_SOURCE_MODEL_RULE
@@ -624,7 +907,7 @@ mod tests {
             "usage": { "output_tokens_details": { "reasoning_tokens": 516 } }
         });
 
-        let matched = detect_from_json(
+        let matched = detect_token_mode(
             "codex",
             Some("gpt-5-mini-codex"),
             &value,
@@ -638,11 +921,231 @@ mod tests {
         )
         .expect("should fall back to global rule");
 
-        assert_eq!(matched.matched_rule_value, 516);
+        assert_eq!(matched.matched_rule_value, Some(516));
         assert_eq!(
             matched.rule_source,
             CODEX_REASONING_GUARD_RULE_SOURCE_GLOBAL_DEFAULT
         );
         assert!(matched.rule_model.is_none());
+    }
+
+    #[test]
+    fn final_answer_only_mode_matches_high_and_xhigh_without_reasoning_tokens() {
+        let value = serde_json::json!({
+            "id": "resp_1",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        for effort in ["high", "xhigh"] {
+            let matched = detect_from_json(
+                "codex",
+                Some("gpt-5.5"),
+                &value,
+                CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+                CodexRequestKind::Normal,
+                Some(effort),
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            )
+            .expect("final-only high/xhigh should match");
+
+            assert_eq!(
+                matched.rule_mode,
+                CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh
+            );
+            assert_eq!(matched.reasoning_tokens, None);
+            assert_eq!(matched.matched_rule_value, None);
+            assert!(matched.final_answer_only);
+            assert_eq!(matched.reasoning_effort.as_deref(), Some(effort));
+        }
+    }
+
+    #[test]
+    fn final_answer_only_mode_ignores_medium_low_and_missing_effort() {
+        let value = serde_json::json!({
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        for effort in [Some("medium"), Some("low"), None] {
+            let matched = detect_from_json(
+                "codex",
+                Some("gpt-5.5"),
+                &value,
+                CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+                CodexRequestKind::Normal,
+                effort,
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            );
+            assert!(matched.is_none());
+        }
+    }
+
+    #[test]
+    fn final_answer_only_mode_rejects_commentary_tool_call_and_reasoning_item() {
+        let base_message = serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{ "type": "output_text", "text": "final answer" }]
+        });
+        let cases = [
+            serde_json::json!({ "output": [base_message.clone(), { "type": "message", "channel": "commentary", "content": [{ "type": "output_text", "text": "note" }] }] }),
+            serde_json::json!({ "output": [base_message.clone(), { "type": "function_call", "name": "do_work" }] }),
+            serde_json::json!({ "output": [base_message, { "type": "reasoning", "summary": [] }] }),
+        ];
+
+        for value in cases {
+            let matched = detect_from_json(
+                "codex",
+                Some("gpt-5.5"),
+                &value,
+                CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+                CodexRequestKind::Normal,
+                Some("high"),
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            );
+            assert!(matched.is_none());
+        }
+    }
+
+    #[test]
+    fn context_compaction_with_zero_reasoning_is_exempt_in_both_rule_modes() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 0 } },
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        for rule_mode in [
+            CodexReasoningGuardRuleMode::ReasoningTokens,
+            CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+        ] {
+            let matched = detect_from_json(
+                "codex",
+                Some("gpt-5.5"),
+                &value,
+                rule_mode,
+                CodexRequestKind::ContextCompaction,
+                Some("high"),
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            );
+            assert!(matched.is_none());
+        }
+    }
+
+    #[test]
+    fn context_compaction_with_nonzero_reasoning_still_matches_token_mode() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 516 } },
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        let matched = detect_from_json(
+            "codex",
+            Some("gpt-5.5"),
+            &value,
+            CodexReasoningGuardRuleMode::ReasoningTokens,
+            CodexRequestKind::ContextCompaction,
+            Some("high"),
+            CodexReasoningGuardCompareMode::Equals,
+            &[516],
+            &[],
+        )
+        .expect("nonzero compaction reasoning should still match token mode");
+
+        assert_eq!(matched.reasoning_tokens, Some(516));
+        assert_eq!(matched.request_kind, CodexRequestKind::ContextCompaction);
+    }
+
+    #[test]
+    fn final_answer_only_mode_excludes_zero_reasoning_tokens() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 0 } },
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        let matched = detect_from_json(
+            "codex",
+            Some("gpt-5.5"),
+            &value,
+            CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+            CodexRequestKind::Normal,
+            Some("high"),
+            CodexReasoningGuardCompareMode::Equals,
+            &[516],
+            &[],
+        );
+
+        assert!(matched.is_none());
+    }
+
+    #[test]
+    fn final_answer_only_mode_allows_positive_reasoning_tokens() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 18 } },
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        let matched = detect_from_json(
+            "codex",
+            Some("gpt-5.5"),
+            &value,
+            CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
+            CodexRequestKind::Normal,
+            Some("high"),
+            CodexReasoningGuardCompareMode::Equals,
+            &[516],
+            &[],
+        )
+        .expect("positive final-only reasoning should match");
+
+        assert_eq!(matched.reasoning_tokens, Some(18));
+    }
+
+    #[test]
+    fn observe_response_reads_string_reasoning_tokens_and_structure() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": "516" } },
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "final answer" }]
+            }]
+        });
+
+        let observation = observe_response(&value);
+
+        assert_eq!(observation.reasoning_tokens, Some(516));
+        assert!(observation.structure.has_output_text);
+        assert!(observation.structure.final_answer_only());
     }
 }

@@ -4,6 +4,7 @@ use super::attempt_record::{
     record_system_failure_and_decide, record_system_failure_and_decide_no_cooldown,
     RecordSystemFailureArgs,
 };
+use super::codex_reasoning_guard;
 use super::context::{
     AttemptCtx, AttemptOutcome, CommonCtx, CommonCtxOwned, LoopControl, LoopState, ProviderCtx,
     MAX_NON_SSE_BODY_BYTES,
@@ -40,6 +41,9 @@ use crate::gateway::util::{now_unix_seconds, strip_hop_headers};
 use crate::shared::mutex_ext::MutexExt;
 use axum::body::{Body, Bytes};
 use axum::http::{header, HeaderValue};
+
+const UPSTREAM_CAPACITY_ERROR_MESSAGE: &str =
+    "Selected model is at capacity. Please try a different model.";
 
 fn upstream_error_decision(
     is_count_tokens: bool,
@@ -187,6 +191,8 @@ pub(super) struct UpstreamRequestState<'a> {
     pub(super) codex_previous_response_id_rectifier_retried: &'a mut bool,
     pub(super) thinking_signature_rectifier_retried: &'a mut bool,
     pub(super) thinking_budget_rectifier_retried: &'a mut bool,
+    pub(super) allow_next_retry_beyond_max_attempts: &'a mut bool,
+    pub(super) codex_reasoning_guard_hits: &'a mut u32,
 }
 
 fn codex_request_has_previous_response_id(body: &[u8]) -> bool {
@@ -241,6 +247,21 @@ fn matches_codex_previous_response_id_error(status: reqwest::StatusCode, body: &
     mentions_previous_response && says_missing
 }
 
+fn matches_codex_upstream_capacity_error(status: reqwest::StatusCode, body: &[u8]) -> bool {
+    if !status.is_client_error() && !status.is_server_error() {
+        return false;
+    }
+    if body.is_empty() {
+        return false;
+    }
+
+    let haystack = String::from_utf8_lossy(body).to_ascii_lowercase();
+    let exact = UPSTREAM_CAPACITY_ERROR_MESSAGE.to_ascii_lowercase();
+    haystack.contains(&exact)
+        || (haystack.contains("selected model is at capacity")
+            && haystack.contains("try a different model"))
+}
+
 fn remove_codex_previous_response_id(body: &mut Bytes) -> bool {
     let Ok(mut root) = serde_json::from_slice::<serde_json::Value>(body) else {
         return false;
@@ -260,6 +281,41 @@ fn remove_codex_previous_response_id(body: &mut Bytes) -> bool {
         }
         Err(_) => false,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_codex_capacity_special_setting(
+    special_settings: &std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    provider_id: i64,
+    provider_name: &str,
+    status: reqwest::StatusCode,
+    retry_index: u32,
+    budget: codex_reasoning_guard::CodexReasoningGuardBudgetDecision,
+) {
+    response_fixer::push_special_setting(
+        special_settings,
+        serde_json::json!({
+            "type": "codex_upstream_capacity_retry",
+            "scope": "attempt",
+            "hit": true,
+            "providerId": provider_id,
+            "providerName": provider_name,
+            "status": status.as_u16(),
+            "reason": "upstream_capacity",
+            "message": UPSTREAM_CAPACITY_ERROR_MESSAGE,
+            "retryAttemptNumber": retry_index,
+            "retryAttemptNumberNext": retry_index.saturating_add(1),
+            "action": budget.action_taken,
+            "actionTaken": budget.action_taken,
+            "backoffApplied": budget.delay_ms > 0,
+            "backoffMs": budget.delay_ms,
+            "guardHitNumber": budget.hit_number,
+            "guardRetryPhase": budget.phase,
+            "guardBudgetRemaining": budget.remaining_budget,
+            "guardBudgetTotal": budget.total_budget,
+            "guardExhaustedAction": budget.exhausted_action,
+        }),
+    );
 }
 
 pub(super) struct HandleNonSuccessResponseInput<'a, R: tauri::Runtime = tauri::Wry> {
@@ -364,6 +420,7 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
     let mut abort_response_headers: Option<axum::http::HeaderMap> = None;
     let mut matched_rule_id: Option<&'static str> = None;
     let mut matched_429_concurrency_limit = false;
+    let mut matched_codex_upstream_capacity_error = false;
     // Body preview for errors where preserving the upstream diagnostic text matters.
     let mut upstream_body_preview: Option<String> = None;
     let need_client_error_scan = !is_count_tokens
@@ -380,7 +437,14 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
             *upstream.codex_previous_response_id_rectifier_retried,
             upstream.upstream_body_bytes,
         );
-    if need_client_error_scan || need_5xx_body_preview || need_codex_previous_response_id_scan {
+    let need_codex_capacity_error_scan = !is_count_tokens
+        && ctx.cli_key == "codex"
+        && (status.is_client_error() || status.is_server_error());
+    if need_client_error_scan
+        || need_5xx_body_preview
+        || need_codex_previous_response_id_scan
+        || need_codex_capacity_error_scan
+    {
         if let Some(r) = resp.take() {
             let read_result = read_response_body_for_error_scan(r).await;
             if let Ok(bytes) = read_result {
@@ -445,6 +509,10 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
                         decision = FailoverDecision::Abort;
                     }
                 }
+                if need_codex_capacity_error_scan {
+                    matched_codex_upstream_capacity_error =
+                        matches_codex_upstream_capacity_error(status, body_for_scan.as_ref());
+                }
                 // Preserve consumed body/headers so downstream (e.g. Abort
                 // pass-through) can still use them after resp.take().
                 if abort_body_bytes.is_none() {
@@ -452,6 +520,81 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
                     abort_response_headers = Some(headers_for_scan);
                 }
             }
+        }
+    }
+
+    if matched_codex_upstream_capacity_error {
+        let budget_decision = codex_reasoning_guard::budget_decision(
+            *upstream.codex_reasoning_guard_hits,
+            ctx.codex_reasoning_guard_immediate_retry_budget,
+            ctx.codex_reasoning_guard_delayed_retry_budget,
+            ctx.codex_reasoning_guard_delayed_retry_ms,
+            ctx.codex_reasoning_guard_exhausted_action,
+        );
+
+        if matches!(
+            budget_decision.action,
+            codex_reasoning_guard::CodexReasoningGuardBudgetAction::RetrySameProvider
+        ) {
+            push_codex_capacity_special_setting(
+                ctx.special_settings,
+                provider_id,
+                provider_name_base.as_str(),
+                status,
+                retry_index,
+                budget_decision,
+            );
+
+            let outcome = "codex_upstream_capacity_retry".to_string();
+            attempts.push(FailoverAttempt {
+                provider_id,
+                provider_name: provider_name_base.clone(),
+                base_url: provider_base_url_base.clone(),
+                outcome: outcome.clone(),
+                status: Some(status.as_u16()),
+                provider_index: Some(provider_index),
+                retry_index: Some(retry_index),
+                session_reuse,
+                error_category: Some(ErrorCategory::ProviderError.as_str()),
+                error_code: Some(error_code),
+                decision: Some("retry_same_provider"),
+                reason: Some(format!(
+                    "upstream_capacity status={} hit={} phase={} action={}",
+                    status.as_u16(),
+                    budget_decision.hit_number,
+                    budget_decision.phase,
+                    budget_decision.action_taken
+                )),
+                selection_method: dc::selection_method(provider_index, retry_index, session_reuse),
+                reason_code: Some(codex_reasoning_guard::CODEX_REASONING_GUARD_REASON_CODE),
+                attempt_started_ms: Some(attempt_started_ms),
+                attempt_duration_ms: Some(attempt_started.elapsed().as_millis()),
+                circuit_state_before: Some(circuit_before.state.as_str()),
+                circuit_state_after: Some(circuit_before.state.as_str()),
+                circuit_failure_count: Some(circuit_before.failure_count),
+                circuit_failure_threshold: Some(circuit_before.failure_threshold),
+            });
+
+            emit_attempt_event_and_log(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                outcome,
+                Some(status.as_u16()),
+                AttemptCircuitFields {
+                    state_before: Some(circuit_before.state.as_str()),
+                    state_after: Some(circuit_before.state.as_str()),
+                    failure_count: Some(circuit_before.failure_count),
+                    failure_threshold: Some(circuit_before.failure_threshold),
+                },
+            )
+            .await;
+
+            *upstream.codex_reasoning_guard_hits =
+                (*upstream.codex_reasoning_guard_hits).saturating_add(1);
+            *upstream.allow_next_retry_beyond_max_attempts = true;
+            codex_reasoning_guard::apply_delay_if_needed(budget_decision).await;
+            return LoopControl::ContinueRetry;
         }
     }
 
@@ -870,9 +1013,9 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
 mod tests {
     use super::{
         error_body_scan_limit_usize, matches_codex_previous_response_id_error,
-        read_response_body_for_error_scan, remove_codex_previous_response_id,
-        reqwest_error_decision, retry_after_reset_at, should_scan_codex_previous_response_id_error,
-        upstream_error_decision, FailoverDecision,
+        matches_codex_upstream_capacity_error, read_response_body_for_error_scan,
+        remove_codex_previous_response_id, reqwest_error_decision, retry_after_reset_at,
+        should_scan_codex_previous_response_id_error, upstream_error_decision, FailoverDecision,
     };
     use crate::settings::{UpstreamRetryPolicy, UpstreamTransportRetryKind};
     use axum::body::Bytes;
@@ -1103,6 +1246,26 @@ mod tests {
         assert!(!matches_codex_previous_response_id_error(
             reqwest::StatusCode::BAD_REQUEST,
             br#"{"error":{"message":"model is required"}}"#,
+        ));
+    }
+
+    #[test]
+    fn codex_upstream_capacity_error_match_is_specific() {
+        assert!(matches_codex_upstream_capacity_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            br#"{"error":{"message":"Selected model is at capacity. Please try a different model."}}"#,
+        ));
+        assert!(matches_codex_upstream_capacity_error(
+            reqwest::StatusCode::BAD_GATEWAY,
+            br#"selected model is at capacity; try a different model"#,
+        ));
+        assert!(!matches_codex_upstream_capacity_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            br#"rate limit exceeded"#,
+        ));
+        assert!(!matches_codex_upstream_capacity_error(
+            reqwest::StatusCode::OK,
+            br#"Selected model is at capacity. Please try a different model."#,
         ));
     }
 
