@@ -115,6 +115,20 @@
 
 ## 安装
 
+### 使用 Homebrew Cask（macOS）
+
+```bash
+brew tap dyndynjyxa/aio-coding-hub
+brew install --cask aio-coding-hub
+```
+
+后续升级：
+
+```bash
+brew update
+brew upgrade --cask aio-coding-hub
+```
+
 ### 从 Release 下载（推荐）
 
 前往 [Releases](https://github.com/dyndynjyxa/aio-coding-hub/releases) 下载对应平台安装包：
