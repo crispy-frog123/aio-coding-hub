@@ -453,11 +453,26 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Fail fast with an actionable message when the token cannot access
+          # the tap repo — git's own failure mode is a cryptic
+          # "could not read Username" prompt.
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${HOMEBREW_TAP_TOKEN}" \
+            "https://api.github.com/repos/${HOMEBREW_TAP_REPOSITORY}")
+          if [[ "$status" != "200" ]]; then
+            echo "::error::HOMEBREW_TAP_TOKEN cannot access ${HOMEBREW_TAP_REPOSITORY} (HTTP ${status}). The PAT must be valid and have contents read/write on the tap repository."
+            exit 1
+          fi
+
           git check-ref-format --normalize "refs/heads/main" >/dev/null
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git -c http.extraheader="AUTHORIZATION: bearer ${HOMEBREW_TAP_TOKEN}" \
+          # git-over-HTTPS expects Basic auth (this is what actions/checkout
+          # sends); a raw "bearer" header is rejected for some token types.
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${HOMEBREW_TAP_TOKEN}" | base64 -w0)"
+
+          git -c http.extraheader="$auth_header" \
             clone "https://github.com/${HOMEBREW_TAP_REPOSITORY}.git" homebrew-tap
 
           mkdir -p homebrew-tap/Casks
@@ -471,4 +486,4 @@ jobs:
 
           git add Casks/aio-coding-hub.rb
           git commit -m "chore: update aio-coding-hub ${{ needs.release-please.outputs.tag_name }}"
-          git -c http.extraheader="AUTHORIZATION: bearer ${HOMEBREW_TAP_TOKEN}" push origin HEAD
+          git -c http.extraheader="$auth_header" push origin HEAD
