@@ -45,6 +45,8 @@ pub(super) fn gate_provider<R: tauri::Runtime>(
             provider_base_url_display,
             t,
             now_unix,
+            None,
+            None,
         );
     }
 
@@ -107,6 +109,12 @@ pub(in crate::gateway) struct RecordCircuitArgs<'a, R: tauri::Runtime = tauri::W
     pub(in crate::gateway) provider_name: &'a str,
     pub(in crate::gateway) provider_base_url: &'a str,
     pub(in crate::gateway) now_unix: i64,
+    /// Error code of the failure being recorded; feeds the "触发失败" line of
+    /// the circuit-open notice. `None` for call sites without attribution.
+    pub(in crate::gateway) trigger_error_code: Option<&'static str>,
+    /// Effective first-byte timeout (seconds); the notice builder only uses it
+    /// when `trigger_error_code` is `GW_UPSTREAM_TIMEOUT`.
+    pub(in crate::gateway) first_byte_timeout_secs: Option<u32>,
 }
 
 impl<'a, R: tauri::Runtime> RecordCircuitArgs<'a, R> {
@@ -130,7 +138,19 @@ impl<'a, R: tauri::Runtime> RecordCircuitArgs<'a, R> {
             provider_name,
             provider_base_url,
             now_unix,
+            trigger_error_code: None,
+            first_byte_timeout_secs: None,
         }
+    }
+
+    pub(in crate::gateway) fn with_trigger(
+        mut self,
+        trigger_error_code: Option<&'static str>,
+        first_byte_timeout_secs: Option<u32>,
+    ) -> Self {
+        self.trigger_error_code = trigger_error_code;
+        self.first_byte_timeout_secs = first_byte_timeout_secs;
+        self
     }
 }
 
@@ -185,6 +205,7 @@ pub(in crate::gateway) fn record_success_and_emit_transition(
         provider_name,
         provider_base_url,
         now_unix,
+        ..
     } = args;
 
     let change = circuit.record_success(provider_id, now_unix);
@@ -198,6 +219,8 @@ pub(in crate::gateway) fn record_success_and_emit_transition(
             provider_base_url,
             t,
             now_unix,
+            None,
+            None,
         );
     }
     change
@@ -215,6 +238,8 @@ pub(in crate::gateway) fn record_failure_and_emit_transition(
         provider_name,
         provider_base_url,
         now_unix,
+        trigger_error_code,
+        first_byte_timeout_secs,
     } = args;
 
     let change = circuit.record_failure(provider_id, now_unix);
@@ -228,6 +253,8 @@ pub(in crate::gateway) fn record_failure_and_emit_transition(
             provider_base_url,
             t,
             now_unix,
+            trigger_error_code,
+            first_byte_timeout_secs,
         );
     }
     change
@@ -422,6 +449,31 @@ mod tests {
 
         assert_eq!(change.after.state, circuit_breaker::CircuitState::Open);
         assert!(change.transition.is_some());
+    }
+
+    #[test]
+    fn record_circuit_args_default_to_no_trigger_and_with_trigger_sets_fields() {
+        let cb = breaker(circuit_breaker::CircuitBreakerConfig {
+            failure_threshold: 5,
+            open_duration_secs: 60,
+        });
+
+        let args = TestRecordCircuitArgs::new(
+            None,
+            &cb,
+            "t",
+            "claude",
+            1,
+            "p1",
+            "https://example.invalid",
+            1_000,
+        );
+        assert_eq!(args.trigger_error_code, None);
+        assert_eq!(args.first_byte_timeout_secs, None);
+
+        let args = args.with_trigger(Some("GW_UPSTREAM_TIMEOUT"), Some(300));
+        assert_eq!(args.trigger_error_code, Some("GW_UPSTREAM_TIMEOUT"));
+        assert_eq!(args.first_byte_timeout_secs, Some(300));
     }
 
     #[test]

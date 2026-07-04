@@ -548,6 +548,8 @@ pub(super) fn emit_circuit_transition<R: tauri::Runtime>(
     base_url: &str,
     transition: &circuit_breaker::CircuitTransition,
     now_unix: i64,
+    trigger_error_code: Option<&'static str>,
+    first_byte_timeout_secs: Option<u32>,
 ) {
     let payload = GatewayCircuitEvent {
         trace_id: trace_id.to_string(),
@@ -578,6 +580,39 @@ pub(super) fn emit_circuit_transition<R: tauri::Runtime>(
         return;
     }
 
+    let (level, title, lines) = build_circuit_notice(
+        trace_id,
+        cli_key,
+        provider_id,
+        provider_name,
+        base_url,
+        transition,
+        now_unix,
+        trigger_error_code,
+        first_byte_timeout_secs,
+    );
+
+    if let Err(err) = notice::build(level, Some(title), lines.join("\n"))
+        .and_then(|payload| notice::emit(app, payload))
+    {
+        tracing::warn!("failed to emit circuit breaker notice: {}", err);
+    }
+}
+
+/// Pure builder for the circuit-breaker notice content (level, title, body
+/// lines) so unit tests can assert the body without a Tauri runtime.
+#[allow(clippy::too_many_arguments)]
+fn build_circuit_notice(
+    trace_id: &str,
+    cli_key: &str,
+    provider_id: i64,
+    provider_name: &str,
+    base_url: &str,
+    transition: &circuit_breaker::CircuitTransition,
+    now_unix: i64,
+    trigger_error_code: Option<&'static str>,
+    first_byte_timeout_secs: Option<u32>,
+) -> (notice::NoticeLevel, String, Vec<String>) {
     let prev_state_text = match transition.prev_state {
         circuit_breaker::CircuitState::Closed => "正常",
         circuit_breaker::CircuitState::Open => "熔断",
@@ -623,6 +658,24 @@ pub(super) fn emit_circuit_transition<R: tauri::Runtime>(
     ));
     lines.push(format!("原因：{reason_text}（{}）", transition.reason));
 
+    // Trigger-failure attribution only on →Open transitions (the failure that
+    // tripped the breaker shares this call stack); other bodies stay unchanged.
+    if let (circuit_breaker::CircuitState::Open, Some(code)) =
+        (transition.next_state, trigger_error_code)
+    {
+        lines.push(format!(
+            "触发失败：{}（{code}）",
+            super::proxy::short_label_zh(code)
+        ));
+        if code == super::proxy::GatewayErrorCode::UpstreamTimeout.as_str() {
+            if let Some(secs) = first_byte_timeout_secs {
+                lines.push(format!(
+                    "首字节超时配置：{secs} 秒；若上游响应慢属预期，可调大：设置 → 通用 → 首字节超时（0=禁用）"
+                ));
+            }
+        }
+    }
+
     match transition.snapshot.open_until {
         Some(open_until) => {
             let remaining_secs = open_until.saturating_sub(now_unix);
@@ -640,11 +693,7 @@ pub(super) fn emit_circuit_transition<R: tauri::Runtime>(
 
     lines.push(format!("Trace：{trace_id}"));
 
-    if let Err(err) = notice::build(level, Some(title), lines.join("\n"))
-        .and_then(|payload| notice::emit(app, payload))
-    {
-        tracing::warn!("failed to emit circuit breaker notice: {}", err);
-    }
+    (level, title, lines)
 }
 
 #[cfg(test)]
@@ -1097,5 +1146,159 @@ mod tests {
 
         let value = serde_json::to_value(payload).expect("serializable request event");
         assert_eq!(value.get("claude_model_mapping"), Some(&json!(null)));
+    }
+
+    // --- Circuit breaker notice body (build_circuit_notice) ---
+
+    fn circuit_transition(
+        prev_state: circuit_breaker::CircuitState,
+        next_state: circuit_breaker::CircuitState,
+        reason: &'static str,
+    ) -> circuit_breaker::CircuitTransition {
+        circuit_breaker::CircuitTransition {
+            prev_state,
+            next_state,
+            reason,
+            snapshot: circuit_breaker::CircuitSnapshot {
+                state: next_state,
+                failure_count: 5,
+                failure_threshold: 5,
+                open_until: Some(1_750_001_800),
+                cooldown_until: None,
+            },
+        }
+    }
+
+    fn build_notice_for(
+        transition: &circuit_breaker::CircuitTransition,
+        trigger_error_code: Option<&'static str>,
+        first_byte_timeout_secs: Option<u32>,
+    ) -> (notice::NoticeLevel, String, Vec<String>) {
+        build_circuit_notice(
+            "trace-1",
+            "claude",
+            7,
+            "Provider A",
+            "https://provider-a.example",
+            transition,
+            1_750_000_000,
+            trigger_error_code,
+            first_byte_timeout_secs,
+        )
+    }
+
+    fn open_transition() -> circuit_breaker::CircuitTransition {
+        circuit_transition(
+            circuit_breaker::CircuitState::Closed,
+            circuit_breaker::CircuitState::Open,
+            "FAILURE_THRESHOLD_REACHED",
+        )
+    }
+
+    #[test]
+    fn open_circuit_notice_with_timeout_trigger_appends_trigger_and_hint_lines() {
+        let transition = open_transition();
+
+        let (level, title, lines) =
+            build_notice_for(&transition, Some("GW_UPSTREAM_TIMEOUT"), Some(300));
+
+        assert!(matches!(level, notice::NoticeLevel::Warning));
+        assert_eq!(title, "熔断触发：Provider A");
+        let reason_index = lines
+            .iter()
+            .position(|line| line.starts_with("原因："))
+            .expect("reason line present");
+        assert_eq!(
+            lines[reason_index + 1],
+            "触发失败：上游超时（GW_UPSTREAM_TIMEOUT）"
+        );
+        assert_eq!(
+            lines[reason_index + 2],
+            "首字节超时配置：300 秒；若上游响应慢属预期，可调大：设置 → 通用 → 首字节超时（0=禁用）"
+        );
+    }
+
+    #[test]
+    fn open_circuit_notice_with_5xx_trigger_omits_timeout_hint() {
+        let transition = open_transition();
+
+        let (_, _, lines) = build_notice_for(&transition, Some("GW_UPSTREAM_5XX"), Some(300));
+
+        assert!(lines
+            .iter()
+            .any(|line| line == "触发失败：上游5XX（GW_UPSTREAM_5XX）"));
+        assert!(!lines.iter().any(|line| line.contains("首字节超时配置")));
+    }
+
+    #[test]
+    fn open_circuit_notice_with_unmapped_trigger_falls_back_to_raw_code() {
+        let transition = open_transition();
+
+        let (_, _, lines) = build_notice_for(&transition, Some("GW_SOMETHING_NEW"), None);
+
+        assert!(lines
+            .iter()
+            .any(|line| line == "触发失败：GW_SOMETHING_NEW（GW_SOMETHING_NEW）"));
+    }
+
+    #[test]
+    fn open_circuit_notice_with_timeout_trigger_without_secs_omits_hint_line() {
+        let transition = open_transition();
+
+        let (_, _, lines) = build_notice_for(&transition, Some("GW_UPSTREAM_TIMEOUT"), None);
+
+        assert!(lines
+            .iter()
+            .any(|line| line == "触发失败：上游超时（GW_UPSTREAM_TIMEOUT）"));
+        assert!(!lines.iter().any(|line| line.contains("首字节超时配置")));
+    }
+
+    #[test]
+    fn open_circuit_notice_without_trigger_matches_legacy_body() {
+        let transition = open_transition();
+
+        let (level, title, lines) = build_notice_for(&transition, None, Some(300));
+
+        assert!(matches!(level, notice::NoticeLevel::Warning));
+        assert_eq!(title, "熔断触发：Provider A");
+        assert_eq!(
+            lines,
+            vec![
+                "CLI：claude".to_string(),
+                "Provider：Provider A (id=7)".to_string(),
+                "Base URL：https://provider-a.example".to_string(),
+                "状态：正常 → 熔断".to_string(),
+                "失败：5 / 5".to_string(),
+                "原因：失败次数达到阈值（FAILURE_THRESHOLD_REACHED）".to_string(),
+                "熔断至：1750001800（约 30 分钟后）".to_string(),
+                "Trace：trace-1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn non_open_circuit_notices_ignore_trigger() {
+        let cases = [
+            (
+                circuit_breaker::CircuitState::Open,
+                circuit_breaker::CircuitState::HalfOpen,
+                "OPEN_EXPIRED",
+            ),
+            (
+                circuit_breaker::CircuitState::HalfOpen,
+                circuit_breaker::CircuitState::Closed,
+                "HALF_OPEN_SUCCESS",
+            ),
+        ];
+
+        for (prev, next, reason) in cases {
+            let transition = circuit_transition(prev, next, reason);
+            let (_, _, with_trigger) =
+                build_notice_for(&transition, Some("GW_UPSTREAM_TIMEOUT"), Some(300));
+            let (_, _, without_trigger) = build_notice_for(&transition, None, None);
+
+            assert_eq!(with_trigger, without_trigger);
+            assert!(!with_trigger.iter().any(|line| line.starts_with("触发失败")));
+        }
     }
 }

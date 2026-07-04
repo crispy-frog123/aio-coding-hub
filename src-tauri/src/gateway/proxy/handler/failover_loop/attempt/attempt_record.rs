@@ -102,7 +102,11 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
                 provider_name_base.as_str(),
                 provider_base_url_base.as_str(),
                 now_unix,
-            ),
+            )
+            // Attribute the circuit-open notice to this failure (D3): always
+            // pass the effective first-byte timeout; the notice builder only
+            // uses it when the trigger code is GW_UPSTREAM_TIMEOUT.
+            .with_trigger(Some(error_code), Some(ctx.upstream_first_byte_timeout_secs)),
         );
         *circuit_snapshot = change.after.clone();
         circuit_state_before = Some(change.before.state.as_str());
