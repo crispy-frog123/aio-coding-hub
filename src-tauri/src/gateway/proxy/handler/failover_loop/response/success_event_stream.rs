@@ -155,6 +155,7 @@ where
                     decision,
                     outcome,
                     reason: format!("first chunk read error (event-stream): {err}"),
+                    timeout_secs: Some(upstream_first_byte_timeout_secs),
                 })
                 .await;
             }
@@ -186,6 +187,7 @@ where
                     decision,
                     outcome,
                     reason: "first byte timeout (event-stream)".to_string(),
+                    timeout_secs: Some(upstream_first_byte_timeout_secs),
                 })
                 .await;
             }
@@ -228,6 +230,7 @@ where
                 decision,
                 outcome,
                 reason: "upstream returned empty event-stream".to_string(),
+                timeout_secs: Some(upstream_first_byte_timeout_secs),
             })
             .await;
         }
@@ -256,6 +259,7 @@ where
             circuit_failure_count: Some(circuit_before.failure_count),
             circuit_failure_threshold: Some(circuit_before.failure_threshold),
             provider_bridged: Some(provider_ctx_owned.provider_bridged),
+            timeout_secs: None,
         });
 
         emit_attempt_event_and_log_with_circuit_before(

@@ -16,6 +16,8 @@ pub(super) struct RecordSystemFailureArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) decision: FailoverDecision,
     pub(super) outcome: String,
     pub(super) reason: String,
+    /// First-byte timeout seconds in effect; `Some` only for timeout-class failures.
+    pub(super) timeout_secs: Option<u32>,
 }
 
 pub(super) async fn record_system_failure_and_decide<R: tauri::Runtime>(
@@ -50,6 +52,7 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
         mut decision,
         mut outcome,
         reason,
+        timeout_secs,
     } = args;
     let ProviderCtx {
         provider_id,
@@ -135,6 +138,7 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
         circuit_failure_count,
         circuit_failure_threshold,
         provider_bridged: Some(provider_ctx.provider_bridged),
+        timeout_secs,
     });
 
     emit_attempt_event_and_log_with_circuit_before(

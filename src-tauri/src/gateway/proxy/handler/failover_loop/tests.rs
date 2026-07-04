@@ -26,6 +26,7 @@ fn skipped_attempt(reason_code: Option<&'static str>) -> FailoverAttempt {
         circuit_failure_count: None,
         circuit_failure_threshold: None,
         provider_bridged: None,
+        timeout_secs: None,
     }
 }
 
@@ -52,6 +53,7 @@ fn real_attempt() -> FailoverAttempt {
         circuit_failure_count: Some(0),
         circuit_failure_threshold: Some(5),
         provider_bridged: Some(false),
+        timeout_secs: None,
     }
 }
 
@@ -82,6 +84,7 @@ fn timeout_attempt(
         circuit_failure_count: Some(5),
         circuit_failure_threshold: Some(5),
         provider_bridged: Some(false),
+        timeout_secs: None,
     }
 }
 

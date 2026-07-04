@@ -564,6 +564,7 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
         circuit_failure_count,
         circuit_failure_threshold,
         provider_bridged: Some(provider_ctx.provider_bridged),
+        timeout_secs: None,
     });
 
     emit_attempt_event_and_log(
@@ -811,6 +812,7 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
             decision,
             outcome,
             reason: reason.to_string(),
+            timeout_secs: None,
         })
         .await;
     }
@@ -825,6 +827,7 @@ pub(super) async fn handle_reqwest_error<R: tauri::Runtime>(
         decision,
         outcome,
         reason: reason.to_string(),
+        timeout_secs: None,
     })
     .await
 }

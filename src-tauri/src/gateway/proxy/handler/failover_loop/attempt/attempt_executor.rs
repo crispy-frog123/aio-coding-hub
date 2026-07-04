@@ -344,6 +344,7 @@ async fn handle_url_build_failure<R: tauri::Runtime>(
         decision,
         outcome,
         reason: format!("invalid base_url: {err}"),
+        timeout_secs: None,
     })
     .await
 }
@@ -417,6 +418,7 @@ fn emit_started_event<R: tauri::Runtime>(
         circuit_failure_count: Some(circuit_before.failure_count),
         circuit_failure_threshold: Some(circuit_before.failure_threshold),
         provider_bridged: Some(prepared.provider_bridged),
+        timeout_secs: None,
     };
     abort_guard.capture_in_flight_attempt(&started_attempt);
     if input.observe_request {

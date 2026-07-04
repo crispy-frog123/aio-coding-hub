@@ -95,6 +95,12 @@ pub(super) struct FailoverAttempt {
     // for synthetic attempts without a concrete provider. Feeds the request
     // event's effective_input_tokens.
     pub(super) provider_bridged: Option<bool>,
+    // Effective first-byte timeout (seconds); Some only for failures recorded
+    // under an active first-byte timeout window (GW_UPSTREAM_TIMEOUT plus the
+    // first-chunk stream-error branches). Structured contract for the frontend
+    // (never parsed out of `outcome`); serializes as explicit null per the
+    // gateway event contract.
+    pub(super) timeout_secs: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -680,6 +686,7 @@ mod tests {
             circuit_failure_count: None,
             circuit_failure_threshold: None,
             provider_bridged: Some(false),
+            timeout_secs: None,
         }
     }
 
@@ -752,6 +759,7 @@ mod tests {
                 circuit_failure_count: Some(0),
                 circuit_failure_threshold: Some(5),
                 provider_bridged: Some(false),
+                timeout_secs: None,
             }],
             input_tokens: Some(1200),
             output_tokens: Some(350),

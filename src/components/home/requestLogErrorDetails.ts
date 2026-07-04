@@ -1,7 +1,9 @@
 import {
+  GatewayErrorCodes,
   GatewayErrorDescriptions,
   type GatewayErrorDescription,
 } from "../../constants/gatewayErrorCodes";
+import { parseAttemptsJson, type AttemptJsonEntry } from "../../services/gateway/attemptsJson";
 import type { RequestLogDetail } from "../../services/gateway/requestLogs";
 
 type ParsedReasonFields = {
@@ -34,8 +36,18 @@ type ParsedErrorDetailsJson = {
   upstreamStatus: number | null;
 };
 
+export type AttemptFailureGroup = {
+  errorCode: string;
+  count: number;
+  providerNames: string[];
+  // Max structured timeout_secs within the group; non-null only for the
+  // GW_UPSTREAM_TIMEOUT group (never derived from outcome strings).
+  timeoutSecs: number | null;
+};
+
 export type RequestLogErrorObservation = {
   attemptDurationMs: number | null;
+  attemptFailureSummary: AttemptFailureGroup[] | null;
   circuitFailureCount: number | null;
   circuitFailureThreshold: number | null;
   circuitStateAfter: string | null;
@@ -102,6 +114,42 @@ function parseReasonFields(reason: string | null | undefined): ParsedReasonField
     reason: asOptionalString(baseReason),
     upstreamBodyPreview,
   };
+}
+
+export function buildAttemptFailureSummary(
+  attempts: AttemptJsonEntry[] | null
+): AttemptFailureGroup[] | null {
+  if (!attempts || attempts.length === 0) return null;
+
+  const groups = new Map<string, AttemptFailureGroup>();
+  for (const attempt of attempts) {
+    const errorCode = asOptionalString(attempt.error_code);
+    if (!errorCode) continue;
+
+    const group = groups.get(errorCode) ?? {
+      errorCode,
+      count: 0,
+      providerNames: [],
+      timeoutSecs: null,
+    };
+    group.count += 1;
+
+    const providerName = asOptionalString(attempt.provider_name);
+    if (providerName && !group.providerNames.includes(providerName)) {
+      group.providerNames.push(providerName);
+    }
+
+    const timeoutSecs = asFiniteNumber(attempt.timeout_secs);
+    if (errorCode === GatewayErrorCodes.UPSTREAM_TIMEOUT && timeoutSecs != null) {
+      group.timeoutSecs =
+        group.timeoutSecs == null ? timeoutSecs : Math.max(group.timeoutSecs, timeoutSecs);
+    }
+
+    groups.set(errorCode, group);
+  }
+
+  if (groups.size === 0) return null;
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count);
 }
 
 function parseErrorDetailsJson(
@@ -249,6 +297,7 @@ export function resolveRequestLogErrorObservation(
   const displayErrorCode = parsedJson.errorCode ?? gatewayErrorCode;
   const observation: RequestLogErrorObservation = {
     attemptDurationMs: parsedJson.attemptDurationMs,
+    attemptFailureSummary: buildAttemptFailureSummary(parseAttemptsJson(selectedLog.attempts_json)),
     circuitFailureCount: parsedJson.circuitFailureCount,
     circuitFailureThreshold: parsedJson.circuitFailureThreshold,
     circuitStateAfter: parsedJson.circuitStateAfter,

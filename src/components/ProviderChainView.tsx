@@ -4,6 +4,7 @@ import { cn } from "../utils/cn";
 import { Globe, AlertTriangle, Zap, ChevronDown, ArrowRight } from "lucide-react";
 import { getGatewayErrorShortLabel } from "../constants/gatewayErrorCodes";
 import { DisclosureSection } from "./home/DisclosureSection";
+import { parseAttemptsJson, type AttemptJsonEntry } from "../services/gateway/attemptsJson";
 
 export type ProviderChainAttemptLog = {
   attempt_index: number;
@@ -14,29 +15,6 @@ export type ProviderChainAttemptLog = {
   status: number | null;
   attempt_started_ms?: number | null;
   attempt_duration_ms?: number | null;
-};
-
-type ProviderChainAttemptJson = {
-  provider_id: number;
-  provider_name: string;
-  base_url: string;
-  outcome: string;
-  status: number | null;
-  provider_index?: number | null;
-  retry_index?: number | null;
-  session_reuse?: boolean | null;
-  error_category?: string | null;
-  error_code?: string | null;
-  decision?: string | null;
-  reason?: string | null;
-  selection_method?: string | null;
-  reason_code?: string | null;
-  attempt_started_ms?: number | null;
-  attempt_duration_ms?: number | null;
-  circuit_state_before?: string | null;
-  circuit_state_after?: string | null;
-  circuit_failure_count?: number | null;
-  circuit_failure_threshold?: number | null;
 };
 
 type ProviderChainAttempt = {
@@ -73,17 +51,10 @@ export function ProviderChainView({
   attemptsJson: string | null | undefined;
 }) {
   const parsedAttemptsJson = useMemo(() => {
-    if (!attemptsJson)
-      return { ok: false as const, attempts: null as ProviderChainAttemptJson[] | null };
-    try {
-      const parsed = JSON.parse(attemptsJson);
-      if (!Array.isArray(parsed)) {
-        return { ok: false as const, attempts: null };
-      }
-      return { ok: true as const, attempts: parsed as ProviderChainAttemptJson[] };
-    } catch {
-      return { ok: false as const, attempts: null };
-    }
+    const attempts = parseAttemptsJson(attemptsJson);
+    return attempts
+      ? { ok: true as const, attempts }
+      : { ok: false as const, attempts: null as AttemptJsonEntry[] | null };
   }, [attemptsJson]);
 
   const attempts = useMemo((): ProviderChainAttempt[] | null => {
@@ -118,7 +89,7 @@ export function ProviderChainView({
       }));
     }
 
-    const byAttemptIndex: Record<number, ProviderChainAttemptJson | undefined> = {};
+    const byAttemptIndex: Record<number, AttemptJsonEntry | undefined> = {};
     if (jsonAttempts) {
       for (let i = 0; i < jsonAttempts.length; i += 1) {
         byAttemptIndex[i + 1] = jsonAttempts[i];

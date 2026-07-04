@@ -435,6 +435,7 @@ where
                     circuit_failure_count: Some(circuit_before.failure_count),
                     circuit_failure_threshold: Some(circuit_before.failure_threshold),
                     provider_bridged: Some(provider_ctx_owned.provider_bridged),
+                    timeout_secs: None,
                 });
 
                 emit_attempt_event_and_log_with_circuit_before(
@@ -524,6 +525,7 @@ where
                     circuit_failure_count: Some(circuit_before.failure_count),
                     circuit_failure_threshold: Some(circuit_before.failure_threshold),
                     provider_bridged: Some(provider_ctx_owned.provider_bridged),
+                    timeout_secs: None,
                 });
 
                 emit_attempt_event_and_log_with_circuit_before(
@@ -652,6 +654,7 @@ where
                 decision,
                 outcome,
                 reason: kind.reason(MAX_NON_SSE_BODY_BYTES),
+                timeout_secs: None,
             })
             .await;
         }
@@ -681,6 +684,7 @@ where
         circuit_failure_count: Some(circuit_before.failure_count),
         circuit_failure_threshold: Some(circuit_before.failure_threshold),
         provider_bridged: Some(provider_ctx_owned.provider_bridged),
+        timeout_secs: None,
     });
 
     emit_attempt_event_and_log_with_circuit_before(
@@ -735,6 +739,7 @@ where
                     decision,
                     outcome,
                     reason: format!("cx2cc event-stream aggregation failed: {err}"),
+                    timeout_secs: None,
                 })
                 .await;
             }
@@ -890,6 +895,7 @@ where
                 decision,
                 outcome,
                 reason: format!("cx2cc response translation failed: {err}"),
+                timeout_secs: None,
             })
             .await;
         }
