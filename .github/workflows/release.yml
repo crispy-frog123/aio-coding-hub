@@ -506,17 +506,67 @@ jobs:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const releaseId = Number('${{ needs.prepare-release.outputs.release_id }}');
+            const tagName = '${{ needs.prepare-release.outputs.tag_name }}';
             if (!Number.isFinite(releaseId) || releaseId <= 0) {
               core.setFailed(`Invalid release_id: ${releaseId}`);
               return;
             }
 
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId,
-              draft: false,
-            });
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            try {
+              const { data: release } = await github.rest.repos.getRelease({
+                owner,
+                repo,
+                release_id: releaseId,
+              });
+
+              if (!release.draft) {
+                core.info(`Release ${tagName} is already published (id=${release.id}); skipping.`);
+                return;
+              }
+            } catch (error) {
+              core.info(`Failed to inspect release ${releaseId} before publish: ${error.message}`);
+            }
+
+            try {
+              await github.rest.repos.updateRelease({
+                owner,
+                repo,
+                release_id: releaseId,
+                draft: false,
+              });
+            } catch (error) {
+              const hasDuplicateTagError =
+                error?.status === 422 &&
+                error?.response?.data?.errors?.some(
+                  (item) => item?.resource === "Release" && item?.code === "already_exists" && item?.field === "tag_name"
+                );
+
+              if (!hasDuplicateTagError) {
+                throw error;
+              }
+
+              core.warning(
+                `Release ${releaseId} could not be published because tag ${tagName} is already attached to another release. Checking tag owner...`
+              );
+
+              const { data: existingRelease } = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: tagName,
+              });
+
+              if (existingRelease?.draft === false) {
+                core.info(
+                  `Tag ${tagName} is already published by release id=${existingRelease.id}; treating publish step as successful.`
+                );
+                return;
+              }
+
+              throw error;
+            }
 
   publish-homebrew-cask:
     needs: [prepare-release, publish]
