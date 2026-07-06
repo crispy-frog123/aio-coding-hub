@@ -7,19 +7,18 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release-please:
+  prepare-release:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      release_id: ${{ steps.release.outputs.id }}
+      release_id: ${{ steps.release.outputs.release_id }}
       build_matrix: ${{ steps.support_matrix.outputs.build_matrix }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -42,28 +41,154 @@ jobs:
           echo "build_matrix=$(node scripts/support-matrix.mjs build-matrix)" >> "$GITHUB_OUTPUT"
 
       - id: release
-        uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
+        name: Resolve version-based release
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          target-branch: main
-          skip-github-pull-request: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release aio-coding-hub ') }}"
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          script: |
+            const fs = require("fs");
+            const cp = require("child_process");
 
-      - name: Check release PR changelog range
-        if: steps.release.outputs.prs_created == 'true'
-        env:
-          RELEASE_PLEASE_PRS: ${{ steps.release.outputs.prs }}
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        run: node scripts/check-release-pr-changelog.mjs
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const tauriConf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+            const cargoToml = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+            const cargoPackageSection = cargoToml.match(/\[package\]([\s\S]*?)(?:\n\[|$)/);
+            const cargoVersion = cargoPackageSection?.[1]?.match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1];
+
+            const packageVersion = pkg.version;
+            const tauriVersion = tauriConf.version;
+
+            if (!packageVersion || !tauriVersion || !cargoVersion) {
+              core.setFailed("Failed to resolve versions from package.json, tauri.conf.json, or Cargo.toml.");
+              return;
+            }
+
+            const uniqueVersions = new Set([packageVersion, tauriVersion, cargoVersion]);
+            if (uniqueVersions.size !== 1) {
+              core.setFailed(
+                `Version mismatch detected: package.json=${packageVersion}, tauri.conf.json=${tauriVersion}, Cargo.toml=${cargoVersion}`
+              );
+              return;
+            }
+
+            const version = packageVersion;
+            const tagName = `aio-coding-hub-v${version}`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let existingRelease = null;
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: tagName,
+              });
+              existingRelease = data;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            let tagExists = false;
+            try {
+              await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `tags/${tagName}`,
+              });
+              tagExists = true;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            const existingVersionTags = cp
+              .execFileSync("git", ["tag", "--list", "aio-coding-hub-v*"], { encoding: "utf8" })
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter(Boolean);
+
+            const isWorkflowDispatch = context.eventName === "workflow_dispatch";
+            const beforeSha =
+              typeof context.payload.before === "string" ? context.payload.before.trim() : "";
+            const beforeIsUsable = beforeSha && !/^0+$/.test(beforeSha);
+
+            let versionChanged = isWorkflowDispatch;
+            if (!isWorkflowDispatch) {
+              if (!beforeIsUsable) {
+                versionChanged = true;
+                core.info("Push event does not expose a usable 'before' SHA; treating this as a version-change candidate.");
+              } else {
+                try {
+                  const previousPkg = JSON.parse(
+                    cp.execFileSync("git", ["show", `${beforeSha}:package.json`], {
+                      encoding: "utf8",
+                    })
+                  );
+                  versionChanged = previousPkg.version !== version;
+                  core.info(`Current version=${version}; previous pushed version=${previousPkg.version}`);
+                } catch (error) {
+                  versionChanged = true;
+                  core.info(`Failed to read package.json from ${beforeSha}; treating this as a version-change candidate.`);
+                }
+              }
+            }
+
+            const bootstrapReleaseNeeded =
+              !existingRelease && !tagExists && existingVersionTags.length === 0;
+
+            if (existingRelease && !existingRelease.draft) {
+              core.info(`Published release already exists for ${tagName}; skipping.`);
+              core.setOutput("release_created", "false");
+              core.setOutput("tag_name", tagName);
+              core.setOutput("release_id", "");
+              return;
+            }
+
+            if (existingRelease && existingRelease.draft) {
+              core.info(`Reusing existing draft release for ${tagName} (id=${existingRelease.id}).`);
+              core.setOutput("release_created", "true");
+              core.setOutput("tag_name", tagName);
+              core.setOutput("release_id", String(existingRelease.id));
+              return;
+            }
+
+            if (!isWorkflowDispatch && !versionChanged && !bootstrapReleaseNeeded) {
+              core.info(
+                `Version ${version} did not change in this push and no bootstrap release is needed; skipping release creation.`
+              );
+              core.setOutput("release_created", "false");
+              core.setOutput("tag_name", tagName);
+              core.setOutput("release_id", "");
+              return;
+            }
+
+            const releaseName = `aio-coding-hub ${tagName}`;
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tagName,
+              target_commitish: context.sha,
+              name: releaseName,
+              draft: true,
+              prerelease: false,
+              generate_release_notes: true,
+            });
+
+            core.info(`Created draft release ${tagName} (id=${release.id}).`);
+            core.setOutput("release_created", "true");
+            core.setOutput("tag_name", tagName);
+            core.setOutput("release_id", String(release.id));
 
   build:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: prepare-release
+    if: needs.prepare-release.outputs.release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.release-please.outputs.build_matrix) }}
+        include: ${{ fromJson(needs.prepare-release.outputs.build_matrix) }}
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -145,8 +270,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         with:
-          releaseId: ${{ needs.release-please.outputs.release_id }}
-          tagName: ${{ needs.release-please.outputs.tag_name }}
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          tagName: ${{ needs.prepare-release.outputs.tag_name }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           # Avoid matrix race on the shared `latest.json` asset; we generate/upload it in a dedicated job.
           includeUpdaterJson: false
@@ -270,13 +395,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
           files: stable-assets/*
           fail_on_unmatched_files: true
 
   assemble-latest-json:
-    needs: [release-please, build]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [prepare-release, build]
+    if: needs.prepare-release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -299,7 +424,7 @@ jobs:
         with:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
-            const releaseId = Number('${{ needs.release-please.outputs.release_id }}');
+            const releaseId = Number('${{ needs.prepare-release.outputs.release_id }}');
             if (!Number.isFinite(releaseId) || releaseId <= 0) {
               core.setFailed(`Invalid release_id: ${releaseId}`);
               return;
@@ -318,21 +443,21 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/support-matrix.mjs generate-latest-json \
-            --tag "${{ needs.release-please.outputs.tag_name }}" \
+            --tag "${{ needs.prepare-release.outputs.tag_name }}" \
             --repo "${{ github.repository }}" \
             --pub-date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --stable-assets-dir stable-assets \
             --output latest.json
         env:
           RELEASE_BODY: ${{ steps.release_body.outputs.body }}
-          FALLBACK_NOTES: "See release: https://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}"
+          FALLBACK_NOTES: "See release: https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare-release.outputs.tag_name }}"
 
       - name: Delete existing latest.json (best-effort)
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
-            const releaseId = Number('${{ needs.release-please.outputs.release_id }}');
+            const releaseId = Number('${{ needs.prepare-release.outputs.release_id }}');
             if (!Number.isFinite(releaseId) || releaseId <= 0) {
               core.setFailed(`Invalid release_id: ${releaseId}`);
               return;
@@ -366,13 +491,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
           files: latest.json
           fail_on_unmatched_files: true
 
   publish:
-    needs: [release-please, build, assemble-latest-json]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [prepare-release, build, assemble-latest-json]
+    if: needs.prepare-release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Publish GitHub Release (unset draft)
@@ -380,7 +505,7 @@ jobs:
         with:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
-            const releaseId = Number('${{ needs.release-please.outputs.release_id }}');
+            const releaseId = Number('${{ needs.prepare-release.outputs.release_id }}');
             if (!Number.isFinite(releaseId) || releaseId <= 0) {
               core.setFailed(`Invalid release_id: ${releaseId}`);
               return;
@@ -394,8 +519,8 @@ jobs:
             });
 
   publish-homebrew-cask:
-    needs: [release-please, publish]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [prepare-release, publish]
+    if: needs.prepare-release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     env:
       HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY || 'dyndynjyxa/homebrew-aio-coding-hub' }}
@@ -415,7 +540,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_assets_api="repos/${{ github.repository }}/releases/${{ needs.release-please.outputs.release_id }}/assets"
+          release_assets_api="repos/${{ github.repository }}/releases/${{ needs.prepare-release.outputs.release_id }}/assets"
 
           macos_arm_sha256="$(
             gh api "$release_assets_api" --paginate \
@@ -436,7 +561,7 @@ jobs:
           fi
 
           node scripts/support-matrix.mjs homebrew-cask \
-            --tag "${{ needs.release-please.outputs.tag_name }}" \
+            --tag "${{ needs.prepare-release.outputs.tag_name }}" \
             --repo "${{ github.repository }}" \
             --macos-arm-sha256 "$macos_arm_sha256" \
             --macos-intel-sha256 "$macos_intel_sha256" \
@@ -485,5 +610,5 @@ jobs:
           fi
 
           git add Casks/aio-coding-hub.rb
-          git commit -m "chore: update aio-coding-hub ${{ needs.release-please.outputs.tag_name }}"
+          git commit -m "chore: update aio-coding-hub ${{ needs.prepare-release.outputs.tag_name }}"
           git -c http.extraheader="$auth_header" push origin HEAD
