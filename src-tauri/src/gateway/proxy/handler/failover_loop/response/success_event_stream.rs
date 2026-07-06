@@ -4,6 +4,7 @@ use super::*;
 use crate::gateway::proxy::{gemini_oauth, protocol_bridge, provider_router};
 use std::time::Duration;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_success_event_stream<R>(
     ctx: CommonCtx<'_, R>,
     provider_ctx: ProviderCtx<'_>,

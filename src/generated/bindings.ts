@@ -1743,71 +1743,6 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
-  async codexReasoningAnalyticsBackfillFromRequestLogs(
-    input: CodexReasoningAnalyticsBackfillInput
-  ): Promise<Result<CodexReasoningAnalyticsBackfillReport, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("codex_reasoning_analytics_backfill_from_request_logs", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async codexReasoningAnalyticsSnapshot(
-    input: CodexReasoningAnalyticsSnapshotInput
-  ): Promise<Result<CodexReasoningAnalyticsSnapshot, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("codex_reasoning_analytics_snapshot", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async codexReasoningAnalyticsImportJson(
-    input: CodexReasoningAnalyticsImportJsonInput
-  ): Promise<Result<CodexReasoningAnalyticsImportReport, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("codex_reasoning_analytics_import_json", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async codexReasoningAnalyticsExport(
-    input: CodexReasoningAnalyticsExportInput
-  ): Promise<Result<CodexReasoningAnalyticsExport, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("codex_reasoning_analytics_export", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async codexReasoningAnalyticsAnalyze(
-    input: CodexReasoningAnalyticsAnalyzeInput
-  ): Promise<Result<CodexReasoningAnalysisResult, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("codex_reasoning_analytics_analyze", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
   async activeRequestLogsSnapshot(): Promise<Result<ActiveRequestSnapshotItem[], string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("active_request_logs_snapshot") };
@@ -1955,6 +1890,141 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async serviceStatusFetch(): Promise<Result<ServiceStatusResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("service_status_fetch") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSourcesList(
+    cliKey: string | null
+  ): Promise<Result<RemoteUsageSourceSummary[], string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("remote_usage_sources_list", { cliKey }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSnapshotsRefresh(
+    input: RemoteUsageRefreshInput
+  ): Promise<Result<RemoteUsageSnapshotRow[], string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_snapshots_refresh", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceUpsert(
+    input: RemoteUsageCustomSourceUpsertInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_upsert", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceDelete(
+    input: RemoteUsageCustomSourceDeleteInput
+  ): Promise<Result<boolean, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_delete", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceSetEnabled(
+    input: RemoteUsageCustomSourceEnabledInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_set_enabled", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsBackfillFromRequestLogs(
+    input: CodexReasoningAnalyticsBackfillInput
+  ): Promise<Result<CodexReasoningAnalyticsBackfillReport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_backfill_from_request_logs", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsSnapshot(
+    input: CodexReasoningAnalyticsSnapshotInput
+  ): Promise<Result<CodexReasoningAnalyticsSnapshot, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_snapshot", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsImportJson(
+    input: CodexReasoningAnalyticsImportJsonInput
+  ): Promise<Result<CodexReasoningAnalyticsImportReport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_import_json", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsExport(
+    input: CodexReasoningAnalyticsExportInput
+  ): Promise<Result<CodexReasoningAnalyticsExport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_export", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsAnalyze(
+    input: CodexReasoningAnalyticsAnalyzeInput
+  ): Promise<Result<CodexReasoningAnalysisResult, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_analyze", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async costSummaryV1(params: CostQueryParams): Promise<Result<CostSummaryV1, string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("cost_summary_v1", { params }) };
@@ -2095,76 +2165,6 @@ export const commands = {
   ): Promise<Result<ProviderLimitUsageRow[], string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("provider_limit_usage_v1", { cliKey }) };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async serviceStatusFetch(): Promise<Result<ServiceStatusResult, string>> {
-    try {
-      return { status: "ok", data: await TAURI_INVOKE("service_status_fetch") };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async remoteUsageSourcesList(
-    cliKey: string | null
-  ): Promise<Result<RemoteUsageSourceSummary[], string>> {
-    try {
-      return { status: "ok", data: await TAURI_INVOKE("remote_usage_sources_list", { cliKey }) };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async remoteUsageSnapshotsRefresh(
-    input: RemoteUsageRefreshInput
-  ): Promise<Result<RemoteUsageSnapshotRow[], string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("remote_usage_snapshots_refresh", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async remoteUsageCustomSourceUpsert(
-    input: RemoteUsageCustomSourceUpsertInput
-  ): Promise<Result<RemoteUsageSourceSummary, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("remote_usage_custom_source_upsert", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async remoteUsageCustomSourceDelete(
-    input: RemoteUsageCustomSourceDeleteInput
-  ): Promise<Result<boolean, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("remote_usage_custom_source_delete", { input }),
-      };
-    } catch (e) {
-      if (e instanceof Error) throw e;
-      else return { status: "error", error: e as any };
-    }
-  },
-  async remoteUsageCustomSourceSetEnabled(
-    input: RemoteUsageCustomSourceEnabledInput
-  ): Promise<Result<RemoteUsageSourceSummary, string>> {
-    try {
-      return {
-        status: "ok",
-        data: await TAURI_INVOKE("remote_usage_custom_source_set_enabled", { input }),
-      };
     } catch (e) {
       if (e instanceof Error) throw e;
       else return { status: "error", error: e as any };
@@ -2581,6 +2581,15 @@ export type CliVersionCheck = {
   updateAvailable: boolean;
   error: string | null;
 };
+export type CodexAppRestartResult = {
+  ok: boolean;
+  action: string;
+  executable_path: string | null;
+  killed_count: number;
+  started: boolean;
+  source: string;
+  message: string;
+};
 export type CodexConfigPatch = {
   model: string | null;
   approval_policy: string | null;
@@ -2642,15 +2651,6 @@ export type CodexConfigTomlValidationError = {
 export type CodexConfigTomlValidationResult = {
   ok: boolean;
   error: CodexConfigTomlValidationError | null;
-};
-export type CodexAppRestartResult = {
-  ok: boolean;
-  action: string;
-  executable_path: string | null;
-  killed_count: number;
-  started: boolean;
-  source: string;
-  message: string;
 };
 export type CodexHomeMode = "user_home_default" | "follow_codex_home" | "custom";
 export type CodexReasoningAnalysisResult = {
@@ -3692,68 +3692,6 @@ export type ProviderLimitUsageRow = {
   window_weekly_start_ts: number;
   window_monthly_start_ts: number;
 };
-export type RemoteUsageBucket = {
-  cost: number | null;
-  tokens: number | null;
-  requests: number | null;
-};
-export type RemoteUsageCustomSourceDeleteInput = { id: number };
-export type RemoteUsageCustomSourceEnabledInput = { id: number; enabled: boolean };
-export type RemoteUsageCustomSourceUpsertInput = {
-  id: number | null;
-  cliKey: string;
-  name: string;
-  baseUrl: string;
-  apiKey: string | null;
-  enabled: boolean;
-};
-export type RemoteUsageModelStat = {
-  model: string;
-  cost: number | null;
-  tokens: number | null;
-  requests: number | null;
-};
-export type RemoteUsageRefreshInput = { cliKey: string | null; sourceIds: string[] | null };
-export type RemoteUsageSnapshot = {
-  plan_name: string | null;
-  remaining: number | null;
-  unit: string | null;
-  subscription: string | null;
-  usage: RemoteUsageUsage;
-  model_stats: RemoteUsageModelStat[];
-};
-export type RemoteUsageSnapshotRow = {
-  source: RemoteUsageSourceSummary;
-  status: RemoteUsageSnapshotStatus;
-  last_error: string | null;
-  last_successful_refresh_at: number | null;
-  snapshot: RemoteUsageSnapshot | null;
-};
-export type RemoteUsageSnapshotStatus =
-  | "fresh"
-  | "stale"
-  | "unauthorized"
-  | "not_configured"
-  | "failed";
-export type RemoteUsageSourceSummary = {
-  source_id: string;
-  source_type: RemoteUsageSourceType;
-  cli_key: string;
-  name: string;
-  base_url: string;
-  endpoint_url: string;
-  enabled: boolean;
-  provider_id: number | null;
-  custom_source_id: number | null;
-  api_key_configured: boolean;
-};
-export type RemoteUsageSourceType = "provider" | "custom";
-export type RemoteUsageUsage = {
-  today: RemoteUsageBucket | null;
-  week: RemoteUsageBucket | null;
-  month: RemoteUsageBucket | null;
-  total: RemoteUsageBucket | null;
-};
 export type ProviderOAuthDeviceCodeCancelResult = { cancelled: boolean };
 export type ProviderOAuthDeviceCodePollInput = {
   providerId: number;
@@ -3865,6 +3803,68 @@ export type ProviderUpsertInput = {
   bridgeType: string | null;
   streamIdleTimeoutSeconds: number | null;
   extensionValues: ProviderExtensionValuesInput[] | null;
+};
+export type RemoteUsageBucket = {
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageCustomSourceDeleteInput = { id: number };
+export type RemoteUsageCustomSourceEnabledInput = { id: number; enabled: boolean };
+export type RemoteUsageCustomSourceUpsertInput = {
+  id: number | null;
+  cliKey: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string | null;
+  enabled: boolean;
+};
+export type RemoteUsageModelStat = {
+  model: string;
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageRefreshInput = { cliKey: string | null; sourceIds: string[] | null };
+export type RemoteUsageSnapshot = {
+  plan_name: string | null;
+  remaining: number | null;
+  unit: string | null;
+  subscription: string | null;
+  usage: RemoteUsageUsage;
+  model_stats: RemoteUsageModelStat[];
+};
+export type RemoteUsageSnapshotRow = {
+  source: RemoteUsageSourceSummary;
+  status: RemoteUsageSnapshotStatus;
+  last_error: string | null;
+  last_successful_refresh_at: number | null;
+  snapshot: RemoteUsageSnapshot | null;
+};
+export type RemoteUsageSnapshotStatus =
+  | "fresh"
+  | "stale"
+  | "unauthorized"
+  | "not_configured"
+  | "failed";
+export type RemoteUsageSourceSummary = {
+  source_id: string;
+  source_type: RemoteUsageSourceType;
+  cli_key: string;
+  name: string;
+  base_url: string;
+  endpoint_url: string;
+  enabled: boolean;
+  provider_id: number | null;
+  custom_source_id: number | null;
+  api_key_configured: boolean;
+};
+export type RemoteUsageSourceType = "provider" | "custom";
+export type RemoteUsageUsage = {
+  today: RemoteUsageBucket | null;
+  week: RemoteUsageBucket | null;
+  month: RemoteUsageBucket | null;
+  total: RemoteUsageBucket | null;
 };
 export type RequestAttemptLog = {
   id: number;

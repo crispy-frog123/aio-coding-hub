@@ -1010,7 +1010,6 @@ mod tests {
                 cost_multiplier: 1.0,
                 priority: None,
                 claude_models: None,
-                availability_test_model: None,
                 limit_5h_usd: None,
                 limit_daily_usd: None,
                 daily_reset_mode: None,
@@ -1023,8 +1022,7 @@ mod tests {
                 source_provider_id: None,
                 bridge_type,
                 stream_idle_timeout_seconds: None,
-                upstream_retry_policy_override: None,
-                upstream_retry_policy_override_specified: false,
+                extension_values: None,
             },
         )
         .expect("create provider");
