@@ -3,13 +3,13 @@ import type { UsageScope } from "../../services/usage/usage";
 import type { UsageTableTab } from "./types";
 
 export function useUsagePageTableState() {
-  const [tableTab, setTableTab] = useState<UsageTableTab>("usage");
+  const [tableTab, setTableTab] = useState<UsageTableTab>("remoteUsage");
   const [scope, setScope] = useState<UsageScope>("provider");
   const scopeBeforeCacheTrendRef = useRef<UsageScope>("provider");
 
   function onChangeTableTab(next: UsageTableTab) {
     if (next === tableTab) return;
-    const scopeLocked = next === "cacheTrend" || next === "availability";
+    const scopeLocked = next === "cacheTrend" || next === "availability" || next === "remoteUsage";
     if (scopeLocked) {
       scopeBeforeCacheTrendRef.current = scope;
       if (scope !== "provider") setScope("provider");

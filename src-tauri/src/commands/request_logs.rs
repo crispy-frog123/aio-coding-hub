@@ -139,6 +139,25 @@ pub(crate) async fn request_attempt_logs_by_trace_id(
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn request_logs_codex_reasoning_guard_stats(
+    app: tauri::AppHandle,
+    db_state: tauri::State<'_, DbInitState>,
+    since_created_at_ms: Option<i64>,
+) -> Result<request_logs::CodexReasoningGuardStats, String> {
+    if matches!(since_created_at_ms, Some(value) if value <= 0) {
+        return Err("SEC_INVALID_INPUT: invalid sinceCreatedAtMs".to_string());
+    }
+
+    let db = ensure_db_ready(app, db_state.inner()).await?;
+    blocking::run("request_logs_codex_reasoning_guard_stats", move || {
+        request_logs::codex_reasoning_guard_stats(&db, since_created_at_ms)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) fn active_request_logs_snapshot(
     app: tauri::AppHandle,
 ) -> Result<Vec<crate::gateway::active_requests::ActiveRequestSnapshotItem>, String> {

@@ -12,6 +12,21 @@ use axum::http::{header, HeaderMap, HeaderValue, Method};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::gateway::proxy) enum CodexRequestKind {
+    Normal,
+    ContextCompaction,
+}
+
+impl CodexRequestKind {
+    pub(in crate::gateway::proxy) fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::ContextCompaction => "context_compaction",
+        }
+    }
+}
+
 pub(super) struct RequestContext<R: tauri::Runtime = tauri::Wry> {
     pub(super) state: GatewayAppState<R>,
     pub(super) cli_key: String,
@@ -27,6 +42,8 @@ pub(super) struct RequestContext<R: tauri::Runtime = tauri::Wry> {
     pub(super) session_id: Option<String>,
     pub(super) requested_model: Option<String>,
     pub(super) requested_model_location: Option<RequestedModelLocation>,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: Option<String>,
     pub(super) effective_sort_mode_id: Option<i64>,
     pub(super) providers: Vec<providers::ProviderForGateway>,
     pub(super) session_bound_provider_id: Option<i64>,
@@ -39,6 +56,21 @@ pub(super) struct RequestContext<R: tauri::Runtime = tauri::Wry> {
     pub(super) provider_base_url_ping_cache_ttl_seconds: u32,
     pub(super) verbose_provider_error: bool,
     pub(super) enable_codex_session_id_completion: bool,
+    pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: crate::settings::CodexReasoningGuardRuleMode,
+    pub(super) codex_reasoning_guard_match_mode: crate::settings::CodexReasoningGuardMatchMode,
+    pub(super) codex_reasoning_guard_compare_mode: crate::settings::CodexReasoningGuardCompareMode,
+    pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
+    pub(super) codex_reasoning_guard_model_rules:
+        Vec<crate::settings::CodexReasoningGuardModelRule>,
+    pub(super) codex_reasoning_guard_stream_action:
+        crate::settings::CodexReasoningGuardStreamAction,
+    pub(super) codex_reasoning_guard_continuation_marker_text: String,
+    pub(super) codex_reasoning_guard_immediate_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_ms: u32,
+    pub(super) codex_reasoning_guard_exhausted_action:
+        crate::settings::CodexReasoningGuardExhaustedAction,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
     pub(super) provider_cooldown_secs: i64,
@@ -78,6 +110,8 @@ impl<R: tauri::Runtime> RequestContext<R> {
             session_id,
             requested_model,
             requested_model_location,
+            codex_request_kind,
+            codex_reasoning_effort,
             effective_sort_mode_id,
             providers,
             session_bound_provider_id,
@@ -90,6 +124,18 @@ impl<R: tauri::Runtime> RequestContext<R> {
             provider_base_url_ping_cache_ttl_seconds,
             verbose_provider_error,
             enable_codex_session_id_completion,
+            codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode,
+            codex_reasoning_guard_match_mode,
+            codex_reasoning_guard_compare_mode,
+            codex_reasoning_guard_reasoning_equals,
+            codex_reasoning_guard_model_rules,
+            codex_reasoning_guard_stream_action,
+            codex_reasoning_guard_continuation_marker_text,
+            codex_reasoning_guard_immediate_retry_budget,
+            codex_reasoning_guard_delayed_retry_budget,
+            codex_reasoning_guard_delayed_retry_ms,
+            codex_reasoning_guard_exhausted_action,
             max_attempts_per_provider,
             max_providers_to_try,
             provider_cooldown_secs,
@@ -161,6 +207,8 @@ impl<R: tauri::Runtime> RequestContext<R> {
             session_id,
             requested_model,
             requested_model_location,
+            codex_request_kind,
+            codex_reasoning_effort,
             effective_sort_mode_id,
             providers,
             session_bound_provider_id,
@@ -173,6 +221,18 @@ impl<R: tauri::Runtime> RequestContext<R> {
             provider_base_url_ping_cache_ttl_seconds,
             verbose_provider_error,
             enable_codex_session_id_completion,
+            codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode,
+            codex_reasoning_guard_match_mode,
+            codex_reasoning_guard_compare_mode,
+            codex_reasoning_guard_reasoning_equals,
+            codex_reasoning_guard_model_rules,
+            codex_reasoning_guard_stream_action,
+            codex_reasoning_guard_continuation_marker_text,
+            codex_reasoning_guard_immediate_retry_budget,
+            codex_reasoning_guard_delayed_retry_budget,
+            codex_reasoning_guard_delayed_retry_ms,
+            codex_reasoning_guard_exhausted_action,
             max_attempts_per_provider,
             max_providers_to_try,
             provider_cooldown_secs,
@@ -285,6 +345,8 @@ pub(super) struct RequestContextParts<R: tauri::Runtime = tauri::Wry> {
     pub(super) session_id: Option<String>,
     pub(super) requested_model: Option<String>,
     pub(super) requested_model_location: Option<RequestedModelLocation>,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: Option<String>,
     pub(super) effective_sort_mode_id: Option<i64>,
     pub(super) providers: Vec<providers::ProviderForGateway>,
     pub(super) session_bound_provider_id: Option<i64>,
@@ -297,6 +359,21 @@ pub(super) struct RequestContextParts<R: tauri::Runtime = tauri::Wry> {
     pub(super) provider_base_url_ping_cache_ttl_seconds: u32,
     pub(super) verbose_provider_error: bool,
     pub(super) enable_codex_session_id_completion: bool,
+    pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: crate::settings::CodexReasoningGuardRuleMode,
+    pub(super) codex_reasoning_guard_match_mode: crate::settings::CodexReasoningGuardMatchMode,
+    pub(super) codex_reasoning_guard_compare_mode: crate::settings::CodexReasoningGuardCompareMode,
+    pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
+    pub(super) codex_reasoning_guard_model_rules:
+        Vec<crate::settings::CodexReasoningGuardModelRule>,
+    pub(super) codex_reasoning_guard_stream_action:
+        crate::settings::CodexReasoningGuardStreamAction,
+    pub(super) codex_reasoning_guard_continuation_marker_text: String,
+    pub(super) codex_reasoning_guard_immediate_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_ms: u32,
+    pub(super) codex_reasoning_guard_exhausted_action:
+        crate::settings::CodexReasoningGuardExhaustedAction,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
     pub(super) provider_cooldown_secs: i64,

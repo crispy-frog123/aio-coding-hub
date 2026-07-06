@@ -4,6 +4,7 @@ import {
   REQUEST_LOGS_DEFAULT_LIMIT,
   requestAttemptLogsByTraceId,
   requestLogGet,
+  requestLogsCodexReasoningGuardStats,
   requestLogsListAfterIdAll,
   requestLogsListAll,
   normalizeRequestAttemptLogsLimit,
@@ -170,5 +171,20 @@ export function useRequestAttemptLogsByTraceIdQuery(traceId: string | null, limi
     placeholderData: keepPreviousData,
     staleTime: REQUEST_LOG_DETAIL_STALE_TIME_MS,
     gcTime: REQUEST_LOG_DETAIL_GC_TIME_MS,
+  });
+}
+
+export function useRequestLogsCodexReasoningGuardStatsQuery(
+  sinceCreatedAtMs?: number | null,
+  options?: { enabled?: boolean; refetchIntervalMs?: number | false }
+) {
+  const normalizedSinceCreatedAtMs = sinceCreatedAtMs ?? null;
+
+  return useQuery({
+    queryKey: requestLogsKeys.codexReasoningGuardStats(normalizedSinceCreatedAtMs),
+    queryFn: () => requestLogsCodexReasoningGuardStats(normalizedSinceCreatedAtMs),
+    enabled: isRequestLogsQueryEnabled(options?.enabled),
+    placeholderData: keepPreviousData,
+    refetchInterval: options?.refetchIntervalMs ?? false,
   });
 }

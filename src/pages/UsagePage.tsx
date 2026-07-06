@@ -87,7 +87,7 @@ function TauriUnavailableHint({ open }: { open: boolean }) {
   return (
     <Card padding="md" className="shrink-0">
       <div className="text-sm text-muted-foreground">
-        当前环境未检测到 Tauri Runtime。请通过桌面端运行（`pnpm tauri dev`）后查看用量。
+        当前环境未检测到 Tauri Runtime。请通过桌面端运行（`pnpm tauri:dev`）后查看用量。
       </div>
     </Card>
   );
@@ -168,6 +168,7 @@ function UsageDataPanelSection({
       availabilityLoading={availability.loading}
       availabilityRefreshing={availability.refreshing}
       onRefreshAvailability={availability.refetch}
+      cliKey={filters.cliKey === "all" ? null : filters.cliKey}
     />
   );
 }
@@ -188,7 +189,7 @@ function UsagePageView({
       <div className="shrink-0">
         <UsagePageHeader loading={model.loading} filters={filters} />
       </div>
-      {table.tableTab !== "availability" && (
+      {table.tableTab !== "availability" && table.tableTab !== "remoteUsage" && (
         <div className="shrink-0">
           <UsageSummaryCards
             summary={model.summary}
@@ -198,11 +199,13 @@ function UsagePageView({
           />
         </div>
       )}
-      <UsageErrorCard
-        errorText={model.errorText}
-        loading={model.loading}
-        onRetry={model.handleRetry}
-      />
+      {table.tableTab !== "remoteUsage" && (
+        <UsageErrorCard
+          errorText={model.errorText}
+          loading={model.loading}
+          onRetry={model.handleRetry}
+        />
+      )}
       <TauriUnavailableHint open={model.tauriAvailable === false} />
       <UsageDataPanelSection
         filters={filters}

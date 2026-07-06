@@ -299,6 +299,8 @@ export type CliManagerCodexTabProps = {
   codexHomeSettingsSaving?: boolean;
   refreshCodex: () => Promise<void> | void;
   openCodexConfigDir: () => Promise<void> | void;
+  restartCodexApp?: () => Promise<void> | void;
+  codexAppRestarting?: boolean;
   persistCodexConfig: (patch: CodexConfigPatch) => Promise<void> | void;
   persistCodexConfigToml: (toml: string) => Promise<boolean> | boolean;
   persistCodexHomeSettings?: (
@@ -354,12 +356,16 @@ function CodexHeader({
   loading,
   versionRefreshToken,
   refreshCodexStatus,
+  restartCodexApp,
+  codexAppRestarting = false,
 }: {
   codexAvailable: CliManagerAvailability;
   codexInfo: SimpleCliInfo | null;
   loading: boolean;
   versionRefreshToken: number;
   refreshCodexStatus: () => Promise<void>;
+  restartCodexApp?: () => Promise<void> | void;
+  codexAppRestarting?: boolean;
 }) {
   return (
     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -397,16 +403,31 @@ function CodexHeader({
         </div>
       </div>
 
-      <Button
-        onClick={() => void refreshCodexStatus()}
-        variant="secondary"
-        size="sm"
-        disabled={loading}
-        className="gap-2"
-      >
-        <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-        刷新
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {isWindowsRuntime() ? (
+          <Button
+            onClick={() => void restartCodexApp?.()}
+            variant="secondary"
+            size="sm"
+            disabled={!restartCodexApp || codexAppRestarting}
+            className="gap-2"
+            title="关闭当前 Codex 窗口并重新启动。正在进行的 Codex 对话会中断。"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", codexAppRestarting && "animate-spin")} />
+            {codexAppRestarting ? "重启中..." : "重启 Codex"}
+          </Button>
+        ) : null}
+        <Button
+          onClick={() => void refreshCodexStatus()}
+          variant="secondary"
+          size="sm"
+          disabled={loading}
+          className="gap-2"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          刷新
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1330,7 +1351,11 @@ function CodexTomlAdvancedSection({
                   onChange={
                     tomlEditEnabled
                       ? (next) => {
-                          updateTomlState({ tomlDraft: next, tomlDirty: true });
+                          updateTomlState({
+                            tomlDraft: next,
+                            tomlDirty: true,
+                            tomlValidation: null,
+                          });
                         }
                       : undefined
                   }
@@ -1678,7 +1703,7 @@ function useCodexTabController({
 
   async function saveTomlDraft() {
     if (tomlBusy) return;
-    const result = await validateToml(tomlDraft);
+    const result = tomlValidation?.ok ? tomlValidation : await validateToml(tomlDraft);
     if (!result) return;
     if (!result.ok) return;
 
@@ -1852,6 +1877,8 @@ export function CliManagerCodexTab({
   codexHomeSettingsSaving = false,
   refreshCodex,
   openCodexConfigDir,
+  restartCodexApp,
+  codexAppRestarting = false,
   persistCodexConfig,
   persistCodexConfigToml,
   persistCodexHomeSettings,
@@ -1940,7 +1967,16 @@ export function CliManagerCodexTab({
               loading={loading}
               versionRefreshToken={versionRefreshToken}
               refreshCodexStatus={refreshCodexStatus}
+              restartCodexApp={restartCodexApp}
+              codexAppRestarting={codexAppRestarting}
             />
+
+            {isWindowsRuntime() ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                Codex 运行中不会稳定热加载 config.toml。开启/关闭 AIO Codex CLI
+                代理或修改本页配置后，请重启 Codex 让配置稳定生效。
+              </div>
+            ) : null}
 
             {codexConfig ? (
               <CodexInfoGrid

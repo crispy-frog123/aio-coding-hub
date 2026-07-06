@@ -4,10 +4,15 @@ use super::defaults::*;
 use super::migration::{
     normalize_cli_priority_order, normalize_codex_home_override, repair_settings,
 };
-use super::types::{AppSettings, CodexHomeMode, GatewayListenMode, WslHostAddressMode};
+use super::types::{
+    AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
+    CodexReasoningGuardMatchMode, CodexReasoningGuardRuleMode, CodexReasoningGuardStreamAction,
+    GatewayListenMode, WslHostAddressMode,
+};
 use crate::app_paths;
 use crate::shared::error::AppResult;
 use crate::shared::fs::read_file_with_max_len;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
@@ -128,6 +133,28 @@ fn validate_optional_bounded_string(field: &str, value: &str, max_len: usize) ->
         return Err(format!("SEC_INVALID_INPUT: {field} must be <= {max_len} characters").into());
     }
     validate_no_control_chars(field, raw)
+}
+
+fn validate_codex_reasoning_guard_values(field: &str, values: &[i64]) -> AppResult<()> {
+    if values.is_empty() {
+        return Err(format!("SEC_INVALID_INPUT: {field} must not be empty").into());
+    }
+    if values.len() > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN {
+        return Err(format!(
+            "SEC_INVALID_INPUT: {field} must contain <= {MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} values"
+        )
+        .into());
+    }
+    if values
+        .iter()
+        .any(|value| *value < 0 || *value > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE)
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: {field} values must be between 0 and {MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE}"
+        )
+        .into());
+    }
+    Ok(())
 }
 
 pub(super) fn parse_settings_json(
@@ -317,6 +344,11 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
     ] {
         validate_non_empty_bounded_string(field, value, MAX_CX2CC_MODEL_NAME_LEN)?;
     }
+    validate_non_empty_bounded_string(
+        "codex_provider_test_model",
+        &settings.codex_provider_test_model,
+        MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN,
+    )?;
     validate_optional_bounded_string(
         "cx2cc_model_reasoning_effort",
         &settings.cx2cc_model_reasoning_effort,
@@ -327,6 +359,107 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
         &settings.cx2cc_service_tier,
         MAX_CX2CC_OPTIONAL_FIELD_LEN,
     )?;
+    validate_codex_reasoning_guard_values(
+        "codex_reasoning_guard_reasoning_equals",
+        &settings.codex_reasoning_guard_reasoning_equals,
+    )?;
+    if settings.codex_reasoning_guard_backoff_after_hits
+        > MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_backoff_after_hits must be <= {MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS}"
+        )
+        .into());
+    }
+    if settings.codex_reasoning_guard_backoff_ms > MAX_CODEX_REASONING_GUARD_BACKOFF_MS {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_backoff_ms must be <= {MAX_CODEX_REASONING_GUARD_BACKOFF_MS}"
+        )
+        .into());
+    }
+    if settings.codex_reasoning_guard_immediate_retry_budget
+        > MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_immediate_retry_budget must be <= {MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET}"
+        )
+        .into());
+    }
+    if settings.codex_reasoning_guard_delayed_retry_budget
+        > MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_delayed_retry_budget must be <= {MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET}"
+        )
+        .into());
+    }
+    if settings.codex_reasoning_guard_delayed_retry_ms > MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_delayed_retry_ms must be <= {MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS}"
+        )
+        .into());
+    }
+    match settings.codex_reasoning_guard_compare_mode {
+        CodexReasoningGuardCompareMode::Equals
+        | CodexReasoningGuardCompareMode::LessThanOrEqual => {}
+    }
+    match settings.codex_reasoning_guard_rule_mode {
+        CodexReasoningGuardRuleMode::ReasoningTokens
+        | CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh => {}
+    }
+    match settings.codex_reasoning_guard_match_mode {
+        CodexReasoningGuardMatchMode::Manual | CodexReasoningGuardMatchMode::Formula518nMinus2 => {}
+    }
+    match settings.codex_reasoning_guard_stream_action {
+        CodexReasoningGuardStreamAction::Strict502
+        | CodexReasoningGuardStreamAction::Disconnect
+        | CodexReasoningGuardStreamAction::ContinuationRecovery => {}
+    }
+    validate_non_empty_bounded_string(
+        "codex_reasoning_guard_continuation_marker_text",
+        &settings.codex_reasoning_guard_continuation_marker_text,
+        256,
+    )?;
+    match settings.codex_reasoning_guard_exhausted_action {
+        CodexReasoningGuardExhaustedAction::ReturnError
+        | CodexReasoningGuardExhaustedAction::SwitchProvider => {}
+    }
+    if settings.codex_reasoning_guard_model_rules.len() > MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN
+    {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_reasoning_guard_model_rules must contain <= {MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN} rules"
+        )
+        .into());
+    }
+    let mut seen_requested_models = HashSet::new();
+    for (index, rule) in settings
+        .codex_reasoning_guard_model_rules
+        .iter()
+        .enumerate()
+    {
+        let field_prefix = format!("codex_reasoning_guard_model_rules[{index}]");
+        let requested_model = rule.requested_model.trim();
+        validate_non_empty_bounded_string(
+            &format!("{field_prefix}.requested_model"),
+            requested_model,
+            MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN,
+        )?;
+        if !seen_requested_models.insert(requested_model.to_string()) {
+            return Err(format!(
+                "SEC_INVALID_INPUT: duplicate codex reasoning guard model rule for {requested_model}"
+            )
+            .into());
+        }
+        match rule.compare_mode {
+            CodexReasoningGuardCompareMode::Equals
+            | CodexReasoningGuardCompareMode::LessThanOrEqual => {}
+        }
+        validate_codex_reasoning_guard_values(
+            &format!("{field_prefix}.reasoning_equals"),
+            &rule.reasoning_equals,
+        )?;
+    }
     validate_update_releases_url(&settings.update_releases_url)?;
     if settings.log_retention_days == 0 {
         return Err("SEC_INVALID_INPUT: log_retention_days must be >= 1".into());
@@ -469,6 +602,7 @@ pub fn write<R: tauri::Runtime>(
     settings.update_releases_url = settings.update_releases_url.trim().to_string();
     settings.upstream_proxy_url = settings.upstream_proxy_url.trim().to_string();
     settings.upstream_proxy_username = settings.upstream_proxy_username.trim().to_string();
+    settings.codex_provider_test_model = settings.codex_provider_test_model.trim().to_string();
     settings.cx2cc_fallback_model_opus = settings.cx2cc_fallback_model_opus.trim().to_string();
     settings.cx2cc_fallback_model_sonnet = settings.cx2cc_fallback_model_sonnet.trim().to_string();
     settings.cx2cc_fallback_model_haiku = settings.cx2cc_fallback_model_haiku.trim().to_string();

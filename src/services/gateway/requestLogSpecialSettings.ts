@@ -5,6 +5,55 @@ export type ParsedRequestLogSpecialSetting = {
   reason?: string;
 } & Record<string, unknown>;
 
+export type CodexReasoningGuardSummary = {
+  count: number;
+  latestRuleLabel: string | null;
+  latestReasoningTokens: number | null;
+  latestPhase: string | null;
+  latestActionTaken: string | null;
+  latestExhaustedAction: string | null;
+  latestDelayMs: number | null;
+  latestBudgetRemaining: number | null;
+  latestBudgetTotal: number | null;
+};
+
+export type CodexReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "unknown";
+
+export type CodexReasoningEffortSource = "request" | "default" | "unknown";
+
+export type CodexReasoningEffortResolution = {
+  effort: CodexReasoningEffort;
+  source: CodexReasoningEffortSource;
+};
+
+const CODEX_REASONING_EFFORTS = new Set<CodexReasoningEffort>([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+
+const KNOWN_CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, CodexReasoningEffort>> =
+  {
+    "gpt-5.5": "medium",
+    "gpt-5.5-pro": "high",
+    "gpt-5.4": "none",
+    "gpt-5.4-mini": "none",
+    "gpt-5.4-nano": "none",
+    "gpt-5.4-pro": "medium",
+  };
+
+const CODEX_REASONING_EFFORT_FIELD_NAMES = new Set(["effort", "rawEffort"]);
+
 export function parseRequestLogSpecialSettings(
   specialSettingsJson: string | null | undefined
 ): ParsedRequestLogSpecialSetting[] {
@@ -35,6 +84,62 @@ function parsedSettingNumber(value: unknown): number {
 
 function parsedSettingBoolean(value: unknown): boolean {
   return typeof value === "boolean" ? value : false;
+}
+
+function normalizeCodexReasoningEffort(
+  value: unknown
+): Exclude<CodexReasoningEffort, "unknown"> | null {
+  const effort = parsedSettingString(value).trim().toLowerCase();
+  return CODEX_REASONING_EFFORTS.has(effort as CodexReasoningEffort)
+    ? (effort as Exclude<CodexReasoningEffort, "unknown">)
+    : null;
+}
+
+function normalizeRequestedModel(value: string | null | undefined): string | null {
+  const model = value?.trim().toLowerCase();
+  return model ? model : null;
+}
+
+export function resolveCodexReasoningEffort(
+  requestedModel: string | null | undefined,
+  specialSettingsJson: string | null | undefined
+): CodexReasoningEffortResolution {
+  const settings = parseRequestLogSpecialSettings(specialSettingsJson);
+  const explicitSetting = settings
+    .slice()
+    .reverse()
+    .find((setting) => setting.type === "codex_reasoning_effort");
+  const explicitEffort = explicitSetting
+    ? normalizeCodexReasoningEffort(explicitSetting.effort)
+    : null;
+
+  if (explicitEffort) {
+    return { effort: explicitEffort, source: "request" };
+  }
+
+  if (explicitSetting && hasCodexReasoningEffortField(explicitSetting)) {
+    return { effort: "unknown", source: "unknown" };
+  }
+
+  const model = normalizeRequestedModel(requestedModel);
+  if (model && KNOWN_CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model]) {
+    return {
+      effort: KNOWN_CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model],
+      source: "default",
+    };
+  }
+
+  return { effort: "unknown", source: "unknown" };
+}
+
+function hasCodexReasoningEffortField(setting: ParsedRequestLogSpecialSetting): boolean {
+  return Object.keys(setting).some((key) => CODEX_REASONING_EFFORT_FIELD_NAMES.has(key));
+}
+
+export function formatCodexReasoningEffortSource(source: CodexReasoningEffortSource): string {
+  if (source === "request") return "请求显式";
+  if (source === "default") return "默认推断";
+  return "未知";
 }
 
 export function resolveClaudeModelMappingFromSpecialSettings(
@@ -78,4 +183,89 @@ export function hasClaudeModelMappingSpecialSetting(
     return true;
   }
   return false;
+}
+
+export function countCodexReasoningGuardSpecialSettings(
+  specialSettingsJson: string | null | undefined
+): number {
+  return resolveCodexReasoningGuardSummary(specialSettingsJson).count;
+}
+
+function normalizeCodexReasoningGuardCompareSymbol(
+  compareMode: unknown,
+  compareModeSymbol: unknown
+): string | null {
+  const explicitSymbol = parsedSettingString(compareModeSymbol);
+  if (explicitSymbol === "==" || explicitSymbol === "<=") {
+    return explicitSymbol;
+  }
+
+  const mode = parsedSettingString(compareMode);
+  if (mode === "equals") return "==";
+  if (mode === "less_than_or_equal") return "<=";
+  return null;
+}
+
+function normalizeCodexReasoningGuardRuleMode(value: unknown): string | null {
+  const mode = parsedSettingString(value);
+  if (mode === "final_answer_only_high_xhigh") return mode;
+  if (mode === "reasoning_tokens") return mode;
+  return null;
+}
+
+export function resolveCodexReasoningGuardSummary(
+  specialSettingsJson: string | null | undefined
+): CodexReasoningGuardSummary {
+  const settings = parseRequestLogSpecialSettings(specialSettingsJson);
+  let count = 0;
+  let latestRuleLabel: string | null = null;
+  let latestReasoningTokens: number | null = null;
+  let latestPhase: string | null = null;
+  let latestActionTaken: string | null = null;
+  let latestExhaustedAction: string | null = null;
+  let latestDelayMs: number | null = null;
+  let latestBudgetRemaining: number | null = null;
+  let latestBudgetTotal: number | null = null;
+
+  for (const setting of settings) {
+    if (setting.type === "codex_reasoning_guard") {
+      count += 1;
+      const ruleMode = normalizeCodexReasoningGuardRuleMode(setting.ruleMode);
+      const compareSymbol = normalizeCodexReasoningGuardCompareSymbol(
+        setting.compareMode,
+        setting.compareModeSymbol
+      );
+      const matchedRuleValue = parsedSettingNumber(setting.matchedRuleValue);
+      const reasoningTokens = parsedSettingNumber(setting.reasoningTokens);
+      latestRuleLabel =
+        ruleMode === "final_answer_only_high_xhigh"
+          ? "final-answer-only / high,xhigh"
+          : compareSymbol && Number.isFinite(matchedRuleValue)
+            ? `${compareSymbol} ${matchedRuleValue}`
+            : null;
+      latestReasoningTokens = Number.isFinite(reasoningTokens) ? reasoningTokens : null;
+      latestPhase = parsedSettingString(setting.guardRetryPhase) || null;
+      latestActionTaken =
+        parsedSettingString(setting.actionTaken) || parsedSettingString(setting.action) || null;
+      latestExhaustedAction = parsedSettingString(setting.guardExhaustedAction) || null;
+      const delayMs = parsedSettingNumber(setting.backoffMs);
+      const budgetRemaining = parsedSettingNumber(setting.guardBudgetRemaining);
+      const budgetTotal = parsedSettingNumber(setting.guardBudgetTotal);
+      latestDelayMs = Number.isFinite(delayMs) ? delayMs : null;
+      latestBudgetRemaining = Number.isFinite(budgetRemaining) ? budgetRemaining : null;
+      latestBudgetTotal = Number.isFinite(budgetTotal) ? budgetTotal : null;
+    }
+  }
+
+  return {
+    count,
+    latestRuleLabel,
+    latestReasoningTokens,
+    latestPhase,
+    latestActionTaken,
+    latestExhaustedAction,
+    latestDelayMs,
+    latestBudgetRemaining,
+    latestBudgetTotal,
+  };
 }

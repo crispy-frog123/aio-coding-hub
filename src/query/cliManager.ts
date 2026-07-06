@@ -10,6 +10,7 @@ import {
   cliManagerCodexConfigTomlGet,
   cliManagerCodexConfigTomlSet,
   cliManagerCodexInfoGet,
+  cliManagerCodexAppRestart,
   cliManagerGeminiConfigGet,
   cliManagerGeminiConfigSet,
   cliManagerGeminiInfoGet,
@@ -20,6 +21,7 @@ import {
   type ClaudeSettingsState,
   type CodexConfigPatch,
   type CodexConfigState,
+  type CodexAppRestartResult,
   type GeminiConfigPatch,
   type GeminiConfigState,
   type SimpleCliInfo,
@@ -132,6 +134,25 @@ export function useCliManagerCodexConfigTomlSetMutation() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: cliManagerKeys.codexConfig() });
       queryClient.invalidateQueries({ queryKey: cliManagerKeys.codexConfigToml() });
+    },
+  });
+}
+
+export function useCliManagerCodexAppRestartMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => cliManagerCodexAppRestart(),
+    onSuccess: (result) => {
+      if (!result) return;
+      queryClient.setQueryData<CodexAppRestartResult | null>(
+        cliManagerKeys.codexAppRestart(),
+        result
+      );
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: cliManagerKeys.codexInfo() });
+      queryClient.invalidateQueries({ queryKey: cliManagerKeys.codexAppRestart() });
     },
   });
 }

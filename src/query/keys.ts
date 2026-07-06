@@ -52,6 +52,37 @@ export const requestLogsKeys = {
   detail: (logId: number | null) => [...requestLogsAllKey, "detail", logId] as const,
   attemptsByTrace: (traceId: string | null, limit: number | null) =>
     [...requestLogsAllKey, "attempts", traceId, limit] as const,
+  codexReasoningGuardStats: (sinceCreatedAtMs: number | null) =>
+    [...requestLogsAllKey, "codexReasoningGuardStats", sinceCreatedAtMs] as const,
+};
+
+const codexReasoningAnalyticsAllKey = ["codexReasoningAnalytics"] as const;
+export const codexReasoningAnalyticsKeys = {
+  all: codexReasoningAnalyticsAllKey,
+  snapshot: (input: {
+    dateFrom: string | null;
+    dateTo: string | null;
+    recentLimit: number | null;
+  }) =>
+    [
+      ...codexReasoningAnalyticsAllKey,
+      "snapshot",
+      input.dateFrom,
+      input.dateTo,
+      input.recentLimit,
+    ] as const,
+  analyze: (input: {
+    dateFrom: string | null;
+    dateTo: string | null;
+    reasoningTokens: readonly number[] | null;
+  }) =>
+    [
+      ...codexReasoningAnalyticsAllKey,
+      "analyze",
+      input.dateFrom,
+      input.dateTo,
+      normalizeKeyParts((input.reasoningTokens ?? []).map(String)),
+    ] as const,
 };
 
 const sortModesAllKey = ["sortModes"] as const;
@@ -293,6 +324,7 @@ export const cliManagerKeys = {
   claudeSettings: () => [...cliManagerAllKey, "claude", "settings"] as const,
   claudeHooks: () => [...cliManagerAllKey, "claude", "hooks"] as const,
   codexInfo: () => [...cliManagerAllKey, "codex", "info"] as const,
+  codexAppRestart: () => [...cliManagerAllKey, "codex", "appRestart"] as const,
   codexConfig: () => [...cliManagerAllKey, "codex", "config"] as const,
   codexConfigToml: () => [...cliManagerAllKey, "codex", "configToml"] as const,
   geminiInfo: () => [...cliManagerAllKey, "gemini", "info"] as const,
@@ -345,6 +377,25 @@ const providerLimitUsageAllKey = ["providerLimitUsage"] as const;
 export const providerLimitUsageKeys = {
   all: providerLimitUsageAllKey,
   list: (cliKey: CliKey | null) => [...providerLimitUsageAllKey, "list", cliKey] as const,
+};
+
+const remoteUsageAllKey = ["remoteUsage"] as const;
+export const remoteUsageKeys = {
+  all: remoteUsageAllKey,
+  sources: (cliKey: CliKey | null) => [...remoteUsageAllKey, "sources", cliKey] as const,
+  snapshots: (input: { cliKey: CliKey | null; sourceIds?: readonly string[] | null }) =>
+    [
+      ...remoteUsageAllKey,
+      "snapshots",
+      input.cliKey,
+      ...normalizeKeyParts(input.sourceIds ?? []),
+    ] as const,
+};
+
+const serviceStatusAllKey = ["serviceStatus"] as const;
+export const serviceStatusKeys = {
+  all: serviceStatusAllKey,
+  current: () => [...serviceStatusAllKey, "current"] as const,
 };
 
 const cliSessionsAllKey = ["cliSessions"] as const;

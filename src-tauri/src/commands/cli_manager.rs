@@ -28,6 +28,18 @@ pub(crate) async fn cli_manager_codex_info_get(
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn cli_manager_codex_app_restart(
+    app: tauri::AppHandle,
+) -> Result<cli_manager::CodexAppRestartResult, String> {
+    blocking::run("cli_manager_codex_app_restart", move || {
+        cli_manager::codex_app_restart(&app)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) async fn cli_manager_codex_config_get(
     app: tauri::AppHandle,
 ) -> Result<codex_config::CodexConfigState, String> {

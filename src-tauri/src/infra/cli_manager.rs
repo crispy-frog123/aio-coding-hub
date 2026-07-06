@@ -1,6 +1,8 @@
 //! Usage: Discover installed CLIs and manage related local config (infra adapter).
 
 use crate::shared::fs::{read_optional_file_with_max_len, write_file_atomic_if_changed};
+#[cfg(windows)]
+use serde::Deserialize;
 use serde::Serialize;
 #[cfg(not(windows))]
 use std::ffi::{OsStr, OsString};
@@ -16,6 +18,8 @@ const ENV_KEY_DISABLE_ERROR_REPORTING: &str = "DISABLE_ERROR_REPORTING";
 #[cfg(not(windows))]
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(windows)]
+const CODEX_APP_RESTART_TIMEOUT: Duration = Duration::from_secs(10);
 const CMD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const COMMAND_OUTPUT_STREAM_LIMIT: usize = 16 * 1024;
 const COMMAND_OUTPUT_READ_CHUNK_SIZE: usize = 8 * 1024;
@@ -43,6 +47,29 @@ pub struct SimpleCliInfo {
     pub error: Option<String>,
     pub shell: Option<String>,
     pub resolved_via: String,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct CodexAppRestartResult {
+    pub ok: bool,
+    pub action: String,
+    pub executable_path: Option<String>,
+    pub killed_count: u32,
+    pub started: bool,
+    pub source: String,
+    pub message: String,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Deserialize)]
+struct PowerShellCodexRestartResult {
+    ok: bool,
+    action: String,
+    executable_path: Option<String>,
+    killed_count: u32,
+    started: bool,
+    source: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -728,6 +755,193 @@ pub fn claude_info_get(app: &tauri::AppHandle) -> crate::shared::error::AppResul
 
 pub fn codex_info_get(app: &tauri::AppHandle) -> crate::shared::error::AppResult<SimpleCliInfo> {
     simple_cli_info_get(app, "codex")
+}
+
+#[cfg(windows)]
+pub fn codex_app_restart(
+    _app: &tauri::AppHandle,
+) -> crate::shared::error::AppResult<CodexAppRestartResult> {
+    let script = r#"
+$ErrorActionPreference = "Stop"
+
+function Test-CodexExe([string]$Path) {
+  if (-not $Path) { return $false }
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+  return ([System.IO.Path]::GetFileName($Path) -ieq "Codex.exe")
+}
+
+function Join-PathIfRoot([string]$Root, [string]$Child) {
+  if (-not $Root) { return $null }
+  return Join-Path $Root $Child
+}
+
+function Find-KnownCodexExe {
+  $candidates = @(
+    (Join-PathIfRoot $env:LOCALAPPDATA "OpenAI\Codex\Codex.exe"),
+    (Join-PathIfRoot $env:LOCALAPPDATA "OpenAI\Codex\app\Codex.exe"),
+    (Join-PathIfRoot $env:LOCALAPPDATA "Programs\Codex\Codex.exe"),
+    (Join-PathIfRoot $env:LOCALAPPDATA "Programs\OpenAI Codex\Codex.exe"),
+    (Join-PathIfRoot $env:PROGRAMFILES "Codex\Codex.exe"),
+    (Join-PathIfRoot ${env:PROGRAMFILES(x86)} "Codex\Codex.exe")
+  ) | Where-Object { $_ }
+  foreach ($candidate in $candidates) {
+    if (Test-CodexExe $candidate) {
+      return @{ Path = $candidate; Source = "known_path" }
+    }
+  }
+
+  $roots = @(
+    (Join-PathIfRoot $env:LOCALAPPDATA "OpenAI\Codex"),
+    (Join-PathIfRoot $env:LOCALAPPDATA "Programs"),
+    $env:PROGRAMFILES,
+    ${env:PROGRAMFILES(x86)}
+  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+
+  foreach ($root in $roots) {
+    $match = Get-ChildItem -LiteralPath $root -Filter "Codex.exe" -Recurse -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($match -and (Test-CodexExe $match.FullName)) {
+      return @{ Path = $match.FullName; Source = "path_search" }
+    }
+  }
+
+  return $null
+}
+
+$targets = @()
+try {
+  $targets = @(Get-CimInstance Win32_Process | Where-Object {
+    $_.ExecutablePath -and
+    $_.Name -ieq "Codex.exe" -and
+    ($_.ExecutablePath -like "*\OpenAI\Codex\*" -or $_.ExecutablePath -like "*\Codex.exe")
+  })
+} catch {
+  $targets = @()
+}
+
+$exe = $null
+$source = "unknown"
+if ($targets.Count -gt 0) {
+  $exe = @($targets | Select-Object -ExpandProperty ExecutablePath -Unique | Select-Object -First 1)[0]
+  $source = "running_process"
+}
+
+if (-not (Test-CodexExe $exe)) {
+  $known = Find-KnownCodexExe
+  if ($known) {
+    $exe = [string]$known.Path
+    $source = [string]$known.Source
+  }
+}
+
+if (-not (Test-CodexExe $exe)) {
+  [ordered]@{
+    ok = $false
+    action = "not_found"
+    executable_path = $null
+    killed_count = 0
+    started = $false
+    source = "not_found"
+    message = "未发现正在运行的 Codex，也没有找到 Codex.exe 安装路径。请先手动启动一次 Codex。"
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$targetPids = @()
+if ($targets.Count -gt 0) {
+  $targetPids = @($targets | Where-Object { $_.ExecutablePath -eq $exe } | ForEach-Object { [int]$_.ProcessId })
+}
+
+foreach ($processIdValue in $targetPids) {
+  try {
+    Stop-Process -Id $processIdValue -Force -ErrorAction Stop
+  } catch {
+  }
+}
+
+if ($targetPids.Count -gt 0) {
+  Start-Sleep -Milliseconds 1500
+}
+
+Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
+
+$action = if ($targetPids.Count -gt 0) { "restarted" } else { "started" }
+$message = if ($targetPids.Count -gt 0) {
+  "已关闭旧 Codex 进程并重新启动。"
+} else {
+  "未发现正在运行的 Codex，已启动 Codex。"
+}
+
+[ordered]@{
+  ok = $true
+  action = $action
+  executable_path = $exe
+  killed_count = ([uint32]$targetPids.Count)
+  started = $true
+  source = $source
+  message = $message
+} | ConvertTo-Json -Compress
+"#;
+
+    let mut cmd = Command::new("powershell");
+    cmd.arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(script);
+
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let out = command_output_with_timeout(
+        cmd,
+        CODEX_APP_RESTART_TIMEOUT,
+        "restart Codex desktop app".to_string(),
+    )?;
+    let stdout = limited_output_to_string(&out.stdout, "stdout");
+    let stderr = limited_output_to_string(&out.stderr, "stderr");
+    if !out.status.success() {
+        let msg = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(if msg.is_empty() {
+            "failed to restart Codex desktop app"
+        } else {
+            &msg
+        }
+        .to_string()
+        .into());
+    }
+
+    let parsed: PowerShellCodexRestartResult = serde_json::from_str(stdout.trim())
+        .map_err(|err| format!("failed to parse Codex restart result: {err}; output={stdout}"))?;
+    Ok(CodexAppRestartResult {
+        ok: parsed.ok,
+        action: parsed.action,
+        executable_path: parsed.executable_path,
+        killed_count: parsed.killed_count,
+        started: parsed.started,
+        source: parsed.source,
+        message: parsed.message,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn codex_app_restart(
+    _app: &tauri::AppHandle,
+) -> crate::shared::error::AppResult<CodexAppRestartResult> {
+    Ok(CodexAppRestartResult {
+        ok: false,
+        action: "unsupported".to_string(),
+        executable_path: None,
+        killed_count: 0,
+        started: false,
+        source: "unsupported".to_string(),
+        message: "当前仅支持在 Windows 上重启 Codex 桌面应用。".to_string(),
+    })
 }
 
 pub fn gemini_info_get(app: &tauri::AppHandle) -> crate::shared::error::AppResult<SimpleCliInfo> {

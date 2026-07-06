@@ -56,6 +56,8 @@ mod send;
 mod send_timeout;
 
 // --- response/ : upstream response handling & finalization ---
+#[path = "response/codex_reasoning_guard.rs"]
+mod codex_reasoning_guard;
 #[path = "response/finalize.rs"]
 mod finalize;
 #[path = "response/response_router.rs"]
@@ -183,6 +185,8 @@ where
         created_at,
         session_id: &input.session_id,
         requested_model: &input.requested_model,
+        codex_request_kind: input.codex_request_kind,
+        codex_reasoning_effort: &input.codex_reasoning_effort,
         cx2cc_settings: &input.cx2cc_settings,
         effective_sort_mode_id: input.effective_sort_mode_id,
         special_settings: &input.special_settings,
@@ -192,6 +196,24 @@ where
         upstream_stream_idle_timeout: input.upstream_stream_idle_timeout,
         upstream_request_timeout_non_streaming: input.upstream_request_timeout_non_streaming,
         verbose_provider_error: input.verbose_provider_error,
+        codex_reasoning_guard_enabled: input.codex_reasoning_guard_enabled,
+        codex_reasoning_guard_rule_mode: input.codex_reasoning_guard_rule_mode,
+        codex_reasoning_guard_match_mode: input.codex_reasoning_guard_match_mode,
+        codex_reasoning_guard_compare_mode: input.codex_reasoning_guard_compare_mode,
+        codex_reasoning_guard_reasoning_equals: input
+            .codex_reasoning_guard_reasoning_equals
+            .as_slice(),
+        codex_reasoning_guard_model_rules: input.codex_reasoning_guard_model_rules.as_slice(),
+        codex_reasoning_guard_stream_action: input.codex_reasoning_guard_stream_action,
+        codex_reasoning_guard_continuation_marker_text: input
+            .codex_reasoning_guard_continuation_marker_text
+            .as_str(),
+        codex_reasoning_guard_immediate_retry_budget: input
+            .codex_reasoning_guard_immediate_retry_budget,
+        codex_reasoning_guard_delayed_retry_budget: input
+            .codex_reasoning_guard_delayed_retry_budget,
+        codex_reasoning_guard_delayed_retry_ms: input.codex_reasoning_guard_delayed_retry_ms,
+        codex_reasoning_guard_exhausted_action: input.codex_reasoning_guard_exhausted_action,
         max_attempts_per_provider: input.max_attempts_per_provider,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,

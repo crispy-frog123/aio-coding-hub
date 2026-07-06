@@ -14,6 +14,7 @@ export const SCOPE_ITEMS: ScopeItem[] = [
 ];
 
 export const USAGE_TABLE_TAB_ITEMS = [
+  { key: "remoteUsage", label: "远端用量" },
   { key: "usage", label: "用量" },
   { key: "cacheTrend", label: "缓存走势图" },
   { key: "availability", label: "可用率" },

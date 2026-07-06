@@ -50,6 +50,7 @@ macro_rules! generated_command_registry {
             // ── cli_manager ──
             cli_manager_claude_info_get => crate::commands::cli_manager::cli_manager_claude_info_get,
             cli_manager_codex_info_get => crate::commands::cli_manager::cli_manager_codex_info_get,
+            cli_manager_codex_app_restart => crate::commands::cli_manager::cli_manager_codex_app_restart,
             cli_manager_codex_config_get => crate::commands::cli_manager::cli_manager_codex_config_get,
             cli_manager_codex_config_set => crate::commands::cli_manager::cli_manager_codex_config_set,
             cli_manager_codex_config_toml_get => crate::commands::cli_manager::cli_manager_codex_config_toml_get,
@@ -197,6 +198,7 @@ macro_rules! generated_command_registry {
             request_log_get => crate::commands::request_logs::request_log_get,
             request_log_get_by_trace_id => crate::commands::request_logs::request_log_get_by_trace_id,
             request_attempt_logs_by_trace_id => crate::commands::request_logs::request_attempt_logs_by_trace_id,
+            request_logs_codex_reasoning_guard_stats => crate::commands::request_logs::request_logs_codex_reasoning_guard_stats,
             active_request_logs_snapshot => crate::commands::request_logs::active_request_logs_snapshot,
             cli_sessions_folder_lookup_by_ids => crate::commands::cli_sessions::cli_sessions_folder_lookup_by_ids,
             // ── data_management ──
@@ -213,6 +215,20 @@ macro_rules! generated_command_registry {
             usage_day_detail_v1 => crate::commands::usage::usage_day_detail_v1,
             usage_folder_options_v1 => crate::commands::usage::usage_folder_options_v1,
             usage_provider_cache_rate_trend_v1 => crate::commands::usage::usage_provider_cache_rate_trend_v1,
+            // ── service_status ──
+            service_status_fetch => crate::commands::service_status::service_status_fetch,
+            // ── remote_usage ──
+            remote_usage_sources_list => crate::commands::remote_usage::remote_usage_sources_list,
+            remote_usage_snapshots_refresh => crate::commands::remote_usage::remote_usage_snapshots_refresh,
+            remote_usage_custom_source_upsert => crate::commands::remote_usage::remote_usage_custom_source_upsert,
+            remote_usage_custom_source_delete => crate::commands::remote_usage::remote_usage_custom_source_delete,
+            remote_usage_custom_source_set_enabled => crate::commands::remote_usage::remote_usage_custom_source_set_enabled,
+            // ── codex_reasoning_analytics ──
+            codex_reasoning_analytics_backfill_from_request_logs => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_backfill_from_request_logs,
+            codex_reasoning_analytics_snapshot => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_snapshot,
+            codex_reasoning_analytics_import_json => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_import_json,
+            codex_reasoning_analytics_export => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_export,
+            codex_reasoning_analytics_analyze => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_analyze,
             // ── cost ──
             cost_summary_v1 => crate::commands::cost::cost_summary_v1,
             cost_trend_v1 => crate::commands::cost::cost_trend_v1,

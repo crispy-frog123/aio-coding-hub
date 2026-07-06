@@ -22,6 +22,9 @@ const PromptsPage = lazy(() =>
 const ProvidersPage = lazy(() =>
   import("../pages/ProvidersPage").then((m) => ({ default: m.ProvidersPage }))
 );
+const ReasoningGuardPage = lazy(() =>
+  import("../pages/ReasoningGuardPage").then((m) => ({ default: m.ReasoningGuardPage }))
+);
 const SessionsPage = lazy(() =>
   import("../pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
 );
@@ -80,6 +83,7 @@ export function AppRoutes() {
         <Route path="/prompts" element={<LazyPage Page={PromptsPage} />} />
         <Route path="/mcp" element={<LazyPage Page={McpPage} />} />
         <Route path="/plugins" element={<LazyPage Page={PluginsPage} />} />
+        <Route path="/reasoning-guard" element={<LazyPage Page={ReasoningGuardPage} />} />
         <Route path="/logs" element={<LazyPage Page={LogsPage} />} />
         <Route path="/console" element={<LazyPage Page={ConsolePage} />} />
         <Route path="/usage" element={<LazyPage Page={UsagePage} />} />

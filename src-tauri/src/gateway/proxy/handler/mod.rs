@@ -157,6 +157,8 @@ where
         requested_model: None,
         requested_model_location: None,
         is_compact_request: false,
+        codex_request_kind: crate::gateway::proxy::request_context::CodexRequestKind::Normal,
+        codex_reasoning_effort: None,
         runtime_settings: None,
         session_id: None,
         allow_session_reuse: false,

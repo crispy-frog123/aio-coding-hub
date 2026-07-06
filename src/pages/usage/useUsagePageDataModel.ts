@@ -95,7 +95,7 @@ function useUsagePageQueries({
     providerId: number | null;
   };
 }) {
-  const dataEnabled = shouldLoad;
+  const dataEnabled = shouldLoad && tableTab !== "remoteUsage" && tableTab !== "availability";
   const cacheTrendEnabled = shouldLoad && tableTab === "cacheTrend";
   const summaryQuery = useUsageSummaryV2Query(period, input, { enabled: dataEnabled });
   const leaderboardQuery = useUsageLeaderboardV2Query(

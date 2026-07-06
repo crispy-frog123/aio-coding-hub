@@ -275,6 +275,14 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async cliManagerCodexAppRestart(): Promise<Result<CodexAppRestartResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("cli_manager_codex_app_restart") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async cliManagerCodexConfigGet(): Promise<Result<CodexConfigState, string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("cli_manager_codex_config_get") };
@@ -1722,6 +1730,84 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async requestLogsCodexReasoningGuardStats(
+    sinceCreatedAtMs: number | null
+  ): Promise<Result<CodexReasoningGuardStats, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("request_logs_codex_reasoning_guard_stats", { sinceCreatedAtMs }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsBackfillFromRequestLogs(
+    input: CodexReasoningAnalyticsBackfillInput
+  ): Promise<Result<CodexReasoningAnalyticsBackfillReport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_backfill_from_request_logs", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsSnapshot(
+    input: CodexReasoningAnalyticsSnapshotInput
+  ): Promise<Result<CodexReasoningAnalyticsSnapshot, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_snapshot", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsImportJson(
+    input: CodexReasoningAnalyticsImportJsonInput
+  ): Promise<Result<CodexReasoningAnalyticsImportReport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_import_json", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsExport(
+    input: CodexReasoningAnalyticsExportInput
+  ): Promise<Result<CodexReasoningAnalyticsExport, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_export", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async codexReasoningAnalyticsAnalyze(
+    input: CodexReasoningAnalyticsAnalyzeInput
+  ): Promise<Result<CodexReasoningAnalysisResult, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("codex_reasoning_analytics_analyze", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async activeRequestLogsSnapshot(): Promise<Result<ActiveRequestSnapshotItem[], string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("active_request_logs_snapshot") };
@@ -2009,6 +2095,76 @@ export const commands = {
   ): Promise<Result<ProviderLimitUsageRow[], string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("provider_limit_usage_v1", { cliKey }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async serviceStatusFetch(): Promise<Result<ServiceStatusResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("service_status_fetch") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSourcesList(
+    cliKey: string | null
+  ): Promise<Result<RemoteUsageSourceSummary[], string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("remote_usage_sources_list", { cliKey }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageSnapshotsRefresh(
+    input: RemoteUsageRefreshInput
+  ): Promise<Result<RemoteUsageSnapshotRow[], string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_snapshots_refresh", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceUpsert(
+    input: RemoteUsageCustomSourceUpsertInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_upsert", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceDelete(
+    input: RemoteUsageCustomSourceDeleteInput
+  ): Promise<Result<boolean, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_delete", { input }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async remoteUsageCustomSourceSetEnabled(
+    input: RemoteUsageCustomSourceEnabledInput
+  ): Promise<Result<RemoteUsageSourceSummary, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("remote_usage_custom_source_set_enabled", { input }),
+      };
     } catch (e) {
       if (e instanceof Error) throw e;
       else return { status: "error", error: e as any };
@@ -2487,7 +2643,243 @@ export type CodexConfigTomlValidationResult = {
   ok: boolean;
   error: CodexConfigTomlValidationError | null;
 };
+export type CodexAppRestartResult = {
+  ok: boolean;
+  action: string;
+  executable_path: string | null;
+  killed_count: number;
+  started: boolean;
+  source: string;
+  message: string;
+};
 export type CodexHomeMode = "user_home_default" | "follow_codex_home" | "custom";
+export type CodexReasoningAnalysisResult = {
+  ok: boolean;
+  analysis_profile: string;
+  analysis_value: string;
+  conclusion: string;
+  field_coverage: CodexReasoningFieldCoverage;
+  missing_core_fields: string[];
+  decision_reason: string;
+  sample_count: number;
+  candidate_summary: CodexReasoningCandidateSummary;
+  baseline_comparison: CodexReasoningBaselineComparison;
+  samples_preview: CodexReasoningAnalyticsSample[];
+};
+export type CodexReasoningAnalyticsAnalyzeInput = {
+  dateFrom: string | null;
+  dateTo: string | null;
+  reasoningTokens: number[] | null;
+};
+export type CodexReasoningAnalyticsBackfillInput = {
+  sinceCreatedAtMs: number | null;
+  limit: number | null;
+};
+export type CodexReasoningAnalyticsBackfillReport = {
+  scanned: number;
+  inserted_or_updated: number;
+  skipped: number;
+  latest_request_log_id: number | null;
+};
+export type CodexReasoningAnalyticsExport = { format: string; file_name: string; content: string };
+export type CodexReasoningAnalyticsExportFormat = "json" | "csv";
+export type CodexReasoningAnalyticsExportInput = {
+  dateFrom: string | null;
+  dateTo: string | null;
+  format: CodexReasoningAnalyticsExportFormat;
+};
+export type CodexReasoningAnalyticsImportJsonInput = {
+  sourceName: string | null;
+  jsonText: string;
+};
+export type CodexReasoningAnalyticsImportReport = {
+  source_name: string;
+  imported: number;
+  skipped: number;
+};
+export type CodexReasoningAnalyticsSample = {
+  sample_id: string;
+  gateway_request_id: string;
+  request_log_id: number | null;
+  trace_id: string | null;
+  ts: string;
+  date_key: string;
+  path: string;
+  method: string;
+  request_kind: string;
+  intercept_exempt_reason: string | null;
+  request_model: string | null;
+  request_model_family: string;
+  effective_local_model_family: string;
+  request_reasoning_effort: string | null;
+  input_tokens: number | null;
+  reasoning_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  duration_total_ms: number | null;
+  output_tps: number | null;
+  reasoning_adjusted_tps: number | null;
+  time_normalization_deviation: number | null;
+  final_answer_only: boolean;
+  has_commentary: boolean;
+  commentary_observed: boolean;
+  has_final_answer: boolean;
+  has_tool_call: boolean;
+  has_reasoning_item: boolean;
+  matched_current_rule: boolean;
+  blocked_by_gateway: boolean;
+  internal_retry_attempt_index: number | null;
+  internal_retry_remaining: number | null;
+  continuation_recovery_count: number;
+  continuation_recovery_success_count: number;
+  final_action: string;
+  upstream_http_status: number | null;
+  client_http_status: number | null;
+  source_kind: string;
+  source_name: string | null;
+};
+export type CodexReasoningAnalyticsSnapshot = {
+  ok: boolean;
+  schema_version: number;
+  analytics_ready: boolean;
+  date_from: string | null;
+  date_to: string | null;
+  summary: CodexReasoningAnalyticsSummary;
+  top_reasoning_tokens: CodexReasoningTokenCount[];
+  output_tps_buckets: CodexReasoningOutputTpsBucket[];
+  by_model_family: CodexReasoningModelFamilyRow[];
+  by_reasoning_effort: CodexReasoningEffortRow[];
+  by_model_family_and_effort: CodexReasoningFamilyEffortRow[];
+  by_reasoning_token: CodexReasoningTokenRow[];
+  candidate_patterns: CodexReasoningCandidatePattern[];
+  recent_samples: CodexReasoningAnalyticsSample[];
+};
+export type CodexReasoningAnalyticsSnapshotInput = {
+  dateFrom: string | null;
+  dateTo: string | null;
+  recentLimit: number | null;
+};
+export type CodexReasoningAnalyticsSummary = {
+  total_samples: number;
+  continuation_recovery_count: number;
+  continuation_recovery_success_count: number;
+  continuation_recovery_success_ratio: number;
+  final_answer_only_ratio: number;
+  commentary_present_ratio: number;
+  commentary_observed_ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  avg_reasoning_adjusted_tps: number;
+  wording: string;
+};
+export type CodexReasoningBaselineComparison = {
+  baseline_count: number;
+  candidate_avg_time_normalization_deviation: number;
+  baseline_avg_time_normalization_deviation: number;
+  candidate_final_answer_only_ratio: number;
+  baseline_final_answer_only_ratio: number;
+  candidate_commentary_not_observed_ratio: number;
+  baseline_commentary_not_observed_ratio: number;
+};
+export type CodexReasoningCandidatePattern = {
+  pattern_key: string;
+  count: number;
+  ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  avg_time_normalization_deviation: number;
+  last_seen_at: string | null;
+  status: string;
+};
+export type CodexReasoningCandidateSummary = {
+  candidate_count: number;
+  candidate_ratio: number;
+  reasoning_516_count: number;
+  final_answer_only_count: number;
+  commentary_not_observed_count: number;
+  high_time_normalization_deviation_count: number;
+  last_seen_at: string | null;
+};
+export type CodexReasoningEffortRow = {
+  key: string;
+  count: number;
+  ratio: number;
+  final_answer_only_ratio: number;
+  commentary_observed_ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  top_reasoning_tokens: CodexReasoningTokenCount[];
+} & { reasoning_effort: string };
+export type CodexReasoningFamilyEffortRow = {
+  key: string;
+  count: number;
+  ratio: number;
+  final_answer_only_ratio: number;
+  commentary_observed_ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  top_reasoning_tokens: CodexReasoningTokenCount[];
+} & { group_key: string; group_label: string; model_family: string; reasoning_effort: string };
+export type CodexReasoningFieldCoverage = {
+  reasoning_tokens: number;
+  final_answer_only: number;
+  commentary_observed: number;
+  duration_total_ms: number;
+  output_tokens: number;
+  model_family: number;
+  reasoning_effort: number;
+  status: number;
+  retry_status: number;
+  blocked_status: number;
+};
+export type CodexReasoningGuardCompareMode = "equals" | "less_than_or_equal";
+export type CodexReasoningGuardExhaustedAction = "return_error" | "switch_provider";
+export type CodexReasoningGuardMatchMode = "manual" | "formula_518n_minus_2";
+export type CodexReasoningGuardModelRule = {
+  requested_model: string;
+  compare_mode?: CodexReasoningGuardCompareMode;
+  reasoning_equals: number[];
+};
+export type CodexReasoningGuardModelStat = {
+  requested_model: string;
+  total_request_count: number;
+  hit_request_count: number;
+  normal_request_count: number;
+  hit_attempt_count: number;
+  hit_rate: number;
+};
+export type CodexReasoningGuardRuleMode = "reasoning_tokens" | "final_answer_only_high_xhigh";
+export type CodexReasoningGuardStats = {
+  hit_request_count: number;
+  hit_attempt_count: number;
+  normal_request_count: number;
+  total_request_count: number;
+  hit_rate: number;
+  by_model: CodexReasoningGuardModelStat[];
+};
+export type CodexReasoningGuardStreamAction = "strict_502" | "disconnect" | "continuation_recovery";
+export type CodexReasoningModelFamilyRow = {
+  key: string;
+  count: number;
+  ratio: number;
+  final_answer_only_ratio: number;
+  commentary_observed_ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  top_reasoning_tokens: CodexReasoningTokenCount[];
+} & { model_family: string };
+export type CodexReasoningOutputTpsBucket = { label: string; count: number };
+export type CodexReasoningTokenCount = { value: number; count: number; ratio: number };
+export type CodexReasoningTokenRow = {
+  value: number;
+  count: number;
+  final_answer_only_ratio: number;
+  commentary_observed_ratio: number;
+  avg_duration_total_ms: number;
+  avg_output_tps: number;
+  avg_time_normalization_deviation: number;
+  last_seen_at: string | null;
+};
 export type CodexSessionIdCompletionUpdate = { enableCodexSessionIdCompletion: boolean };
 export type CommandContribution = { command: string; title: string; category?: string | null };
 export type ConfigImportResult = {
@@ -3300,6 +3692,68 @@ export type ProviderLimitUsageRow = {
   window_weekly_start_ts: number;
   window_monthly_start_ts: number;
 };
+export type RemoteUsageBucket = {
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageCustomSourceDeleteInput = { id: number };
+export type RemoteUsageCustomSourceEnabledInput = { id: number; enabled: boolean };
+export type RemoteUsageCustomSourceUpsertInput = {
+  id: number | null;
+  cliKey: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string | null;
+  enabled: boolean;
+};
+export type RemoteUsageModelStat = {
+  model: string;
+  cost: number | null;
+  tokens: number | null;
+  requests: number | null;
+};
+export type RemoteUsageRefreshInput = { cliKey: string | null; sourceIds: string[] | null };
+export type RemoteUsageSnapshot = {
+  plan_name: string | null;
+  remaining: number | null;
+  unit: string | null;
+  subscription: string | null;
+  usage: RemoteUsageUsage;
+  model_stats: RemoteUsageModelStat[];
+};
+export type RemoteUsageSnapshotRow = {
+  source: RemoteUsageSourceSummary;
+  status: RemoteUsageSnapshotStatus;
+  last_error: string | null;
+  last_successful_refresh_at: number | null;
+  snapshot: RemoteUsageSnapshot | null;
+};
+export type RemoteUsageSnapshotStatus =
+  | "fresh"
+  | "stale"
+  | "unauthorized"
+  | "not_configured"
+  | "failed";
+export type RemoteUsageSourceSummary = {
+  source_id: string;
+  source_type: RemoteUsageSourceType;
+  cli_key: string;
+  name: string;
+  base_url: string;
+  endpoint_url: string;
+  enabled: boolean;
+  provider_id: number | null;
+  custom_source_id: number | null;
+  api_key_configured: boolean;
+};
+export type RemoteUsageSourceType = "provider" | "custom";
+export type RemoteUsageUsage = {
+  today: RemoteUsageBucket | null;
+  week: RemoteUsageBucket | null;
+  month: RemoteUsageBucket | null;
+  total: RemoteUsageBucket | null;
+};
 export type ProviderOAuthDeviceCodeCancelResult = { cancelled: boolean };
 export type ProviderOAuthDeviceCodePollInput = {
   providerId: number;
@@ -3526,6 +3980,34 @@ export type SensitiveStringUpdate =
   | { mode: "preserve" }
   | { mode: "clear" }
   | { mode: "replace"; value: string };
+export type ServiceStatusCellKind = "green" | "yellow" | "red" | "gray";
+export type ServiceStatusProbe = {
+  ts: number | null;
+  ok: boolean | null;
+  latency_ms: number | null;
+  error: string | null;
+  kind: ServiceStatusCellKind;
+};
+export type ServiceStatusResponse = {
+  all_ok: boolean;
+  generated_at: number | null;
+  services: ServiceStatusService[];
+};
+export type ServiceStatusResult = { snapshot: ServiceStatusSnapshot | null; error: string | null };
+export type ServiceStatusService = {
+  model: string;
+  uptime_pct: number | null;
+  last: ServiceStatusProbe | null;
+  history: ServiceStatusProbe[];
+  latest_kind: ServiceStatusCellKind;
+  status_text: string;
+};
+export type ServiceStatusSnapshot = {
+  endpoint_url: string;
+  refreshed_at: number;
+  raw_json_text: string;
+  response: ServiceStatusResponse;
+};
 export type SettingsMutationResult = { settings: SettingsView; runtime: SettingsMutationRuntime };
 export type SettingsMutationRuntime = {
   gateway_rebound: boolean;
@@ -3581,6 +4063,21 @@ export type SettingsUpdate = {
   codexHomeMode: CodexHomeMode | null;
   codexHomeOverride: string | null;
   codexOauthCompatibleProxyMode: boolean | null;
+  codexProviderTestModel: string | null;
+  codexReasoningGuardEnabled: boolean | null;
+  codexReasoningGuardRuleMode: CodexReasoningGuardRuleMode | null;
+  codexReasoningGuardMatchMode: CodexReasoningGuardMatchMode | null;
+  codexReasoningGuardCompareMode: CodexReasoningGuardCompareMode | null;
+  codexReasoningGuardReasoningEquals: number[] | null;
+  codexReasoningGuardModelRules: CodexReasoningGuardModelRule[] | null;
+  codexReasoningGuardStreamAction: CodexReasoningGuardStreamAction | null;
+  codexReasoningGuardContinuationMarkerText: string | null;
+  codexReasoningGuardImmediateRetryBudget: number | null;
+  codexReasoningGuardDelayedRetryBudget: number | null;
+  codexReasoningGuardDelayedRetryMs: number | null;
+  codexReasoningGuardExhaustedAction: CodexReasoningGuardExhaustedAction | null;
+  codexReasoningGuardBackoffAfterHits: number | null;
+  codexReasoningGuardBackoffMs: number | null;
   cx2CcFallbackModelOpus: string | null;
   cx2CcFallbackModelSonnet: string | null;
   cx2CcFallbackModelHaiku: string | null;
@@ -3613,6 +4110,21 @@ export type SettingsView = {
   codex_home_mode: CodexHomeMode;
   codex_home_override: string;
   codex_oauth_compatible_proxy_mode: boolean;
+  codex_provider_test_model: string;
+  codex_reasoning_guard_enabled: boolean;
+  codex_reasoning_guard_rule_mode: CodexReasoningGuardRuleMode;
+  codex_reasoning_guard_match_mode: CodexReasoningGuardMatchMode;
+  codex_reasoning_guard_compare_mode: CodexReasoningGuardCompareMode;
+  codex_reasoning_guard_reasoning_equals: number[];
+  codex_reasoning_guard_model_rules: CodexReasoningGuardModelRule[];
+  codex_reasoning_guard_stream_action: CodexReasoningGuardStreamAction;
+  codex_reasoning_guard_continuation_marker_text: string;
+  codex_reasoning_guard_immediate_retry_budget: number;
+  codex_reasoning_guard_delayed_retry_budget: number;
+  codex_reasoning_guard_delayed_retry_ms: number;
+  codex_reasoning_guard_exhausted_action: CodexReasoningGuardExhaustedAction;
+  codex_reasoning_guard_backoff_after_hits: number;
+  codex_reasoning_guard_backoff_ms: number;
   auto_start: boolean;
   start_minimized: boolean;
   tray_enabled: boolean;

@@ -25,6 +25,8 @@ pub(super) fn apply_ensure_patches(conn: &mut Connection) -> crate::shared::erro
     ensure_provider_stream_idle_timeout(conn)?;
     ensure_skills_update_columns(conn)?;
     ensure_plugin_tables(conn)?;
+    ensure_remote_usage_tables(conn)?;
+    ensure_codex_reasoning_analytics_tables(conn)?;
     ensure_provider_extension_values_table(conn)?;
     Ok(())
 }
@@ -1160,6 +1162,48 @@ CREATE INDEX IF NOT EXISTS idx_plugin_hook_execution_reports_plugin_hook_created
     Ok(())
 }
 
+fn ensure_remote_usage_tables(conn: &mut Connection) -> crate::shared::error::AppResult<()> {
+    conn.execute_batch(
+        r#"
+CREATE TABLE IF NOT EXISTS remote_usage_custom_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cli_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  api_key_plaintext TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_usage_custom_sources_cli_enabled_updated
+  ON remote_usage_custom_sources(cli_key, enabled, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS remote_usage_snapshot_cache (
+  source_id TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  provider_id INTEGER,
+  custom_source_id INTEGER,
+  endpoint_url TEXT NOT NULL,
+  api_key_fingerprint TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  last_successful_refresh_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_fingerprint
+  ON remote_usage_snapshot_cache(source_id, api_key_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_provider
+  ON remote_usage_snapshot_cache(provider_id);
+CREATE INDEX IF NOT EXISTS idx_remote_usage_snapshot_cache_custom
+  ON remote_usage_snapshot_cache(custom_source_id);
+"#,
+    )
+    .map_err(|e| format!("failed to ensure remote usage tables: {e}"))?;
+
+    Ok(())
+}
+
 fn ensure_provider_extension_values_table(
     conn: &mut Connection,
 ) -> crate::shared::error::AppResult<()> {
@@ -1181,6 +1225,51 @@ CREATE INDEX IF NOT EXISTS idx_provider_extension_values_plugin_namespace
 "#,
     )
     .map_err(|e| format!("failed to ensure provider extension values table: {e}"))?;
+
+    Ok(())
+}
+
+fn ensure_codex_reasoning_analytics_tables(
+    conn: &mut Connection,
+) -> crate::shared::error::AppResult<()> {
+    conn.execute_batch(
+        r#"
+CREATE TABLE IF NOT EXISTS codex_reasoning_analytics_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sample_key TEXT NOT NULL UNIQUE,
+  source_kind TEXT NOT NULL,
+  source_name TEXT,
+  request_log_id INTEGER,
+  trace_id TEXT,
+  date_key TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  sample_json TEXT NOT NULL,
+  request_model TEXT,
+  model_family TEXT,
+  reasoning_effort TEXT,
+  reasoning_tokens INTEGER,
+  final_answer_only INTEGER,
+  commentary_observed INTEGER,
+  has_tool_call INTEGER,
+  has_reasoning_item INTEGER,
+  matched_current_rule INTEGER NOT NULL DEFAULT 0,
+  blocked_by_gateway INTEGER NOT NULL DEFAULT 0,
+  client_http_status INTEGER,
+  duration_total_ms INTEGER,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_codex_reasoning_analytics_samples_date
+  ON codex_reasoning_analytics_samples(date_key, created_at_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_codex_reasoning_analytics_samples_request_log
+  ON codex_reasoning_analytics_samples(request_log_id);
+CREATE INDEX IF NOT EXISTS idx_codex_reasoning_analytics_samples_token
+  ON codex_reasoning_analytics_samples(reasoning_tokens);
+CREATE INDEX IF NOT EXISTS idx_codex_reasoning_analytics_samples_model_effort
+  ON codex_reasoning_analytics_samples(model_family, reasoning_effort);
+"#,
+    )
+    .map_err(|e| format!("failed to ensure codex reasoning analytics tables: {e}"))?;
 
     Ok(())
 }

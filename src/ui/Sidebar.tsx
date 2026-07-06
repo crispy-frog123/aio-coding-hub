@@ -1,9 +1,11 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   Boxes,
+  BrainCircuit,
   Command,
   Cpu,
   FileText,
@@ -13,12 +15,14 @@ import {
   MessageSquare,
   Pencil,
   Puzzle,
+  RefreshCw,
   Settings2,
   Sun,
   Terminal,
   TrendingDown,
   Wrench,
 } from "lucide-react";
+import { toast } from "sonner";
 import { CLIS } from "../constants/clis";
 import { AIO_REPO_URL } from "../constants/urls";
 import { useDevPreviewData } from "../hooks/useDevPreviewData";
@@ -26,8 +30,11 @@ import { useGatewayStatus, openReleasesUrl } from "../hooks/useGatewayStatus";
 import { useTheme } from "../hooks/useTheme";
 import { updateDialogSetOpen } from "../hooks/useUpdateMeta";
 import { useCliProxyControls } from "../hooks/useCliProxyControls";
+import { cliManagerCodexAppRestart } from "../services/cli/cliManager";
+import { logToConsole } from "../services/consoleLog";
 import { openDesktopUrl } from "../services/desktop/opener";
 import type { CliKey } from "../services/providers/providers";
+import { formatActionFailureToast } from "../utils/errors";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import { Switch } from "./Switch";
@@ -65,6 +72,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: "/mcp", label: "MCP", icon: Command, theme: "indigo" },
       { to: "/skills", label: "Skill", icon: Cpu, theme: "pink" },
       { to: "/plugins", label: "插件", icon: Puzzle, theme: "emerald" },
+      { to: "/reasoning-guard", label: "降智拦截", icon: BrainCircuit, theme: "rose" },
       { to: "/usage", label: "用量", icon: TrendingDown, theme: "orange" },
       { to: "/logs", label: "请求日志", icon: FileText, theme: "slate" },
       { to: "/cli-manager", label: "CLI 管理", icon: Wrench, theme: "sky" },
@@ -266,6 +274,34 @@ function GatewayStatusRow({
 }
 
 function CliProxyGrid({ cliProxyState }: { cliProxyState: CliProxyState }) {
+  const [codexAppRestarting, setCodexAppRestarting] = useState(false);
+
+  async function restartCodexApp() {
+    if (codexAppRestarting) return;
+
+    try {
+      setCodexAppRestarting(true);
+      const result = await cliManagerCodexAppRestart();
+      if (!result) return;
+
+      if (result.ok) {
+        toast.success(result.message || "已重启 Codex");
+      } else {
+        toast(result.message || "未能重启 Codex");
+      }
+      logToConsole(result.ok ? "info" : "warn", "重启 Codex", result);
+    } catch (err) {
+      const formatted = formatActionFailureToast("重启 Codex", err);
+      logToConsole("error", "重启 Codex 失败", {
+        error: formatted.raw,
+        error_code: formatted.error_code ?? undefined,
+      });
+      toast(formatted.toast);
+    } finally {
+      setCodexAppRestarting(false);
+    }
+  }
+
   if (cliProxyState.cliProxyLoading) {
     return (
       <div className="px-1 py-1 text-muted-foreground/70 text-[10px] font-medium italic animate-pulse text-center">
@@ -325,6 +361,21 @@ function CliProxyGrid({ cliProxyState }: { cliProxyState: CliProxyState }) {
                   )}
                 />
               )}
+              {cliKey === "codex" ? (
+                <button
+                  type="button"
+                  disabled={codexAppRestarting}
+                  onClick={() => void restartCodexApp()}
+                  className={cn(
+                    "inline-flex h-5 w-5 items-center justify-center rounded-md border border-sidebar-control-border bg-sidebar-control-inset text-muted-foreground transition hover:text-sidebar-foreground",
+                    codexAppRestarting && "cursor-not-allowed opacity-60"
+                  )}
+                  aria-label="重启 Codex"
+                  title="重启 Codex"
+                >
+                  <RefreshCw className={cn("h-3 w-3", codexAppRestarting && "animate-spin")} />
+                </button>
+              ) : null}
               <Switch
                 checked={isEnabled}
                 disabled={cliProxyState.cliProxyToggling[cliKey]}

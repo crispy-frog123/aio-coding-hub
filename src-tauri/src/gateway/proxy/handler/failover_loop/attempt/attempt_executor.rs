@@ -17,6 +17,13 @@ pub(super) struct RetryLoopState {
     pub(super) codex_previous_response_id_rectifier_retried: bool,
     pub(super) thinking_signature_rectifier_retried: bool,
     pub(super) thinking_budget_rectifier_retried: bool,
+    pub(super) allow_next_retry_beyond_max_attempts: bool,
+    pub(super) codex_reasoning_guard_hits: u32,
+    pub(super) codex_continuation_request_body: Option<Bytes>,
+    pub(super) codex_last_request_body: Option<Bytes>,
+    pub(super) codex_auto_added_encrypted_reasoning: bool,
+    pub(super) codex_continuation_recovery_count: u32,
+    pub(super) codex_continuation_recovery_success_count: u32,
 }
 
 impl RetryLoopState {
@@ -27,6 +34,13 @@ impl RetryLoopState {
             codex_previous_response_id_rectifier_retried: false,
             thinking_signature_rectifier_retried: false,
             thinking_budget_rectifier_retried: false,
+            allow_next_retry_beyond_max_attempts: false,
+            codex_reasoning_guard_hits: 0,
+            codex_continuation_request_body: None,
+            codex_last_request_body: None,
+            codex_auto_added_encrypted_reasoning: false,
+            codex_continuation_recovery_count: 0,
+            codex_continuation_recovery_success_count: 0,
         }
     }
 }
@@ -124,6 +138,29 @@ where
         return AttemptSendOutcome::OAuthInjectFailed;
     }
 
+    if let Some(next_body) = retry_state.codex_continuation_request_body.take() {
+        prepared.upstream_body_bytes = next_body;
+        prepared.strip_request_content_encoding = true;
+        prepared.request_body_mutated_before_attempt = true;
+    } else if input.codex_reasoning_guard_enabled
+        && super::codex_reasoning_guard::should_auto_include_encrypted_reasoning(
+            input.cli_key.as_str(),
+            input.forwarded_path.as_str(),
+            input.codex_reasoning_guard_rule_mode,
+            input.codex_reasoning_guard_stream_action,
+            input.codex_request_kind,
+        )
+    {
+        if let Some(next_body) = super::codex_reasoning_guard::maybe_add_continuation_include(
+            &prepared.upstream_body_bytes,
+        ) {
+            prepared.upstream_body_bytes = Bytes::from(next_body);
+            prepared.strip_request_content_encoding = true;
+            prepared.request_body_mutated_before_attempt = true;
+            retry_state.codex_auto_added_encrypted_reasoning = true;
+        }
+    }
+
     // --- Clean body + send upstream ---
     let clean_outcome = request_sanitizer::clean_body(input, prepared);
     apply_body_sanitizer_outcome(
@@ -195,6 +232,7 @@ where
     headers = semantic_headers;
     let upstream_body = body_state_for_attempt
         .finalize_for_upstream(&mut headers, crate::gateway::util::max_request_body_bytes());
+    retry_state.codex_last_request_body = Some(upstream_body.clone());
 
     emit_upstream_attempt_fingerprint(
         ctx,

@@ -19,6 +19,18 @@ pub(super) struct HandlerRuntimeSettings {
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) provider_base_url_ping_cache_ttl_seconds: u32,
     pub(super) enable_codex_session_id_completion: bool,
+    pub(super) codex_reasoning_guard_enabled: bool,
+    pub(super) codex_reasoning_guard_rule_mode: settings::CodexReasoningGuardRuleMode,
+    pub(super) codex_reasoning_guard_match_mode: settings::CodexReasoningGuardMatchMode,
+    pub(super) codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
+    pub(super) codex_reasoning_guard_reasoning_equals: Vec<i64>,
+    pub(super) codex_reasoning_guard_model_rules: Vec<settings::CodexReasoningGuardModelRule>,
+    pub(super) codex_reasoning_guard_stream_action: settings::CodexReasoningGuardStreamAction,
+    pub(super) codex_reasoning_guard_continuation_marker_text: String,
+    pub(super) codex_reasoning_guard_immediate_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_budget: u32,
+    pub(super) codex_reasoning_guard_delayed_retry_ms: u32,
+    pub(super) codex_reasoning_guard_exhausted_action: settings::CodexReasoningGuardExhaustedAction,
     pub(super) enable_claude_metadata_user_id_injection: bool,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
@@ -113,6 +125,44 @@ pub(super) fn handler_runtime_settings(
         enable_codex_session_id_completion: settings_cfg
             .map(|cfg| cfg.enable_codex_session_id_completion)
             .unwrap_or(true),
+        codex_reasoning_guard_enabled: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_enabled)
+            .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_ENABLED),
+        codex_reasoning_guard_rule_mode: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_rule_mode)
+            .unwrap_or_default(),
+        codex_reasoning_guard_match_mode: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_match_mode)
+            .unwrap_or_default(),
+        codex_reasoning_guard_compare_mode: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_compare_mode)
+            .unwrap_or_default(),
+        codex_reasoning_guard_reasoning_equals: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_reasoning_equals.clone())
+            .unwrap_or_else(|| settings::DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS.to_vec()),
+        codex_reasoning_guard_model_rules: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_model_rules.clone())
+            .unwrap_or_default(),
+        codex_reasoning_guard_stream_action: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_stream_action)
+            .unwrap_or_default(),
+        codex_reasoning_guard_continuation_marker_text: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_continuation_marker_text.clone())
+            .unwrap_or_else(|| {
+                settings::DEFAULT_CODEX_REASONING_GUARD_CONTINUATION_MARKER_TEXT.to_string()
+            }),
+        codex_reasoning_guard_immediate_retry_budget: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_immediate_retry_budget)
+            .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET),
+        codex_reasoning_guard_delayed_retry_budget: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_delayed_retry_budget)
+            .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET),
+        codex_reasoning_guard_delayed_retry_ms: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_delayed_retry_ms)
+            .unwrap_or(settings::DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_MS),
+        codex_reasoning_guard_exhausted_action: settings_cfg
+            .map(|cfg| cfg.codex_reasoning_guard_exhausted_action)
+            .unwrap_or_default(),
         enable_claude_metadata_user_id_injection: settings_cfg
             .map(|cfg| cfg.enable_claude_metadata_user_id_injection)
             .unwrap_or(true)

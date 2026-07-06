@@ -32,7 +32,14 @@ where
 {
     let mut retry_state = RetryLoopState::new();
 
-    for retry_index in 1..=prepared.provider_max_attempts {
+    let mut retry_index = 1;
+    loop {
+        let beyond_max_attempts = retry_index > prepared.provider_max_attempts;
+        if beyond_max_attempts && !retry_state.allow_next_retry_beyond_max_attempts {
+            break;
+        }
+        retry_state.allow_next_retry_beyond_max_attempts = false;
+
         let attempt_index = loop_state.attempts.len().saturating_add(1) as u32;
 
         let send_outcome = attempt_executor::execute_attempt(
@@ -61,7 +68,10 @@ where
         .await;
 
         match ctrl {
-            LoopControl::ContinueRetry => continue,
+            LoopControl::ContinueRetry => {
+                retry_index = retry_index.saturating_add(1);
+                continue;
+            }
             LoopControl::BreakRetry => break,
             LoopControl::Return(resp) => return Some(resp),
         }

@@ -1,4 +1,10 @@
 import type {
+  CodexReasoningGuardCompareMode,
+  CodexReasoningGuardExhaustedAction,
+  CodexReasoningGuardMatchMode,
+  CodexReasoningGuardModelRule,
+  CodexReasoningGuardRuleMode,
+  CodexReasoningGuardStreamAction,
   GatewayListenMode,
   SensitiveStringUpdate,
   WslHostAddressMode,
@@ -10,6 +16,25 @@ const MAX_UPSTREAM_PROXY_USERNAME_LEN = 256;
 const MAX_UPSTREAM_PROXY_PASSWORD_LEN = 4096;
 const MAX_CX2CC_MODEL_NAME_LEN = 128;
 const MAX_CX2CC_OPTIONAL_FIELD_LEN = 64;
+export const MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN = 128;
+export const MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN = 32;
+export const MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN = 32;
+export const MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN = 128;
+export const MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE = 1_000_000_000;
+export const DEFAULT_CODEX_REASONING_GUARD_REASONING_EQUALS = [516, 1034, 1552] as const;
+export const DEFAULT_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS = 5;
+export const DEFAULT_CODEX_REASONING_GUARD_BACKOFF_MS = 1_000;
+export const DEFAULT_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET = 5;
+export const DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET = 5;
+export const DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_MS = 1_000;
+export const DEFAULT_CODEX_REASONING_GUARD_CONTINUATION_MARKER_TEXT = "Continue thinking...";
+export const DEFAULT_CODEX_REASONING_GUARD_EXHAUSTED_ACTION: CodexReasoningGuardExhaustedAction =
+  "return_error";
+export const MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS = 100;
+export const MAX_CODEX_REASONING_GUARD_BACKOFF_MS = 60_000;
+export const MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET = 100;
+export const MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET = 100;
+export const MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS = 60_000;
 const MIN_PREFERRED_PORT = 1024;
 const MAX_PREFERRED_PORT = 65535;
 const MIN_LOG_RETENTION_DAYS = 1;
@@ -44,6 +69,21 @@ export const SETTINGS_VALIDATION_LIMITS = {
   MAX_UPSTREAM_PROXY_PASSWORD_LEN,
   MAX_CX2CC_MODEL_NAME_LEN,
   MAX_CX2CC_OPTIONAL_FIELD_LEN,
+  MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN,
+  MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN,
+  MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN,
+  MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN,
+  MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE,
+  DEFAULT_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS,
+  DEFAULT_CODEX_REASONING_GUARD_BACKOFF_MS,
+  DEFAULT_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
+  DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
+  DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
+  MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS,
+  MAX_CODEX_REASONING_GUARD_BACKOFF_MS,
+  MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
+  MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
+  MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
   MIN_PREFERRED_PORT,
   MAX_PREFERRED_PORT,
   MIN_LOG_RETENTION_DAYS,
@@ -302,6 +342,15 @@ export function validateCx2ccOptionalField(fieldLabel: string, value: string): s
   return validateNoControlChars(fieldLabel, raw);
 }
 
+export function validateCodexProviderTestModel(fieldLabel: string, value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return `${fieldLabel}不能为空`;
+  if (utf8Length(raw) > MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN) {
+    return `${fieldLabel}必须 <= ${MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN} 字符`;
+  }
+  return validateNoControlChars(fieldLabel, raw);
+}
+
 function validateIntegerRange(
   fieldLabel: string,
   value: number | null | undefined,
@@ -355,6 +404,20 @@ export type SettingsSetValidationInput = {
   cx2CcFallbackModelMain?: string | null;
   cx2CcModelReasoningEffort?: string | null;
   cx2CcServiceTier?: string | null;
+  codexProviderTestModel?: string | null;
+  codexReasoningGuardReasoningEquals?: number[] | null;
+  codexReasoningGuardRuleMode?: CodexReasoningGuardRuleMode | null;
+  codexReasoningGuardMatchMode?: CodexReasoningGuardMatchMode | null;
+  codexReasoningGuardCompareMode?: CodexReasoningGuardCompareMode | null;
+  codexReasoningGuardModelRules?: CodexReasoningGuardModelRule[] | null;
+  codexReasoningGuardStreamAction?: CodexReasoningGuardStreamAction | null;
+  codexReasoningGuardContinuationMarkerText?: string | null;
+  codexReasoningGuardImmediateRetryBudget?: number | null;
+  codexReasoningGuardDelayedRetryBudget?: number | null;
+  codexReasoningGuardDelayedRetryMs?: number | null;
+  codexReasoningGuardExhaustedAction?: CodexReasoningGuardExhaustedAction | null;
+  codexReasoningGuardBackoffAfterHits?: number | null;
+  codexReasoningGuardBackoffMs?: number | null;
 };
 
 export function validateSettingsSetInput(input: SettingsSetValidationInput): string | null {
@@ -467,6 +530,168 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
     if (value == null) continue;
     const message = validateCx2ccOptionalField(fieldLabel, value);
     if (message) return message;
+  }
+
+  if (input.codexProviderTestModel != null) {
+    const message = validateCodexProviderTestModel(
+      "Codex Provider 测试模型",
+      input.codexProviderTestModel
+    );
+    if (message) return message;
+  }
+
+  if (input.codexReasoningGuardReasoningEquals != null) {
+    const values = input.codexReasoningGuardReasoningEquals;
+    if (!Array.isArray(values) || values.length === 0) {
+      return "Codex 降智拦截规则至少需要一个 reasoning_tokens 值";
+    }
+    if (values.length > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN) {
+      return `Codex 降智拦截规则最多支持 ${MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} 个值`;
+    }
+    for (const value of values) {
+      if (!Number.isSafeInteger(value)) {
+        return "Codex 降智拦截规则必须是整数列表";
+      }
+      if (value < 0 || value > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE) {
+        return `Codex 降智拦截值必须在 0 到 ${MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE} 之间`;
+      }
+    }
+  }
+
+  if (input.codexReasoningGuardCompareMode != null) {
+    if (
+      input.codexReasoningGuardCompareMode !== "equals" &&
+      input.codexReasoningGuardCompareMode !== "less_than_or_equal"
+    ) {
+      return "Codex 降智拦截比较模式仅支持 equals 或 less_than_or_equal";
+    }
+  }
+
+  if (input.codexReasoningGuardRuleMode != null) {
+    if (
+      input.codexReasoningGuardRuleMode !== "reasoning_tokens" &&
+      input.codexReasoningGuardRuleMode !== "final_answer_only_high_xhigh"
+    ) {
+      return "Codex 降智拦截规则模式仅支持 reasoning_tokens 或 final_answer_only_high_xhigh";
+    }
+  }
+
+  if (input.codexReasoningGuardMatchMode != null) {
+    if (
+      input.codexReasoningGuardMatchMode !== "manual" &&
+      input.codexReasoningGuardMatchMode !== "formula_518n_minus_2" &&
+      (input.codexReasoningGuardMatchMode as string) !== "formula518n_minus2" &&
+      (input.codexReasoningGuardMatchMode as string) !== "formula_51_8n_minus_2"
+    ) {
+      return "Codex 降智拦截命中来源仅支持 manual 或 formula_518n_minus_2";
+    }
+  }
+
+  if (input.codexReasoningGuardStreamAction != null) {
+    if (
+      input.codexReasoningGuardStreamAction !== "strict_502" &&
+      input.codexReasoningGuardStreamAction !== "disconnect" &&
+      input.codexReasoningGuardStreamAction !== "continuation_recovery"
+    ) {
+      return "Codex 流式命中动作仅支持 strict_502、disconnect 或 continuation_recovery";
+    }
+  }
+
+  if (input.codexReasoningGuardContinuationMarkerText != null) {
+    const value = input.codexReasoningGuardContinuationMarkerText.trim();
+    if (!value) return "Codex 续写 marker 不能为空";
+    if (utf8Length(value) > 256) return "Codex 续写 marker 必须 <= 256 字符";
+    if (CONTROL_CHAR_PATTERN.test(value)) return "Codex 续写 marker 不能包含控制字符";
+  }
+
+  if (input.codexReasoningGuardExhaustedAction != null) {
+    if (
+      input.codexReasoningGuardExhaustedAction !== "return_error" &&
+      input.codexReasoningGuardExhaustedAction !== "switch_provider"
+    ) {
+      return "Codex 降智拦截预算耗尽动作仅支持 return_error 或 switch_provider";
+    }
+  }
+
+  for (const [fieldLabel, value, max] of [
+    [
+      "Codex 降智拦截立即重试预算",
+      input.codexReasoningGuardImmediateRetryBudget,
+      MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
+    ],
+    [
+      "Codex 降智拦截等待重试预算",
+      input.codexReasoningGuardDelayedRetryBudget,
+      MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
+    ],
+    [
+      "Codex 降智拦截等待时间",
+      input.codexReasoningGuardDelayedRetryMs,
+      MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
+    ],
+    [
+      "Codex 降智拦截等待触发次数",
+      input.codexReasoningGuardBackoffAfterHits,
+      MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS,
+    ],
+    [
+      "Codex 降智拦截等待时间",
+      input.codexReasoningGuardBackoffMs,
+      MAX_CODEX_REASONING_GUARD_BACKOFF_MS,
+    ],
+  ] as const) {
+    if (value == null) continue;
+    const message = validateIntegerRange(fieldLabel, value, 0, max);
+    if (message) return message;
+  }
+
+  if (input.codexReasoningGuardModelRules != null) {
+    const rules = input.codexReasoningGuardModelRules;
+    if (!Array.isArray(rules)) {
+      return "Codex 模型规则必须是列表";
+    }
+    if (rules.length > MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN) {
+      return `Codex 模型规则最多支持 ${MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN} 条`;
+    }
+
+    const seenModels = new Set<string>();
+    for (const rule of rules) {
+      const requestedModel = rule.requested_model.trim();
+      if (!requestedModel) {
+        return "Codex 模型规则必须填写模型名";
+      }
+      if (utf8Length(requestedModel) > MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN) {
+        return `Codex 模型名必须 <= ${MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN} 字符`;
+      }
+      if (CONTROL_CHAR_PATTERN.test(requestedModel)) {
+        return "Codex 模型名不能包含控制字符";
+      }
+      const modelKey = requestedModel.toLowerCase();
+      if (seenModels.has(modelKey)) {
+        return `Codex 模型规则 ${requestedModel} 重复`;
+      }
+      seenModels.add(modelKey);
+
+      if (rule.compare_mode !== "equals" && rule.compare_mode !== "less_than_or_equal") {
+        return `Codex 模型规则 ${requestedModel} 的比较模式仅支持 equals 或 less_than_or_equal`;
+      }
+
+      const values = rule.reasoning_equals;
+      if (!Array.isArray(values) || values.length === 0) {
+        return `Codex 模型规则 ${requestedModel} 至少需要一个 reasoning_tokens 值`;
+      }
+      if (values.length > MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN) {
+        return `Codex 模型规则 ${requestedModel} 最多支持 ${MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN} 个值`;
+      }
+      for (const value of values) {
+        if (!Number.isSafeInteger(value)) {
+          return `Codex 模型规则 ${requestedModel} 必须是整数列表`;
+        }
+        if (value < 0 || value > MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE) {
+          return `Codex 模型规则 ${requestedModel} 的值必须在 0 到 ${MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE} 之间`;
+        }
+      }
+    }
   }
 
   return null;

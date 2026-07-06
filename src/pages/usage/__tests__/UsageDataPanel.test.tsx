@@ -36,6 +36,7 @@ const BASE_PROPS: UsageDataPanelProps = {
   dataStale: false,
   cacheTrendStale: false,
   errorText: null,
+  cliKey: null,
   tableTitle: "Usage",
   summary: null,
   rows: [],

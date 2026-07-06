@@ -1,6 +1,12 @@
 import {
   commands,
   type CodexHomeMode,
+  type CodexReasoningGuardCompareMode,
+  type CodexReasoningGuardExhaustedAction,
+  type CodexReasoningGuardMatchMode,
+  type CodexReasoningGuardModelRule,
+  type CodexReasoningGuardRuleMode,
+  type CodexReasoningGuardStreamAction,
   type GatewayListenMode,
   type HomeUsagePeriod,
   type SensitiveStringUpdate,
@@ -17,6 +23,12 @@ import { validateSettingsSetInput } from "./settingsValidation";
 
 export type {
   CodexHomeMode,
+  CodexReasoningGuardCompareMode,
+  CodexReasoningGuardExhaustedAction,
+  CodexReasoningGuardMatchMode,
+  CodexReasoningGuardModelRule,
+  CodexReasoningGuardRuleMode,
+  CodexReasoningGuardStreamAction,
   GatewayListenMode,
   HomeUsagePeriod,
   SensitiveStringUpdate,
@@ -86,6 +98,21 @@ const SETTINGS_VIEW_TO_UPDATE_FIELD_MAP = {
   codexHomeMode: "codex_home_mode",
   codexHomeOverride: "codex_home_override",
   codexOauthCompatibleProxyMode: "codex_oauth_compatible_proxy_mode",
+  codexProviderTestModel: "codex_provider_test_model",
+  codexReasoningGuardEnabled: "codex_reasoning_guard_enabled",
+  codexReasoningGuardRuleMode: "codex_reasoning_guard_rule_mode",
+  codexReasoningGuardMatchMode: "codex_reasoning_guard_match_mode",
+  codexReasoningGuardCompareMode: "codex_reasoning_guard_compare_mode",
+  codexReasoningGuardReasoningEquals: "codex_reasoning_guard_reasoning_equals",
+  codexReasoningGuardModelRules: "codex_reasoning_guard_model_rules",
+  codexReasoningGuardStreamAction: "codex_reasoning_guard_stream_action",
+  codexReasoningGuardContinuationMarkerText: "codex_reasoning_guard_continuation_marker_text",
+  codexReasoningGuardImmediateRetryBudget: "codex_reasoning_guard_immediate_retry_budget",
+  codexReasoningGuardDelayedRetryBudget: "codex_reasoning_guard_delayed_retry_budget",
+  codexReasoningGuardDelayedRetryMs: "codex_reasoning_guard_delayed_retry_ms",
+  codexReasoningGuardExhaustedAction: "codex_reasoning_guard_exhausted_action",
+  codexReasoningGuardBackoffAfterHits: "codex_reasoning_guard_backoff_after_hits",
+  codexReasoningGuardBackoffMs: "codex_reasoning_guard_backoff_ms",
   cx2CcFallbackModelOpus: "cx2cc_fallback_model_opus",
   cx2CcFallbackModelSonnet: "cx2cc_fallback_model_sonnet",
   cx2CcFallbackModelHaiku: "cx2cc_fallback_model_haiku",
@@ -211,6 +238,22 @@ function toGeneratedSettingsUpdate(input: SettingsSetInput): GeneratedSettingsUp
     codexHomeMode: input.codexHomeMode ?? null,
     codexHomeOverride: input.codexHomeOverride ?? null,
     codexOauthCompatibleProxyMode: input.codexOauthCompatibleProxyMode ?? null,
+    codexProviderTestModel: input.codexProviderTestModel ?? null,
+    codexReasoningGuardEnabled: input.codexReasoningGuardEnabled ?? null,
+    codexReasoningGuardRuleMode: input.codexReasoningGuardRuleMode ?? null,
+    codexReasoningGuardMatchMode: input.codexReasoningGuardMatchMode ?? null,
+    codexReasoningGuardStreamAction: input.codexReasoningGuardStreamAction ?? null,
+    codexReasoningGuardContinuationMarkerText:
+      input.codexReasoningGuardContinuationMarkerText ?? null,
+    codexReasoningGuardCompareMode: input.codexReasoningGuardCompareMode ?? null,
+    codexReasoningGuardReasoningEquals: input.codexReasoningGuardReasoningEquals ?? null,
+    codexReasoningGuardModelRules: input.codexReasoningGuardModelRules ?? null,
+    codexReasoningGuardImmediateRetryBudget: input.codexReasoningGuardImmediateRetryBudget ?? null,
+    codexReasoningGuardDelayedRetryBudget: input.codexReasoningGuardDelayedRetryBudget ?? null,
+    codexReasoningGuardDelayedRetryMs: input.codexReasoningGuardDelayedRetryMs ?? null,
+    codexReasoningGuardExhaustedAction: input.codexReasoningGuardExhaustedAction ?? null,
+    codexReasoningGuardBackoffAfterHits: input.codexReasoningGuardBackoffAfterHits ?? null,
+    codexReasoningGuardBackoffMs: input.codexReasoningGuardBackoffMs ?? null,
     cx2CcFallbackModelOpus: input.cx2CcFallbackModelOpus ?? null,
     cx2CcFallbackModelSonnet: input.cx2CcFallbackModelSonnet ?? null,
     cx2CcFallbackModelHaiku: input.cx2CcFallbackModelHaiku ?? null,
@@ -230,15 +273,41 @@ function toGeneratedSettingsUpdate(input: SettingsSetInput): GeneratedSettingsUp
   return update;
 }
 
+function normalizeCodexReasoningGuardMatchModeForUpdate(
+  value: SettingsSetInput["codexReasoningGuardMatchMode"]
+): SettingsSetInput["codexReasoningGuardMatchMode"] {
+  if (
+    (value as string | null) === "formula518n_minus2" ||
+    (value as string | null) === "formula_51_8n_minus_2"
+  ) {
+    return "formula_518n_minus_2";
+  }
+  return value;
+}
+
+function normalizeCodexReasoningGuardStreamActionForUpdate(
+  value: SettingsSetInput["codexReasoningGuardStreamAction"]
+): SettingsSetInput["codexReasoningGuardStreamAction"] {
+  if ((value as string | null) === "strict502") return "strict_502";
+  return value;
+}
+
 export function createSettingsSetInput(
   current: AppSettings,
   patch: AppSettingsPatch = {}
 ): SettingsSetInput {
   const next: AppSettings = { ...current, ...patch };
-  return {
+  const input = {
     ...pickSettingsSetInputFieldsFromView(next, SETTINGS_VIEW_BACKED_INPUT_KEYS),
     upstreamProxyPassword: patch.upstream_proxy_password ?? { mode: "preserve" },
   };
+  input.codexReasoningGuardMatchMode = normalizeCodexReasoningGuardMatchModeForUpdate(
+    input.codexReasoningGuardMatchMode
+  );
+  input.codexReasoningGuardStreamAction = normalizeCodexReasoningGuardStreamActionForUpdate(
+    input.codexReasoningGuardStreamAction
+  );
+  return input;
 }
 
 export async function settingsGet() {
@@ -250,6 +319,13 @@ export async function settingsGet() {
 }
 
 export async function settingsSet(input: SettingsSetInput) {
+  input.codexReasoningGuardMatchMode = normalizeCodexReasoningGuardMatchModeForUpdate(
+    input.codexReasoningGuardMatchMode
+  );
+  input.codexReasoningGuardStreamAction = normalizeCodexReasoningGuardStreamActionForUpdate(
+    input.codexReasoningGuardStreamAction
+  );
+
   const requiredMessage = validateRequiredSettingsSetInput(input);
   if (requiredMessage) {
     throw new Error(requiredMessage);

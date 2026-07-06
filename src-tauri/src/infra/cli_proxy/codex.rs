@@ -59,6 +59,112 @@ pub(super) fn is_codex_proxy_target_state<R: tauri::Runtime>(app: &tauri::AppHan
     has_proxy_provider && has_proxy_auth
 }
 
+pub(super) fn has_local_proxy_config_applied<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> bool {
+    let config_path = match codex_config_path(app) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    let config = match read_cli_proxy_file(&config_path) {
+        Ok(v) => String::from_utf8_lossy(&v).to_string(),
+        Err(_) => return false,
+    };
+
+    let provider_key = current_model_provider_key(&config).unwrap_or(CODEX_PROVIDER_KEY);
+    if !check_provider_config_basic(&config, provider_key) {
+        return false;
+    }
+
+    let Some(base_url) = model_provider_base_url(&config, provider_key) else {
+        return false;
+    };
+
+    is_local_aio_proxy_base_url(base_url)
+}
+
+fn current_model_provider_key(config: &str) -> Option<&str> {
+    let first_table = config.find('\n').and_then(|_| {
+        config
+            .lines()
+            .position(|line| line.trim_start().starts_with('['))
+    });
+    let root_lines = config
+        .lines()
+        .take(first_table.unwrap_or_else(|| config.lines().count()));
+
+    for line in root_lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "model_provider" {
+            continue;
+        }
+        return unquote_toml_string(value.trim());
+    }
+    None
+}
+
+fn model_provider_base_url<'a>(config: &'a str, provider_key: &str) -> Option<&'a str> {
+    let lines: Vec<&str> = config.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| is_model_provider_base_header_line(line.trim(), provider_key))?;
+
+    for line in lines.iter().skip(start + 1) {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            break;
+        }
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "base_url" {
+            continue;
+        }
+        return unquote_toml_string(value.trim());
+    }
+
+    None
+}
+
+fn unquote_toml_string(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.len() < 2 {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let quote = bytes[0];
+    if (quote != b'"' && quote != b'\'') || bytes[value.len() - 1] != quote {
+        return None;
+    }
+    Some(&value[1..value.len() - 1])
+}
+
+fn is_local_aio_proxy_base_url(base_url: &str) -> bool {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    let origin = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
+    let Some(host_port) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let host_port = host_port.split('/').next().unwrap_or(host_port);
+    let host = host_port
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(host_port);
+
+    matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1")
+}
+
 /// Basic check for model_provider and model_providers table (without base_url check).
 fn check_provider_config_basic(config: &str, provider_key: &str) -> bool {
     let expected_provider = format!("model_provider = \"{provider_key}\"");
@@ -271,7 +377,10 @@ pub(super) fn merge_restore_codex_config_toml(
     };
 
     // --- Revert root `model_provider` ---
-    let backup_model_provider = find_root_key_value(&backup_lines, "model_provider");
+    let backup_aio_is_local_proxy = model_provider_base_url(&backup_str, CODEX_PROVIDER_KEY)
+        .is_some_and(is_local_aio_proxy_base_url);
+    let backup_model_provider = find_root_key_value(&backup_lines, "model_provider")
+        .filter(|provider| !(provider == CODEX_PROVIDER_KEY && backup_aio_is_local_proxy));
     revert_root_key(
         &mut lines,
         "model_provider",
@@ -286,11 +395,14 @@ pub(super) fn merge_restore_codex_config_toml(
         backup_auth_method.as_deref(),
     );
 
-    // --- Remove the proxy-injected `[model_providers.aio]` section ---
-    // If the backup had this section, we leave it; otherwise remove it.
-    let backup_had_aio =
-        !find_model_provider_base_table_indices(&backup_lines, CODEX_PROVIDER_KEY).is_empty();
-    if !backup_had_aio {
+    // --- Revert the proxy-injected `[model_providers.aio]` section ---
+    // If the backup had a non-local aio provider, restore that section exactly;
+    // otherwise remove the proxy-owned local section.
+    let backup_had_aio = !backup_aio_is_local_proxy
+        && !find_model_provider_base_table_indices(&backup_lines, CODEX_PROVIDER_KEY).is_empty();
+    if backup_had_aio {
+        restore_model_provider_section_from_backup(&mut lines, &backup_lines, CODEX_PROVIDER_KEY);
+    } else {
         remove_model_provider_section(&mut lines, CODEX_PROVIDER_KEY);
     }
 
@@ -370,6 +482,81 @@ pub(super) fn remove_model_provider_section(lines: &mut Vec<String>, provider_ke
         let end = find_next_table_header(lines, start.saturating_add(1));
         lines.drain(start..end);
     }
+}
+
+fn restore_model_provider_section_from_backup(
+    lines: &mut Vec<String>,
+    backup_lines: &[String],
+    provider_key: &str,
+) {
+    let restore_block = extract_model_provider_section_block(backup_lines, provider_key);
+    if restore_block.is_empty() {
+        remove_model_provider_section(lines, provider_key);
+        return;
+    }
+
+    let insert_at = find_model_provider_base_table_indices(lines, provider_key)
+        .into_iter()
+        .next()
+        .or_else(|| find_model_provider_nested_table_index(lines, provider_key))
+        .unwrap_or(lines.len());
+
+    remove_model_provider_section(lines, provider_key);
+
+    let insert_at = insert_at.min(lines.len());
+    if insert_at > 0
+        && !lines[insert_at.saturating_sub(1)].trim().is_empty()
+        && !restore_block
+            .first()
+            .is_some_and(|line| line.trim().is_empty())
+    {
+        lines.insert(insert_at, String::new());
+    }
+
+    let insert_at = insert_at.min(lines.len());
+    lines.splice(insert_at..insert_at, restore_block);
+}
+
+fn extract_model_provider_section_block(lines: &[String], provider_key: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut idx = 0;
+
+    while idx < lines.len() {
+        let trimmed = lines[idx].trim();
+        if !is_model_provider_any_header_line(trimmed, provider_key) {
+            idx += 1;
+            continue;
+        }
+
+        if !out.is_empty()
+            && !out
+                .last()
+                .is_some_and(|line: &String| line.trim().is_empty())
+        {
+            out.push(String::new());
+        }
+
+        let end = find_next_table_header(lines, idx.saturating_add(1));
+        out.extend(lines[idx..end].iter().cloned());
+        idx = end;
+    }
+
+    out
+}
+
+fn is_model_provider_any_header_line(trimmed: &str, provider_key: &str) -> bool {
+    is_model_provider_base_header_line(trimmed, provider_key)
+        || is_model_provider_nested_header_line(trimmed, provider_key)
+}
+
+fn is_model_provider_nested_header_line(trimmed: &str, provider_key: &str) -> bool {
+    let prefix_unquoted = format!("[model_providers.{provider_key}.");
+    let prefix_double = format!("[model_providers.\"{provider_key}\".");
+    let prefix_single = format!("[model_providers.'{provider_key}'.");
+
+    trimmed.starts_with(&prefix_unquoted)
+        || trimmed.starts_with(&prefix_double)
+        || trimmed.starts_with(&prefix_single)
 }
 
 /// Check if backup lines contain a `[windows]` section with `sandbox` key.

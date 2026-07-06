@@ -355,12 +355,7 @@ pub(crate) fn aggregate_responses_event_stream(raw: &[u8]) -> Result<Value, Stri
                 }
             }
             "error" => {
-                let detail = data
-                    .get("detail")
-                    .and_then(Value::as_str)
-                    .or_else(|| data.get("message").and_then(Value::as_str))
-                    .unwrap_or("unknown SSE error");
-                return Err(detail.to_string());
+                return Err(format_sse_error_detail(&data));
             }
             _ => {}
         }
@@ -373,6 +368,35 @@ pub(crate) fn aggregate_responses_event_stream(raw: &[u8]) -> Result<Value, Stri
         .ok_or_else(|| "aggregated response is not an object".to_string())?;
     obj.insert("output".to_string(), Value::Array(output));
     Ok(response)
+}
+
+fn format_sse_error_detail(data: &Value) -> String {
+    let message = data
+        .get("detail")
+        .and_then(Value::as_str)
+        .or_else(|| data.get("message").and_then(Value::as_str))
+        .or_else(|| nested_error_str(data, "message"))
+        .or_else(|| nested_error_str(data, "detail"))
+        .unwrap_or("unknown SSE error");
+
+    let mut parts = vec![message.to_string()];
+    for key in ["type", "code", "param"] {
+        if let Some(value) =
+            nested_error_str(data, key).or_else(|| data.get(key).and_then(Value::as_str))
+        {
+            if !value.trim().is_empty() {
+                parts.push(format!("{key}={value}"));
+            }
+        }
+    }
+
+    parts.join(" ")
+}
+
+fn nested_error_str<'a>(data: &'a Value, key: &str) -> Option<&'a str> {
+    data.get("error")
+        .and_then(|error| error.get(key))
+        .and_then(Value::as_str)
 }
 
 fn merge_response_object(base: &mut Value, update: &Value) {
@@ -477,6 +501,30 @@ mod tests {
                 .map(Vec::len),
             Some(128)
         );
+    }
+
+    #[test]
+    fn aggregate_responses_event_stream_reports_nested_error_message() {
+        let raw = concat!(
+            "event: error\n",
+            "data: {\"error\":{\"message\":\"model unsupported\",\"type\":\"invalid_request_error\",\"code\":\"unsupported_value\",\"param\":\"model\"}}\n\n"
+        );
+
+        let err = aggregate_responses_event_stream(raw.as_bytes()).expect_err("sse error");
+
+        assert_eq!(
+            err,
+            "model unsupported type=invalid_request_error code=unsupported_value param=model"
+        );
+    }
+
+    #[test]
+    fn aggregate_responses_event_stream_keeps_top_level_error_message() {
+        let raw = "event: error\ndata: {\"message\":\"top level failure\"}\n\n";
+
+        let err = aggregate_responses_event_stream(raw.as_bytes()).expect_err("sse error");
+
+        assert_eq!(err, "top level failure");
     }
 
     struct MockStream {

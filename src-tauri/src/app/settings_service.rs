@@ -83,6 +83,22 @@ pub(crate) struct SettingsUpdate {
     pub codex_home_mode: Option<settings::CodexHomeMode>,
     pub codex_home_override: Option<String>,
     pub codex_oauth_compatible_proxy_mode: Option<bool>,
+    pub codex_provider_test_model: Option<String>,
+    pub codex_reasoning_guard_enabled: Option<bool>,
+    pub codex_reasoning_guard_rule_mode: Option<settings::CodexReasoningGuardRuleMode>,
+    pub codex_reasoning_guard_match_mode: Option<settings::CodexReasoningGuardMatchMode>,
+    pub codex_reasoning_guard_compare_mode: Option<settings::CodexReasoningGuardCompareMode>,
+    pub codex_reasoning_guard_reasoning_equals: Option<Vec<i64>>,
+    pub codex_reasoning_guard_model_rules: Option<Vec<settings::CodexReasoningGuardModelRule>>,
+    pub codex_reasoning_guard_stream_action: Option<settings::CodexReasoningGuardStreamAction>,
+    pub codex_reasoning_guard_continuation_marker_text: Option<String>,
+    pub codex_reasoning_guard_immediate_retry_budget: Option<u32>,
+    pub codex_reasoning_guard_delayed_retry_budget: Option<u32>,
+    pub codex_reasoning_guard_delayed_retry_ms: Option<u32>,
+    pub codex_reasoning_guard_exhausted_action:
+        Option<settings::CodexReasoningGuardExhaustedAction>,
+    pub codex_reasoning_guard_backoff_after_hits: Option<u32>,
+    pub codex_reasoning_guard_backoff_ms: Option<u32>,
     #[serde(rename = "cx2CcFallbackModelOpus")]
     #[specta(rename = "cx2CcFallbackModelOpus")]
     pub cx2cc_fallback_model_opus: Option<String>,
@@ -147,6 +163,21 @@ pub(crate) struct SettingsView {
     pub codex_home_mode: settings::CodexHomeMode,
     pub codex_home_override: String,
     pub codex_oauth_compatible_proxy_mode: bool,
+    pub codex_provider_test_model: String,
+    pub codex_reasoning_guard_enabled: bool,
+    pub codex_reasoning_guard_rule_mode: settings::CodexReasoningGuardRuleMode,
+    pub codex_reasoning_guard_match_mode: settings::CodexReasoningGuardMatchMode,
+    pub codex_reasoning_guard_compare_mode: settings::CodexReasoningGuardCompareMode,
+    pub codex_reasoning_guard_reasoning_equals: Vec<i64>,
+    pub codex_reasoning_guard_model_rules: Vec<settings::CodexReasoningGuardModelRule>,
+    pub codex_reasoning_guard_stream_action: settings::CodexReasoningGuardStreamAction,
+    pub codex_reasoning_guard_continuation_marker_text: String,
+    pub codex_reasoning_guard_immediate_retry_budget: u32,
+    pub codex_reasoning_guard_delayed_retry_budget: u32,
+    pub codex_reasoning_guard_delayed_retry_ms: u32,
+    pub codex_reasoning_guard_exhausted_action: settings::CodexReasoningGuardExhaustedAction,
+    pub codex_reasoning_guard_backoff_after_hits: u32,
+    pub codex_reasoning_guard_backoff_ms: u32,
     pub auto_start: bool,
     pub start_minimized: bool,
     pub tray_enabled: bool,
@@ -267,6 +298,28 @@ impl From<&settings::AppSettings> for SettingsView {
             codex_home_mode: value.codex_home_mode,
             codex_home_override: value.codex_home_override.clone(),
             codex_oauth_compatible_proxy_mode: value.codex_oauth_compatible_proxy_mode,
+            codex_provider_test_model: value.codex_provider_test_model.clone(),
+            codex_reasoning_guard_enabled: value.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode: value.codex_reasoning_guard_rule_mode,
+            codex_reasoning_guard_match_mode: value.codex_reasoning_guard_match_mode,
+            codex_reasoning_guard_compare_mode: value.codex_reasoning_guard_compare_mode,
+            codex_reasoning_guard_reasoning_equals: value
+                .codex_reasoning_guard_reasoning_equals
+                .clone(),
+            codex_reasoning_guard_model_rules: value.codex_reasoning_guard_model_rules.clone(),
+            codex_reasoning_guard_stream_action: value.codex_reasoning_guard_stream_action,
+            codex_reasoning_guard_continuation_marker_text: value
+                .codex_reasoning_guard_continuation_marker_text
+                .clone(),
+            codex_reasoning_guard_immediate_retry_budget: value
+                .codex_reasoning_guard_immediate_retry_budget,
+            codex_reasoning_guard_delayed_retry_budget: value
+                .codex_reasoning_guard_delayed_retry_budget,
+            codex_reasoning_guard_delayed_retry_ms: value.codex_reasoning_guard_delayed_retry_ms,
+            codex_reasoning_guard_exhausted_action: value.codex_reasoning_guard_exhausted_action,
+            codex_reasoning_guard_backoff_after_hits: value
+                .codex_reasoning_guard_backoff_after_hits,
+            codex_reasoning_guard_backoff_ms: value.codex_reasoning_guard_backoff_ms,
             auto_start: value.auto_start,
             start_minimized: value.start_minimized,
             tray_enabled: value.tray_enabled,
@@ -582,6 +635,21 @@ pub(crate) async fn settings_set_impl(
         codex_home_mode,
         codex_home_override,
         codex_oauth_compatible_proxy_mode,
+        codex_provider_test_model,
+        codex_reasoning_guard_enabled,
+        codex_reasoning_guard_rule_mode,
+        codex_reasoning_guard_match_mode,
+        codex_reasoning_guard_compare_mode,
+        codex_reasoning_guard_reasoning_equals,
+        codex_reasoning_guard_model_rules,
+        codex_reasoning_guard_stream_action,
+        codex_reasoning_guard_continuation_marker_text,
+        codex_reasoning_guard_immediate_retry_budget,
+        codex_reasoning_guard_delayed_retry_budget,
+        codex_reasoning_guard_delayed_retry_ms,
+        codex_reasoning_guard_exhausted_action,
+        codex_reasoning_guard_backoff_after_hits,
+        codex_reasoning_guard_backoff_ms,
         cx2cc_fallback_model_opus,
         cx2cc_fallback_model_sonnet,
         cx2cc_fallback_model_haiku,
@@ -644,6 +712,44 @@ pub(crate) async fn settings_set_impl(
                 .to_string();
             let codex_oauth_compatible_proxy_mode = codex_oauth_compatible_proxy_mode
                 .unwrap_or(previous.codex_oauth_compatible_proxy_mode);
+            let codex_provider_test_model = codex_provider_test_model
+                .unwrap_or(previous.codex_provider_test_model.clone())
+                .trim()
+                .to_string();
+            let codex_reasoning_guard_enabled = codex_reasoning_guard_enabled
+                .unwrap_or(previous.codex_reasoning_guard_enabled);
+            let codex_reasoning_guard_rule_mode = codex_reasoning_guard_rule_mode
+                .unwrap_or(previous.codex_reasoning_guard_rule_mode);
+            let codex_reasoning_guard_match_mode = codex_reasoning_guard_match_mode
+                .unwrap_or(previous.codex_reasoning_guard_match_mode);
+            let codex_reasoning_guard_compare_mode = codex_reasoning_guard_compare_mode
+                .unwrap_or(previous.codex_reasoning_guard_compare_mode);
+            let codex_reasoning_guard_reasoning_equals = codex_reasoning_guard_reasoning_equals
+                .unwrap_or(previous.codex_reasoning_guard_reasoning_equals.clone());
+            let codex_reasoning_guard_model_rules = codex_reasoning_guard_model_rules
+                .unwrap_or(previous.codex_reasoning_guard_model_rules.clone());
+            let codex_reasoning_guard_stream_action = codex_reasoning_guard_stream_action
+                .unwrap_or(previous.codex_reasoning_guard_stream_action);
+            let codex_reasoning_guard_continuation_marker_text =
+                codex_reasoning_guard_continuation_marker_text
+                    .unwrap_or(previous.codex_reasoning_guard_continuation_marker_text.clone())
+                    .trim()
+                    .to_string();
+            let codex_reasoning_guard_immediate_retry_budget =
+                codex_reasoning_guard_immediate_retry_budget
+                    .unwrap_or(previous.codex_reasoning_guard_immediate_retry_budget);
+            let codex_reasoning_guard_delayed_retry_budget =
+                codex_reasoning_guard_delayed_retry_budget
+                    .unwrap_or(previous.codex_reasoning_guard_delayed_retry_budget);
+            let codex_reasoning_guard_delayed_retry_ms = codex_reasoning_guard_delayed_retry_ms
+                .unwrap_or(previous.codex_reasoning_guard_delayed_retry_ms);
+            let codex_reasoning_guard_exhausted_action = codex_reasoning_guard_exhausted_action
+                .unwrap_or(previous.codex_reasoning_guard_exhausted_action);
+            let codex_reasoning_guard_backoff_after_hits =
+                codex_reasoning_guard_backoff_after_hits
+                    .unwrap_or(previous.codex_reasoning_guard_backoff_after_hits);
+            let codex_reasoning_guard_backoff_ms =
+                codex_reasoning_guard_backoff_ms.unwrap_or(previous.codex_reasoning_guard_backoff_ms);
             let cx2cc_fallback_model_opus = cx2cc_fallback_model_opus
                 .unwrap_or(previous.cx2cc_fallback_model_opus.clone())
                 .trim()
@@ -766,6 +872,21 @@ pub(crate) async fn settings_set_impl(
                 codex_home_mode,
                 codex_home_override,
                 codex_oauth_compatible_proxy_mode,
+                codex_provider_test_model,
+                codex_reasoning_guard_enabled,
+                codex_reasoning_guard_rule_mode,
+                codex_reasoning_guard_match_mode,
+                codex_reasoning_guard_compare_mode,
+                codex_reasoning_guard_reasoning_equals,
+                codex_reasoning_guard_model_rules,
+                codex_reasoning_guard_stream_action,
+                codex_reasoning_guard_continuation_marker_text,
+                codex_reasoning_guard_immediate_retry_budget,
+                codex_reasoning_guard_delayed_retry_budget,
+                codex_reasoning_guard_delayed_retry_ms,
+                codex_reasoning_guard_exhausted_action,
+                codex_reasoning_guard_backoff_after_hits,
+                codex_reasoning_guard_backoff_ms,
                 auto_start: next_auto_start,
                 start_minimized,
                 tray_enabled,

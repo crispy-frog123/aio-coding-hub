@@ -170,6 +170,7 @@ describe("ui/Sidebar", () => {
           "/mcp",
           "/skills",
           "/plugins",
+          "/reasoning-guard",
           "/usage",
           "/logs",
           "/cli-manager",

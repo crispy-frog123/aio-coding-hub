@@ -32,7 +32,7 @@ pub(super) use warmup_interceptor::WarmupInterceptorMiddleware;
 
 use crate::gateway::proxy::request_body::GatewayRequestBody;
 use crate::gateway::proxy::request_context::{
-    effective_first_byte_timeout_secs, RequestContextParts,
+    effective_first_byte_timeout_secs, CodexRequestKind, RequestContextParts,
 };
 use crate::gateway::runtime::GatewayAppState;
 use crate::gateway::util::RequestedModelLocation;
@@ -84,6 +84,8 @@ pub(super) struct ProxyContext<R: tauri::Runtime = tauri::Wry> {
 
     // -- request kind classification --
     pub(super) is_compact_request: bool,
+    pub(super) codex_request_kind: CodexRequestKind,
+    pub(super) codex_reasoning_effort: Option<String>,
 
     // -- runtime settings (populated after settings read) --
     pub(super) runtime_settings: Option<super::runtime_settings::HandlerRuntimeSettings>,
@@ -132,6 +134,8 @@ impl<R: tauri::Runtime> ProxyContext<R> {
             session_id: self.session_id,
             requested_model: self.requested_model,
             requested_model_location: self.requested_model_location,
+            codex_request_kind: self.codex_request_kind,
+            codex_reasoning_effort: self.codex_reasoning_effort,
             effective_sort_mode_id: self.effective_sort_mode_id,
             providers: self.providers,
             session_bound_provider_id: self.session_bound_provider_id,
@@ -144,6 +148,21 @@ impl<R: tauri::Runtime> ProxyContext<R> {
             provider_base_url_ping_cache_ttl_seconds: rs.provider_base_url_ping_cache_ttl_seconds,
             verbose_provider_error: rs.verbose_provider_error,
             enable_codex_session_id_completion: rs.enable_codex_session_id_completion,
+            codex_reasoning_guard_enabled: rs.codex_reasoning_guard_enabled,
+            codex_reasoning_guard_rule_mode: rs.codex_reasoning_guard_rule_mode,
+            codex_reasoning_guard_match_mode: rs.codex_reasoning_guard_match_mode,
+            codex_reasoning_guard_compare_mode: rs.codex_reasoning_guard_compare_mode,
+            codex_reasoning_guard_reasoning_equals: rs.codex_reasoning_guard_reasoning_equals,
+            codex_reasoning_guard_model_rules: rs.codex_reasoning_guard_model_rules,
+            codex_reasoning_guard_stream_action: rs.codex_reasoning_guard_stream_action,
+            codex_reasoning_guard_continuation_marker_text: rs
+                .codex_reasoning_guard_continuation_marker_text,
+            codex_reasoning_guard_immediate_retry_budget: rs
+                .codex_reasoning_guard_immediate_retry_budget,
+            codex_reasoning_guard_delayed_retry_budget: rs
+                .codex_reasoning_guard_delayed_retry_budget,
+            codex_reasoning_guard_delayed_retry_ms: rs.codex_reasoning_guard_delayed_retry_ms,
+            codex_reasoning_guard_exhausted_action: rs.codex_reasoning_guard_exhausted_action,
             max_attempts_per_provider: rs.max_attempts_per_provider,
             max_providers_to_try: rs.max_providers_to_try,
             provider_cooldown_secs: rs.provider_cooldown_secs,

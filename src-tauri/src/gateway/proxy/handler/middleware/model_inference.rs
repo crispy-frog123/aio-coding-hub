@@ -14,9 +14,11 @@ use crate::gateway::proxy::handler::early_error::{
     build_early_error_log_ctx, early_error_contract, push_special_setting,
     respond_early_error_with_spawn, EarlyErrorKind,
 };
+use crate::gateway::proxy::request_context::CodexRequestKind;
 use crate::gateway::proxy::CLAUDE_LOGGED_MESSAGES_PATH;
+use crate::gateway::response_fixer;
 use crate::gateway::util::{infer_requested_model_info, LARGE_REQUEST_BODY_BYTES};
-use axum::http::Method;
+use axum::http::{HeaderMap, Method};
 
 /// Claude Code `/compact` replaces the whole system prompt with this marker
 /// (verified verbatim against claude-cli 2.1.198). Detection is best-effort:
@@ -24,6 +26,11 @@ use axum::http::Method;
 /// the normal timeout policy.
 const COMPACT_SYSTEM_PROMPT_PREFIX: &str =
     "You are a helpful AI assistant tasked with summarizing conversations.";
+const CODEX_CONTEXT_COMPACTION_MARKERS: &[&str] = &[
+    "remote_compaction_v2",
+    "remote_compaction",
+    "context_compaction",
+];
 
 pub(in crate::gateway::proxy::handler) struct ModelInferenceMiddleware;
 
@@ -38,6 +45,14 @@ impl ModelInferenceMiddleware {
         );
         ctx.requested_model = model_info.model;
         ctx.requested_model_location = model_info.location;
+        ctx.codex_reasoning_effort = record_codex_reasoning_effort(
+            &ctx.cli_key,
+            ctx.introspection_json.as_ref(),
+            ctx.requested_model.as_deref(),
+            &ctx.special_settings,
+        );
+        ctx.codex_request_kind =
+            detect_codex_request_kind(&ctx.cli_key, &ctx.headers, ctx.introspection_json.as_ref());
 
         ctx.observe_request = compute_observe_request(
             &ctx.cli_key,
@@ -70,6 +85,73 @@ impl ModelInferenceMiddleware {
 
         MiddlewareAction::Continue(Box::new(ctx))
     }
+}
+
+pub(in crate::gateway::proxy::handler) fn detect_codex_request_kind(
+    cli_key: &str,
+    headers: &HeaderMap,
+    request_json: Option<&serde_json::Value>,
+) -> CodexRequestKind {
+    if cli_key != "codex" {
+        return CodexRequestKind::Normal;
+    }
+
+    let header_signals = [
+        header_value(headers, "x-codex-beta-features"),
+        header_value(headers, "openai-beta"),
+        header_value(headers, "x-codex-request-kind"),
+        header_value(headers, "x-codex-purpose"),
+    ]
+    .join(" ");
+    if includes_codex_context_compaction_marker(&header_signals) {
+        return CodexRequestKind::ContextCompaction;
+    }
+
+    let Some(root) = request_json else {
+        return CodexRequestKind::Normal;
+    };
+    let metadata_signals = [
+        stringify_request_kind_signal(root.get("metadata")),
+        stringify_request_kind_signal(root.get("codex_request_kind")),
+        stringify_request_kind_signal(root.get("request_kind")),
+        stringify_request_kind_signal(root.get("purpose")),
+    ]
+    .join(" ");
+    if includes_codex_context_compaction_marker(&metadata_signals) {
+        CodexRequestKind::ContextCompaction
+    } else {
+        CodexRequestKind::Normal
+    }
+}
+
+fn header_value(headers: &HeaderMap, name: &str) -> String {
+    headers
+        .get_all(name)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn stringify_request_kind_signal(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(value)) => value.clone(),
+        Some(serde_json::Value::Object(_)) | Some(serde_json::Value::Array(_)) => {
+            serde_json::to_string(value.unwrap_or(&serde_json::Value::Null)).unwrap_or_default()
+        }
+        Some(value) => value.to_string(),
+        None => String::new(),
+    }
+}
+
+fn includes_codex_context_compaction_marker(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    !normalized.is_empty()
+        && CODEX_CONTEXT_COMPACTION_MARKERS
+            .iter()
+            .any(|marker| normalized.contains(marker))
 }
 
 /// Detects a Claude Code `/compact` request.
@@ -117,6 +199,81 @@ pub(in crate::gateway::proxy::handler) fn large_body_missing_model_message(
          the body may have been truncated or malformed by an upstream client/proxy. \
          Please verify the request body integrity and JSON format."
     )
+}
+
+fn record_codex_reasoning_effort(
+    cli_key: &str,
+    introspection_json: Option<&serde_json::Value>,
+    requested_model: Option<&str>,
+    special_settings: &std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+) -> Option<String> {
+    if cli_key != "codex" {
+        return None;
+    }
+
+    let root = introspection_json?;
+    let extracted = extract_codex_reasoning_effort(root)?;
+
+    let effort = extracted.effort.clone();
+    response_fixer::push_special_setting(
+        special_settings,
+        serde_json::json!({
+            "type": "codex_reasoning_effort",
+            "scope": "request",
+            "source": "request",
+            "effort": extracted.effort,
+            "rawEffort": extracted.raw_effort,
+            "requestedModel": requested_model,
+            "pointer": extracted.pointer,
+        }),
+    );
+    effort
+}
+
+struct ExtractedCodexReasoningEffort {
+    effort: Option<String>,
+    raw_effort: String,
+    pointer: &'static str,
+}
+
+fn extract_codex_reasoning_effort(
+    root: &serde_json::Value,
+) -> Option<ExtractedCodexReasoningEffort> {
+    for (pointer, value) in [
+        (
+            "/reasoning/effort",
+            root.pointer("/reasoning/effort")
+                .and_then(serde_json::Value::as_str),
+        ),
+        (
+            "/reasoning_effort",
+            root.get("reasoning_effort")
+                .and_then(serde_json::Value::as_str),
+        ),
+        (
+            "/reasoningEffort",
+            root.get("reasoningEffort")
+                .and_then(serde_json::Value::as_str),
+        ),
+    ] {
+        let Some(raw_effort) = value else {
+            continue;
+        };
+        return Some(ExtractedCodexReasoningEffort {
+            effort: normalize_codex_reasoning_effort(raw_effort),
+            raw_effort: raw_effort.trim().to_string(),
+            pointer,
+        });
+    }
+    None
+}
+
+fn normalize_codex_reasoning_effort(value: &str) -> Option<String> {
+    let effort = value.trim().to_ascii_lowercase();
+    match effort.as_str() {
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" => Some(effort),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
