@@ -19,6 +19,14 @@ function run(command, args, options = {}) {
   }).trim();
 }
 
+function tryRun(command, args, options = {}) {
+  try {
+    return run(command, args, options);
+  } catch {
+    return null;
+  }
+}
+
 function parseArgs(argv) {
   const args = new Map();
 
@@ -74,7 +82,7 @@ function getPrNumbers(args) {
     .filter((item) => Number.isInteger(item) && item > 0);
 }
 
-function getReleaseTag() {
+function getReleaseTagInfo() {
   const manifest = readJson(".release-please-manifest.json");
   const config = readJson("release-please-config.json");
   const rootPackage = config.packages?.["."] ?? {};
@@ -85,13 +93,52 @@ function getReleaseTag() {
     throw new Error("Cannot derive release tag from release-please config and manifest.");
   }
 
-  return rootPackage["include-v-in-tag"] === true
-    ? `${packageName}-v${version}`
-    : `${packageName}-${version}`;
+  const includeV = rootPackage["include-v-in-tag"] === true;
+  return {
+    expectedTag: includeV ? `${packageName}-v${version}` : `${packageName}-${version}`,
+    tagPattern: includeV ? `${packageName}-v*` : `${packageName}-*`,
+  };
+}
+
+function gitTagExists(tagName) {
+  return tryRun("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tagName}`]) != null;
+}
+
+function findLatestReachableReleaseTag(baseRef, tagPattern) {
+  const output =
+    tryRun("git", ["tag", "--merged", baseRef, "--list", tagPattern, "--sort=-v:refname"]) ?? "";
+  return (
+    output
+      .split("\n")
+      .map((item) => item.trim())
+      .find(Boolean) ?? null
+  );
+}
+
+function resolveBaseTag(baseRef) {
+  const { expectedTag, tagPattern } = getReleaseTagInfo();
+
+  if (gitTagExists(expectedTag)) {
+    return expectedTag;
+  }
+
+  const fallbackTag = findLatestReachableReleaseTag(baseRef, tagPattern);
+  if (fallbackTag) {
+    logger.warn(
+      `当前版本 tag ${expectedTag} 尚不存在，回退使用最近可达 tag ${fallbackTag} 作为校验基线。`
+    );
+    return fallbackTag;
+  }
+
+  logger.warn(
+    `当前版本 tag ${expectedTag} 尚不存在，且未找到任何可达 release tag；将按 ${baseRef} 全量历史校验。`
+  );
+  return null;
 }
 
 function getAllowedCommitPrefixes(baseTag, baseRef) {
-  const commits = run("git", ["rev-list", `${baseTag}..${baseRef}`]);
+  const revisionRange = baseTag ? `${baseTag}..${baseRef}` : baseRef;
+  const commits = run("git", ["rev-list", revisionRange]);
 
   return new Set(
     commits
@@ -203,9 +250,15 @@ function main() {
   }
 
   // 1.4 推导上个版本 tag 和合法提交集合
-  const baseTag = args.get("base-tag") ?? getReleaseTag();
+  const explicitBaseTag = args.get("base-tag");
+  const baseTag = explicitBaseTag ?? resolveBaseTag(baseRef);
+  if (explicitBaseTag && !gitTagExists(explicitBaseTag)) {
+    throw new Error(`Specified base tag does not exist: ${explicitBaseTag}`);
+  }
   const allowedPrefixes = getAllowedCommitPrefixes(baseTag, baseRef);
-  logger.info(`上下文准备完成, PR 数: ${prNumbers.length}, 合法提交数: ${allowedPrefixes.size}`);
+  logger.info(
+    `上下文准备完成, PR 数: ${prNumbers.length}, 基线: ${baseTag ?? "(full-history)"}, 合法提交数: ${allowedPrefixes.size}`
+  );
 
   /*
    * ========================================================================
