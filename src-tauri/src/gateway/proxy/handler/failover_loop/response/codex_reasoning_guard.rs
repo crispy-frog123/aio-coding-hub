@@ -430,54 +430,40 @@ pub(super) fn is_responses_path(path: &str) -> bool {
     matches!(path.trim_end_matches('/'), "/responses" | "/v1/responses")
 }
 
-pub(super) fn should_auto_include_encrypted_reasoning(
+pub(super) fn should_strip_encrypted_content_from_continuation_response(
     cli_key: &str,
     path: &str,
-    rule_mode: CodexReasoningGuardRuleMode,
     stream_action: CodexReasoningGuardStreamAction,
-    request_kind: CodexRequestKind,
+    body: &[u8],
 ) -> bool {
     cli_key == "codex"
         && is_responses_path(path)
-        && rule_mode == CodexReasoningGuardRuleMode::ReasoningTokens
         && stream_action == CodexReasoningGuardStreamAction::ContinuationRecovery
-        && request_kind != CodexRequestKind::ContextCompaction
-}
-
-pub(super) fn maybe_add_continuation_include(body: &[u8]) -> Option<Vec<u8>> {
-    let mut value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
-    if value.get("stream").and_then(serde_json::Value::as_bool) != Some(true) {
-        return None;
-    }
-    if request_includes_encrypted_reasoning(&value) {
-        return None;
-    }
-    merge_continuation_include(&mut value);
-    serde_json::to_vec(&value).ok()
+        && serde_json::from_slice::<serde_json::Value>(body)
+            .ok()
+            .and_then(|value| value.get("stream").and_then(serde_json::Value::as_bool))
+            == Some(true)
 }
 
 pub(super) fn build_continuation_recovery_body(
     base_body: &[u8],
-    response_json: &serde_json::Value,
     marker_text: &str,
 ) -> Option<Vec<u8>> {
     let base_json = serde_json::from_slice::<serde_json::Value>(base_body).ok()?;
-    let reasoning_items = collect_continuation_reasoning_items(response_json);
-    if reasoning_items.is_empty() {
-        return None;
-    }
 
     let mut next_body = base_json
         .as_object()
         .cloned()
         .map(serde_json::Value::Object)
         .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(object) = next_body.as_object_mut() {
+        object.remove("previous_response_id");
+        remove_continuation_encrypted_include(object);
+    }
     next_body["stream"] = serde_json::Value::Bool(true);
-    merge_continuation_include(&mut next_body);
     next_body["input"] = serde_json::Value::Array(
         normalize_responses_input_for_continuation(base_json.get("input"))
             .into_iter()
-            .chain(reasoning_items)
             .chain(std::iter::once(build_continuation_marker_item(marker_text)))
             .collect(),
     );
@@ -501,9 +487,72 @@ pub(super) fn strip_encrypted_content_from_json(value: &mut serde_json::Value) {
     }
 }
 
+fn normalize_escaped_encrypted_content_key(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            output.push(ch);
+            continue;
+        }
+
+        let mut slash_count = 1usize;
+        while chars.peek() == Some(&'\\') {
+            slash_count += 1;
+            chars.next();
+        }
+
+        if chars
+            .peek()
+            .is_some_and(|next| *next == 'u' || *next == 'U')
+        {
+            chars.next();
+            let mut hex = String::with_capacity(4);
+            for _ in 0..4 {
+                let Some(next) = chars.peek().copied() else {
+                    break;
+                };
+                if next.is_ascii_hexdigit() {
+                    hex.push(next);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if hex.len() == 4 {
+                if let Ok(codepoint) = u32::from_str_radix(&hex, 16) {
+                    if (0x20..=0x7e).contains(&codepoint) {
+                        output.push(char::from_u32(codepoint).unwrap_or('?'));
+                        continue;
+                    }
+                }
+            }
+            output.push_str(&"\\".repeat(slash_count));
+            output.push('u');
+            output.push_str(&hex);
+            continue;
+        }
+
+        output.push_str(&"\\".repeat(slash_count));
+    }
+    output
+}
+
+fn text_may_contain_encrypted_content(text: &str) -> bool {
+    normalize_escaped_encrypted_content_key(text).contains("encrypted_content")
+}
+
+fn redact_encrypted_content_text(text: &str) -> String {
+    let normalized = normalize_escaped_encrypted_content_key(text);
+    if !normalized.contains("encrypted_content") {
+        return text.to_string();
+    }
+    normalized.replace("encrypted_content", "redacted_sensitive_content")
+}
+
 pub(super) fn strip_encrypted_content_from_sse(raw: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(raw);
-    if !text.contains("encrypted_content") {
+    if !text_may_contain_encrypted_content(&text) {
         return raw.to_vec();
     }
 
@@ -525,8 +574,13 @@ pub(super) fn strip_encrypted_content_from_sse(raw: &[u8]) -> Vec<u8> {
                 passthrough.push(line.to_string());
             }
         }
+        let sanitized_passthrough = passthrough
+            .iter()
+            .map(|line| redact_encrypted_content_text(line))
+            .collect::<Vec<_>>();
+
         if data_lines.is_empty() {
-            for line in passthrough {
+            for line in sanitized_passthrough {
                 output.push_str(&line);
                 output.push('\n');
             }
@@ -549,84 +603,52 @@ pub(super) fn strip_encrypted_content_from_sse(raw: &[u8]) -> Vec<u8> {
                     output.push_str(&event);
                     output.push('\n');
                 }
+                for line in &sanitized_passthrough {
+                    output.push_str(line);
+                    output.push('\n');
+                }
                 output.push_str("data: ");
                 output.push_str(&serde_json::to_string(&value).unwrap_or(data_text));
                 output.push_str("\n\n");
             }
             Err(_) => {
-                output.push_str(block);
-                output.push_str("\n\n");
+                if text_may_contain_encrypted_content(&data_text) {
+                    if let Some(event) = event_line {
+                        output.push_str(&event);
+                        output.push('\n');
+                    }
+                    for line in &sanitized_passthrough {
+                        output.push_str(line);
+                        output.push('\n');
+                    }
+                    output.push_str("data: {\"type\":\"gateway.redacted\",\"redacted\":true}\n\n");
+                } else {
+                    output.push_str(&redact_encrypted_content_text(block));
+                    output.push_str("\n\n");
+                }
             }
         }
     }
     output.into_bytes()
 }
 
-fn request_includes_encrypted_reasoning(value: &serde_json::Value) -> bool {
-    value
-        .get("include")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|items| {
-            items
-                .iter()
-                .any(|item| item.as_str() == Some(CONTINUATION_ENCRYPTED_INCLUDE))
-        })
-}
-
-fn merge_continuation_include(value: &mut serde_json::Value) {
-    let Some(object) = value.as_object_mut() else {
-        return;
-    };
-    let mut include = object
+fn remove_continuation_encrypted_include(object: &mut serde_json::Map<String, serde_json::Value>) {
+    let Some(include) = object
         .get("include")
         .and_then(serde_json::Value::as_array)
         .cloned()
-        .unwrap_or_default();
-    if !include
-        .iter()
-        .any(|item| item.as_str() == Some(CONTINUATION_ENCRYPTED_INCLUDE))
-    {
-        include.push(serde_json::Value::String(
-            CONTINUATION_ENCRYPTED_INCLUDE.to_string(),
-        ));
-    }
-    object.insert("include".to_string(), serde_json::Value::Array(include));
-}
-
-fn collect_continuation_reasoning_items(value: &serde_json::Value) -> Vec<serde_json::Value> {
-    let mut items = Vec::new();
-    collect_continuation_reasoning_items_from_value(value.get("item"), &mut items);
-    collect_continuation_reasoning_items_from_value(value.get("output"), &mut items);
-    collect_continuation_reasoning_items_from_value(value.pointer("/response/output"), &mut items);
-    items
-}
-
-fn collect_continuation_reasoning_items_from_value(
-    value: Option<&serde_json::Value>,
-    items: &mut Vec<serde_json::Value>,
-) {
-    let Some(value) = value else {
+    else {
         return;
     };
-    if is_continuation_reasoning_item(value) {
-        items.push(value.clone());
-        return;
+    let include = include
+        .into_iter()
+        .filter(|item| item.as_str() != Some(CONTINUATION_ENCRYPTED_INCLUDE))
+        .collect::<Vec<_>>();
+    if include.is_empty() {
+        object.remove("include");
+    } else {
+        object.insert("include".to_string(), serde_json::Value::Array(include));
     }
-    if let Some(values) = value.as_array() {
-        for item in values {
-            if is_continuation_reasoning_item(item) {
-                items.push(item.clone());
-            }
-        }
-    }
-}
-
-fn is_continuation_reasoning_item(value: &serde_json::Value) -> bool {
-    value.get("type").and_then(serde_json::Value::as_str) == Some("reasoning")
-        && value
-            .get("encrypted_content")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|text| !text.trim().is_empty())
 }
 
 fn normalize_responses_input_for_continuation(
@@ -635,22 +657,31 @@ fn normalize_responses_input_for_continuation(
     match value {
         Some(serde_json::Value::Array(items)) => items
             .iter()
-            .map(normalize_responses_input_item_for_continuation)
+            .filter_map(normalize_responses_input_item_for_continuation)
             .collect(),
-        Some(value) => vec![normalize_responses_input_item_for_continuation(value)],
+        Some(value) => normalize_responses_input_item_for_continuation(value)
+            .into_iter()
+            .collect(),
         None => Vec::new(),
     }
 }
 
-fn normalize_responses_input_item_for_continuation(value: &serde_json::Value) -> serde_json::Value {
+fn normalize_responses_input_item_for_continuation(
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
     if let Some(text) = value.as_str() {
-        return serde_json::json!({
+        return Some(serde_json::json!({
             "type": "message",
             "role": "user",
             "content": text,
-        });
+        }));
     }
-    value.clone()
+    if value.get("type").and_then(serde_json::Value::as_str) == Some("reasoning") {
+        return None;
+    }
+    let mut value = value.clone();
+    strip_encrypted_content_from_json(&mut value);
+    Some(value)
 }
 
 fn build_continuation_marker_item(marker_text: &str) -> serde_json::Value {
@@ -1511,5 +1542,86 @@ mod tests {
         assert_eq!(observation.reasoning_tokens, Some(516));
         assert!(observation.structure.has_output_text);
         assert!(observation.structure.final_answer_only());
+    }
+
+    #[test]
+    fn continuation_recovery_body_replays_original_input_without_encrypted_reasoning() {
+        let base = serde_json::json!({
+            "model": "gpt-5.4",
+            "stream": true,
+            "previous_response_id": "resp_old",
+            "include": ["reasoning.encrypted_content", "file_search_call.results"],
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hello",
+                    "encrypted_content": "secret"
+                },
+                {
+                    "type": "reasoning",
+                    "encrypted_content": "reasoning-secret"
+                }
+            ]
+        });
+        let body = build_continuation_recovery_body(
+            serde_json::to_vec(&base).unwrap().as_slice(),
+            "Continue thinking...",
+        )
+        .expect("continuation body");
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(value.get("previous_response_id").is_none());
+        assert_eq!(
+            value.get("include").unwrap(),
+            &serde_json::json!(["file_search_call.results"])
+        );
+        let input = value
+            .get("input")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+        assert_eq!(input.len(), 2);
+        assert_eq!(
+            input[0].get("type").and_then(serde_json::Value::as_str),
+            Some("message")
+        );
+        assert!(input[0].get("encrypted_content").is_none());
+        assert_eq!(
+            input[1]
+                .pointer("/content/0/channel")
+                .and_then(serde_json::Value::as_str),
+            Some("commentary")
+        );
+    }
+
+    #[test]
+    fn strip_encrypted_content_from_sse_redacts_malformed_payloads() {
+        let raw = b"event: response.output_item.done\ndata: {\"type\":\"reasoning\",\"encrypted_content\":\"secret\"\n\n\
+data: [DONE]\n\n";
+
+        let stripped = String::from_utf8(strip_encrypted_content_from_sse(raw)).unwrap();
+
+        assert!(!stripped.contains("encrypted_content"));
+        assert!(!stripped.contains("secret"));
+        assert!(stripped.contains("gateway.redacted"));
+        assert!(stripped.contains("data: [DONE]"));
+    }
+
+    #[test]
+    fn continuation_response_stripping_is_enabled_for_streaming_responses() {
+        let body = br#"{"stream":true,"include":["reasoning.encrypted_content"]}"#;
+
+        assert!(should_strip_encrypted_content_from_continuation_response(
+            "codex",
+            "/v1/responses",
+            CodexReasoningGuardStreamAction::ContinuationRecovery,
+            body,
+        ));
+        assert!(!should_strip_encrypted_content_from_continuation_response(
+            "codex",
+            "/v1/responses",
+            CodexReasoningGuardStreamAction::Strict502,
+            body,
+        ));
     }
 }

@@ -864,7 +864,24 @@ if ($targetPids.Count -gt 0) {
   Start-Sleep -Milliseconds 1500
 }
 
-Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
+$workingDirectory = Split-Path -Parent $exe
+$startArgs = @{ FilePath = $exe }
+if ($workingDirectory -and (Test-Path -LiteralPath $workingDirectory -PathType Container)) {
+  $startArgs.WorkingDirectory = $workingDirectory
+}
+
+try {
+  Start-Process @startArgs | Out-Null
+} catch {
+  # Some packaged installs expose Codex.exe under a directory that exists but
+  # cannot be used as a process working directory. Retry without it.
+  if ($startArgs.ContainsKey("WorkingDirectory")) {
+    $startArgs.Remove("WorkingDirectory")
+    Start-Process @startArgs | Out-Null
+  } else {
+    throw
+  }
+}
 
 $action = if ($targetPids.Count -gt 0) { "restarted" } else { "started" }
 $message = if ($targetPids.Count -gt 0) {

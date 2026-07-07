@@ -527,17 +527,18 @@ where
                 );
                 let continuation_body = if common.codex_reasoning_guard_stream_action
                     == crate::settings::CodexReasoningGuardStreamAction::ContinuationRecovery
+                    && matched.rule_mode
+                        == crate::settings::CodexReasoningGuardRuleMode::ReasoningTokens
                     && matches!(
                         budget_decision.action,
                         codex_reasoning_guard::CodexReasoningGuardBudgetAction::RetrySameProvider
                     ) {
                     retry_state
-                        .codex_last_request_body
+                        .codex_continuation_base_request_body
                         .as_ref()
                         .and_then(|base_body| {
                             codex_reasoning_guard::build_continuation_recovery_body(
                                 base_body.as_ref(),
-                                &aggregated,
                                 common
                                     .codex_reasoning_guard_continuation_marker_text
                                     .as_str(),
@@ -620,6 +621,7 @@ where
                         if let Some(next_body) = continuation_body {
                             retry_state.codex_continuation_request_body =
                                 Some(Bytes::from(next_body));
+                            retry_state.codex_strip_encrypted_reasoning_response = true;
                             retry_state.codex_continuation_recovery_count = retry_state
                                 .codex_continuation_recovery_count
                                 .saturating_add(1);
@@ -706,7 +708,7 @@ where
                 );
             }
 
-            let raw_for_client = if retry_state.codex_auto_added_encrypted_reasoning {
+            let raw_for_client = if retry_state.codex_strip_encrypted_reasoning_response {
                 Bytes::from(codex_reasoning_guard::strip_encrypted_content_from_sse(
                     raw.as_ref(),
                 ))

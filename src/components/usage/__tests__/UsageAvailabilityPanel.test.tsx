@@ -1,10 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UsageAvailabilityPanel } from "../UsageAvailabilityPanel";
 import { buildAvailabilityTimeline } from "../usageAvailabilityTimeline";
 import type { RequestLogSummary } from "../../../services/gateway/requestLogs";
 import type { GatewayProviderCircuitStatus } from "../../../services/gateway/gateway";
 import type { CliKey } from "../../../services/providers/providers";
+
+vi.mock("../../../query/serviceStatus", () => ({
+  useServiceStatusQuery: vi.fn(() => ({
+    data: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  })),
+}));
 
 function makeLog(
   overrides: Partial<RequestLogSummary> & { final_provider_id: number }
@@ -349,9 +359,19 @@ describe("buildAvailabilityTimeline", () => {
 });
 
 describe("UsageAvailabilityPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders loading and empty states", () => {
     const { rerender } = render(
-      <UsageAvailabilityPanel data={null} loading onRefresh={vi.fn()} refreshing={false} />
+      <UsageAvailabilityPanel
+        data={null}
+        loading
+        onRefresh={vi.fn()}
+        refreshing={false}
+        serviceStatusEnabled={false}
+      />
     );
 
     expect(screen.getByText("加载可用率数据中...")).toBeInTheDocument();
@@ -363,6 +383,7 @@ describe("UsageAvailabilityPanel", () => {
         loading={false}
         onRefresh={vi.fn()}
         refreshing={false}
+        serviceStatusEnabled={false}
       />
     );
 
@@ -414,7 +435,13 @@ describe("UsageAvailabilityPanel", () => {
     );
 
     render(
-      <UsageAvailabilityPanel data={data} loading={false} onRefresh={onRefresh} refreshing={true} />
+      <UsageAvailabilityPanel
+        data={data}
+        loading={false}
+        onRefresh={onRefresh}
+        refreshing={true}
+        serviceStatusEnabled={false}
+      />
     );
 
     expect(screen.getByText("供应商可用性时间线")).toBeInTheDocument();
@@ -465,6 +492,7 @@ describe("UsageAvailabilityPanel", () => {
         loading={false}
         onRefresh={onRefresh}
         refreshing={false}
+        serviceStatusEnabled={false}
       />
     );
 

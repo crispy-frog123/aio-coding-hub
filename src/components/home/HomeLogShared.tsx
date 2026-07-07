@@ -11,6 +11,7 @@ import {
   hasClaudeModelMappingSpecialSetting,
   parseRequestLogSpecialSettings,
   resolveClaudeModelMappingFromSpecialSettings,
+  resolveCodexReasoningGuardSummary,
 } from "../../services/gateway/requestLogSpecialSettings";
 import type { CliKey } from "../../services/providers/providers";
 import type { RequestLogRouteHop } from "../../services/gateway/requestLogs";
@@ -118,9 +119,14 @@ function auditTag(label: string, className: string, title?: string): RequestLogA
   return { label, className, title };
 }
 
+function compactAuditTitle(parts: Array<string | null | undefined>) {
+  return parts.filter((part): part is string => !!part).join(" · ");
+}
+
 export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogAuditMeta {
   const settings = parseRequestLogSpecialSettings(log.special_settings_json);
   const settingTypes = new Set(settings.flatMap((item) => (item.type ? [item.type] : [])));
+  const codexReasoningGuardSummary = resolveCodexReasoningGuardSummary(log.special_settings_json);
   const isWarmupIntercept = settingTypes.has("warmup_intercept");
   const isCliProxyGuard = settingTypes.has("cli_proxy_guard");
   const isSuccessful = typeof log.status === "number" && log.status >= 200 && log.status < 300;
@@ -173,6 +179,31 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
     );
   }
 
+  if (codexReasoningGuardSummary.count > 0) {
+    tags.push(
+      auditTag(
+        "降智命中",
+        "bg-rose-50/90 text-rose-700 ring-1 ring-inset ring-rose-500/15 dark:bg-rose-500/15 dark:text-rose-200 dark:ring-rose-400/25",
+        compactAuditTitle([
+          `Codex 降智拦截命中 ${codexReasoningGuardSummary.count} 次`,
+          codexReasoningGuardSummary.latestRuleLabel
+            ? `规则：${codexReasoningGuardSummary.latestRuleLabel}`
+            : null,
+          codexReasoningGuardSummary.latestReasoningTokens != null
+            ? `reasoning_tokens：${codexReasoningGuardSummary.latestReasoningTokens}`
+            : null,
+          codexReasoningGuardSummary.latestActionTaken
+            ? `动作：${codexReasoningGuardSummary.latestActionTaken}`
+            : null,
+          codexReasoningGuardSummary.latestBudgetRemaining != null &&
+          codexReasoningGuardSummary.latestBudgetTotal != null
+            ? `预算：${codexReasoningGuardSummary.latestBudgetRemaining}/${codexReasoningGuardSummary.latestBudgetTotal}`
+            : null,
+        ])
+      )
+    );
+  }
+
   if (excludedFromStats) {
     tags.push(
       auditTag(
@@ -197,7 +228,12 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
   }
 
   return {
-    muted: tags.length > 0,
+    muted:
+      isWarmupIntercept ||
+      isCliProxyGuard ||
+      isClientAbort ||
+      isAllProvidersUnavailable ||
+      excludedFromStats,
     summary,
     tags,
     providerFallbackText: isWarmupIntercept

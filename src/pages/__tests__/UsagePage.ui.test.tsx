@@ -138,6 +138,8 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
+
     expect(screen.getByRole("tab", { name: "用量" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "缓存走势图" })).toBeInTheDocument();
     expect(screen.getByText("Provider-1")).toBeInTheDocument();
@@ -183,13 +185,16 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "CLI" }));
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
+    expect(screen.getByRole("group", { name: "维度筛选" })).toBeInTheDocument();
     expect(screen.getByLabelText("供应商筛选")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "缓存走势图" }));
-    expect(screen.queryByRole("button", { name: "CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "维度筛选" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("供应商筛选")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "用量" }));
+    expect(screen.getByRole("group", { name: "维度筛选" })).toBeInTheDocument();
     expect(screen.getByLabelText("供应商筛选")).toBeInTheDocument();
   });
 
@@ -293,6 +298,7 @@ describe("pages/UsagePage (ui)", () => {
 
     renderWithProviders(<UsagePage />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     fireEvent.change(screen.getByLabelText("供应商筛选"), { target: { value: "11" } });
 
     expect(useUsageSummaryV2Query).toHaveBeenLastCalledWith(

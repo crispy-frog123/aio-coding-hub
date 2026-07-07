@@ -20,8 +20,8 @@ pub(super) struct RetryLoopState {
     pub(super) allow_next_retry_beyond_max_attempts: bool,
     pub(super) codex_reasoning_guard_hits: u32,
     pub(super) codex_continuation_request_body: Option<Bytes>,
-    pub(super) codex_last_request_body: Option<Bytes>,
-    pub(super) codex_auto_added_encrypted_reasoning: bool,
+    pub(super) codex_continuation_base_request_body: Option<Bytes>,
+    pub(super) codex_strip_encrypted_reasoning_response: bool,
     pub(super) codex_continuation_recovery_count: u32,
     pub(super) codex_continuation_recovery_success_count: u32,
 }
@@ -37,8 +37,8 @@ impl RetryLoopState {
             allow_next_retry_beyond_max_attempts: false,
             codex_reasoning_guard_hits: 0,
             codex_continuation_request_body: None,
-            codex_last_request_body: None,
-            codex_auto_added_encrypted_reasoning: false,
+            codex_continuation_base_request_body: None,
+            codex_strip_encrypted_reasoning_response: false,
             codex_continuation_recovery_count: 0,
             codex_continuation_recovery_success_count: 0,
         }
@@ -142,23 +142,6 @@ where
         prepared.upstream_body_bytes = next_body;
         prepared.strip_request_content_encoding = true;
         prepared.request_body_mutated_before_attempt = true;
-    } else if input.codex_reasoning_guard_enabled
-        && super::codex_reasoning_guard::should_auto_include_encrypted_reasoning(
-            input.cli_key.as_str(),
-            input.forwarded_path.as_str(),
-            input.codex_reasoning_guard_rule_mode,
-            input.codex_reasoning_guard_stream_action,
-            input.codex_request_kind,
-        )
-    {
-        if let Some(next_body) = super::codex_reasoning_guard::maybe_add_continuation_include(
-            &prepared.upstream_body_bytes,
-        ) {
-            prepared.upstream_body_bytes = Bytes::from(next_body);
-            prepared.strip_request_content_encoding = true;
-            prepared.request_body_mutated_before_attempt = true;
-            retry_state.codex_auto_added_encrypted_reasoning = true;
-        }
     }
 
     // --- Clean body + send upstream ---
@@ -232,7 +215,18 @@ where
     headers = semantic_headers;
     let upstream_body = body_state_for_attempt
         .finalize_for_upstream(&mut headers, crate::gateway::util::max_request_body_bytes());
-    retry_state.codex_last_request_body = Some(upstream_body.clone());
+    if retry_state.codex_continuation_base_request_body.is_none()
+        && input.codex_reasoning_guard_enabled
+        && super::codex_reasoning_guard::should_strip_encrypted_content_from_continuation_response(
+            input.cli_key.as_str(),
+            input.forwarded_path.as_str(),
+            input.codex_reasoning_guard_stream_action,
+            upstream_body.as_ref(),
+        )
+    {
+        retry_state.codex_continuation_base_request_body = Some(upstream_body.clone());
+        retry_state.codex_strip_encrypted_reasoning_response = true;
+    }
 
     emit_upstream_attempt_fingerprint(
         ctx,

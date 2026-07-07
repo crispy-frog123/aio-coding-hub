@@ -8,8 +8,8 @@ It is intentionally a mapping and update checklist, not a user guide.
 
 - Upstream repository: `https://github.com/nonononull/codex-retry-gateway`
 - Upstream branch: `main`
-- Last reviewed upstream commit: `170bdd200da094d2cf9039f4304f1f8136e812d4`
-- Last reviewed upstream subject: `Merge pull request #20 from nonononull/codex/complete-continuation-readme`
+- Last reviewed upstream commit: `827c9188974d8191a8413792bcc450c994efc2c5`
+- Last reviewed upstream subject: `Merge pull request #23 from nonononull/codex/semantic-continuation-recovery`
 - AIO integration style: manual Rust/React reimplementation inside AIO, not vendoring or executing upstream `gateway.mjs`.
 
 When updating this integration, first compare upstream changes from the commit above. Do not replace AIO gateway code with `gateway.mjs`.
@@ -123,7 +123,7 @@ AIO buffers Codex Responses event streams when:
 
 The stream is aggregated through `protocol_bridge::stream::aggregate_responses_event_stream`, then inspected through the same guard helper used by non-stream responses.
 
-For `stream_action = continuation_recovery`, AIO auto-adds `reasoning.encrypted_content` to eligible Codex Responses stream requests when needed, strips encrypted reasoning from the client-visible output, and on a guard hit retries the same provider with the preserved encrypted reasoning item plus the configured continuation marker. Continuation attempts and successes are written to request-log special settings and reasoning analytics.
+For `stream_action = continuation_recovery`, AIO follows upstream `827c918`: continuation recovery is only used for `reasoning_tokens` rule-mode hits on Codex Responses streams. AIO no longer auto-adds `reasoning.encrypted_content`, no longer replays hit-round encrypted reasoning items, and no longer carries `previous_response_id` into continuation requests. A continuation retry is built from the original stream request input plus the configured commentary marker; original input reasoning items and `encrypted_content` fields are filtered before replay. When continuation recovery is active, client-visible SSE output is sanitized so `encrypted_content` is not exposed, including malformed SSE fallback paths. Continuation attempts and successes are written to request-log special settings and reasoning analytics.
 
 For `stream_action = strict_502` and `disconnect`, AIO keeps its own Rust gateway/failover semantics rather than executing upstream `gateway.mjs`; these modes remain compatibility choices exposed through settings and UI.
 
@@ -163,7 +163,7 @@ These upstream areas are not fully ported as one-to-one features:
 | `intercept_streaming` / `intercept_non_streaming` flags | Not exposed with the same names. AIO has one Codex reasoning guard enable switch. |
 | `guard_retry_attempts` | Replaced by AIO immediate/delayed retry budgets. |
 | `retry_upstream_capacity_errors` UI toggle | Not exposed as a separate AIO setting. AIO ports the default upstream behavior for Codex capacity errors and uses the existing guard retry budget. |
-| `stream_action` internals | Exposed in AIO settings/UI, but implemented through AIO's Rust retry/failover loop rather than upstream's Node stream plumbing. |
+| `stream_action` internals | Exposed in AIO settings/UI and now follows upstream's semantic continuation recovery rules, but remains implemented through AIO's Rust retry/failover loop rather than upstream's Node stream plumbing. |
 | model consistency monitor | Not fully ported. AIO request logs and provider availability are separate systems. |
 | `active_probe` scheduled probes | Not fully ported. AIO has provider availability/service status features, but not upstream's exact active-probe suite. |
 | standalone reasoning analytics dashboard/export/import/background jobs | Partially ported. AIO has an internal Reasoning Guard page and analytics storage/API shape for desktop use, but does not reuse upstream's standalone Node management UI. |
@@ -178,14 +178,14 @@ Use this process whenever upstream `codex-retry-gateway` changes.
    ```powershell
    $up = "$env:TEMP\codex-retry-gateway-upstream"
    git -C $up fetch origin main
-   git -C $up log --oneline 170bdd200da094d2cf9039f4304f1f8136e812d4..origin/main
-   git -C $up diff --name-status 170bdd200da094d2cf9039f4304f1f8136e812d4..origin/main
+   git -C $up log --oneline 827c9188974d8191a8413792bcc450c994efc2c5..origin/main
+   git -C $up diff --name-status 827c9188974d8191a8413792bcc450c994efc2c5..origin/main
    ```
 
 2. Review the upstream diff by concern.
 
    ```powershell
-   git -C $up diff 170bdd200da094d2cf9039f4304f1f8136e812d4..origin/main -- gateway.mjs config.example.json README.md err.md
+   git -C $up diff 827c9188974d8191a8413792bcc450c994efc2c5..origin/main -- gateway.mjs config.example.json README.md err.md
    ```
 
 3. Classify upstream changes before editing AIO.

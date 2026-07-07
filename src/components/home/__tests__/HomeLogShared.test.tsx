@@ -185,6 +185,31 @@ describe("components/home/HomeLogShared", () => {
     expect(plain).toMatchObject({ muted: false, summary: null, providerFallbackText: null });
   });
 
+  it("marks Codex reasoning guard hits without muting successful request logs", () => {
+    const meta = buildRequestLogAuditMeta({
+      cli_key: "codex",
+      path: "/v1/responses",
+      status: 200,
+      special_settings_json: JSON.stringify([
+        {
+          type: "codex_reasoning_guard",
+          ruleMode: "final_answer_only_high_xhigh",
+          reasoningTokens: null,
+          actionTaken: "continuation_recovery",
+          guardBudgetRemaining: 4,
+          guardBudgetTotal: 5,
+        },
+      ]),
+    });
+
+    expect(meta.muted).toBe(false);
+    expect(meta.summary).toBeNull();
+    expect(meta.tags.map((tag) => tag.label)).toContain("降智命中");
+    expect(meta.tags.find((tag) => tag.label === "降智命中")?.title).toContain(
+      "final-answer-only / high,xhigh"
+    );
+  });
+
   it("computes status badges across success, failover, errors, and client aborts", () => {
     expect(computeStatusBadge({ status: null, errorCode: null, inProgress: true })).toMatchObject({
       text: "进行中",
