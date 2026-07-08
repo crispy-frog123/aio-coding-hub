@@ -934,6 +934,7 @@ pub async fn refresh_snapshots(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
     use crate::providers;
     use crate::providers::{ProviderBaseUrlMode, ProviderUpsertParams};
 
@@ -990,6 +991,7 @@ mod tests {
 
     fn create_provider(
         db: &db::Db,
+        cli_key: &str,
         name: &str,
         auth_mode: Option<providers::ProviderAuthMode>,
         base_urls: Vec<String>,
@@ -1000,7 +1002,7 @@ mod tests {
             db,
             ProviderUpsertParams {
                 provider_id: None,
-                cli_key: "codex".to_string(),
+                cli_key: cli_key.to_string(),
                 name: name.to_string(),
                 base_urls,
                 base_url_mode: ProviderBaseUrlMode::Order,
@@ -1034,6 +1036,7 @@ mod tests {
         let db = db::init_for_tests(&dir.path().join("test.db")).expect("init db");
         create_provider(
             &db,
+            "codex",
             "ok",
             Some(providers::ProviderAuthMode::ApiKey),
             vec!["https://ok.example.com".to_string()],
@@ -1042,14 +1045,16 @@ mod tests {
         );
         create_provider(
             &db,
+            "codex",
             "oauth",
             Some(providers::ProviderAuthMode::Oauth),
-            vec!["https://oauth.example.com".to_string()],
-            Some("sk-oauth".to_string()),
+            Vec::new(),
+            None,
             None,
         );
         create_provider(
             &db,
+            "codex",
             "no-key",
             Some(providers::ProviderAuthMode::ApiKey),
             vec!["https://nokey.example.com".to_string()],
@@ -1058,14 +1063,15 @@ mod tests {
         );
         create_provider(
             &db,
+            "claude",
             "cx2cc",
             Some(providers::ProviderAuthMode::ApiKey),
-            vec!["https://cx.example.com".to_string()],
+            Vec::new(),
             Some("sk-cx".to_string()),
             Some(providers::CX2CC_BRIDGE_TYPE.to_string()),
         );
 
-        let sources = list_sources(&db, Some("codex")).expect("list sources");
+        let sources = list_sources(&db, None).expect("list sources");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "ok");
     }
