@@ -146,7 +146,9 @@ jobs:
         run: pnpm test:e2e
 
       - name: Unit tests (Vitest + coverage gate)
-        run: pnpm test:unit:coverage
+        env:
+          VITEST_MAX_WORKERS: "2"
+        run: pnpm test:unit:coverage:shards
 
       - name: Build frontend
         run: pnpm build
@@ -154,6 +156,11 @@ jobs:
   rust:
     needs: support-contract
     runs-on: ubuntu-22.04
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -215,8 +222,6 @@ jobs:
 
       - name: Rust test
         working-directory: src-tauri
-        env:
-          CARGO_BUILD_JOBS: "1"
         run: cargo test --locked -- --test-threads=1
 
       - name: Install cargo-audit

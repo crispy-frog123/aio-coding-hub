@@ -341,6 +341,7 @@ export function ReasoningGuardPage() {
   const [importJsonText, setImportJsonText] = useState("");
 
   const analyticsPollingMs = activePageTab === "analytics" ? ANALYTICS_REFETCH_INTERVAL_MS : false;
+  const analyticsSinceCreatedAtMs = statsWindow === "session" ? appSessionStartedAtMs : null;
   const sessionStatsQuery = useRequestLogsCodexReasoningGuardStatsQuery(appSessionStartedAtMs, {
     refetchIntervalMs: analyticsPollingMs,
   });
@@ -351,6 +352,7 @@ export function ReasoningGuardPage() {
     {
       dateFrom: null,
       dateTo: null,
+      sinceCreatedAtMs: analyticsSinceCreatedAtMs,
       recentLimit: ANALYTICS_RECENT_LIMIT,
     },
     {
@@ -362,6 +364,7 @@ export function ReasoningGuardPage() {
     {
       dateFrom: null,
       dateTo: null,
+      sinceCreatedAtMs: analyticsSinceCreatedAtMs,
       reasoningTokens: [516],
     },
     {
@@ -1112,6 +1115,7 @@ export function ReasoningGuardPage() {
                         const result = await analyticsExportMutation.mutateAsync({
                           dateFrom: null,
                           dateTo: null,
+                          sinceCreatedAtMs: analyticsSinceCreatedAtMs,
                           format: "json",
                         });
                         downloadTextFile(
@@ -1131,6 +1135,7 @@ export function ReasoningGuardPage() {
                         const result = await analyticsExportMutation.mutateAsync({
                           dateFrom: null,
                           dateTo: null,
+                          sinceCreatedAtMs: analyticsSinceCreatedAtMs,
                           format: "csv",
                         });
                         downloadTextFile(

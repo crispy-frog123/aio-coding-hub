@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SHARD_COUNT = 4;
+const STABILITY_ARGS = process.env.CI ? " --no-file-parallelism" : "";
 const NO_THRESHOLDS = [
   "--coverage.thresholds.statements=0",
   "--coverage.thresholds.branches=0",
@@ -29,7 +30,7 @@ rmSync(resolve(repoRoot, ".vitest-reports"), { recursive: true, force: true });
 for (let shard = 1; shard <= SHARD_COUNT; shard += 1) {
   console.log(`[coverage-shards] shard ${shard}/${SHARD_COUNT}`);
   run(
-    `pnpm exec vitest run --reporter=blob --coverage ${NO_THRESHOLDS} --shard=${shard}/${SHARD_COUNT}`
+    `pnpm exec vitest run --reporter=blob --coverage ${NO_THRESHOLDS}${STABILITY_ARGS} --shard=${shard}/${SHARD_COUNT}`
   );
 }
 

@@ -4,7 +4,7 @@ use crate::db;
 use crate::shared::error::{db_err, AppResult};
 use crate::shared::time::now_unix_seconds;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, params_from_iter};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -29,6 +29,7 @@ pub struct CodexReasoningAnalyticsBackfillInput {
 pub struct CodexReasoningAnalyticsSnapshotInput {
     pub date_from: Option<String>,
     pub date_to: Option<String>,
+    pub since_created_at_ms: Option<i64>,
     pub recent_limit: Option<u32>,
 }
 
@@ -51,6 +52,7 @@ pub enum CodexReasoningAnalyticsExportFormat {
 pub struct CodexReasoningAnalyticsExportInput {
     pub date_from: Option<String>,
     pub date_to: Option<String>,
+    pub since_created_at_ms: Option<i64>,
     pub format: CodexReasoningAnalyticsExportFormat,
 }
 
@@ -59,6 +61,7 @@ pub struct CodexReasoningAnalyticsExportInput {
 pub struct CodexReasoningAnalyticsAnalyzeInput {
     pub date_from: Option<String>,
     pub date_to: Option<String>,
+    pub since_created_at_ms: Option<i64>,
     pub reasoning_tokens: Option<Vec<i64>>,
 }
 
@@ -887,10 +890,13 @@ fn load_samples(
     db: &db::Db,
     date_from: Option<&str>,
     date_to: Option<&str>,
+    since_created_at_ms: Option<i64>,
     limit: Option<u32>,
 ) -> AppResult<Vec<CodexReasoningAnalyticsSample>> {
     let date_from = validate_date_key(date_from)?;
     let date_to = validate_date_key(date_to)?;
+    let since_created_at_ms =
+        since_created_at_ms.filter(|value| *value > 0 && *value < 4_102_444_800_000);
     if let (Some(from), Some(to)) = (&date_from, &date_to) {
         if to < from {
             return Err("SEC_INVALID_INPUT: date_to must be after date_from".into());
@@ -898,14 +904,17 @@ fn load_samples(
     }
     let conn = db.open_connection()?;
     let mut conditions = Vec::new();
-    let mut values = Vec::new();
+    let mut date_values = Vec::new();
     if let Some(from) = &date_from {
         conditions.push("date_key >= ?");
-        values.push(from.clone());
+        date_values.push(from.clone());
     }
     if let Some(to) = &date_to {
         conditions.push("date_key <= ?");
-        values.push(to.clone());
+        date_values.push(to.clone());
+    }
+    if since_created_at_ms.is_some() {
+        conditions.push("created_at_ms >= ?");
     }
     let where_sql = if conditions.is_empty() {
         String::new()
@@ -920,10 +929,15 @@ fn load_samples(
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| db_err!("failed to prepare reasoning analytics sample query: {e}"))?;
+    let mut values: Vec<&dyn rusqlite::ToSql> = Vec::new();
+    for value in &date_values {
+        values.push(value);
+    }
+    if let Some(value) = &since_created_at_ms {
+        values.push(value);
+    }
     let rows = stmt
-        .query_map(params_from_iter(values.iter()), |row| {
-            row.get::<_, String>(0)
-        })
+        .query_map(values.as_slice(), |row| row.get::<_, String>(0))
         .map_err(|e| db_err!("failed to query reasoning analytics samples: {e}"))?;
     let mut samples = Vec::new();
     for row in rows {
@@ -1324,7 +1338,13 @@ pub fn snapshot(
     let date_from = validate_date_key(input.date_from.as_deref())?;
     let date_to = validate_date_key(input.date_to.as_deref())?;
     let recent_limit = normalize_limit(input.recent_limit, DEFAULT_RECENT_LIMIT, MAX_RECENT_LIMIT);
-    let samples = load_samples(db, date_from.as_deref(), date_to.as_deref(), None)?;
+    let samples = load_samples(
+        db,
+        date_from.as_deref(),
+        date_to.as_deref(),
+        input.since_created_at_ms,
+        None,
+    )?;
     Ok(snapshot_from_samples(
         samples,
         date_from,
@@ -1471,12 +1491,19 @@ pub fn export(
 ) -> AppResult<CodexReasoningAnalyticsExport> {
     let date_from = validate_date_key(input.date_from.as_deref())?;
     let date_to = validate_date_key(input.date_to.as_deref())?;
-    let samples = load_samples(db, date_from.as_deref(), date_to.as_deref(), None)?;
-    let suffix = match (&date_from, &date_to) {
-        (Some(from), Some(to)) => format!("{from}_{to}"),
-        (Some(from), None) => format!("{from}_latest"),
-        (None, Some(to)) => format!("until_{to}"),
-        (None, None) => "all".to_string(),
+    let samples = load_samples(
+        db,
+        date_from.as_deref(),
+        date_to.as_deref(),
+        input.since_created_at_ms,
+        None,
+    )?;
+    let suffix = match (&date_from, &date_to, input.since_created_at_ms) {
+        (Some(from), Some(to), _) => format!("{from}_{to}"),
+        (Some(from), None, _) => format!("{from}_latest"),
+        (None, Some(to), _) => format!("until_{to}"),
+        (None, None, Some(_)) => "session".to_string(),
+        (None, None, None) => "all".to_string(),
     };
     match input.format {
         CodexReasoningAnalyticsExportFormat::Json => {
@@ -1561,7 +1588,13 @@ pub fn analyze(
 ) -> AppResult<CodexReasoningAnalysisResult> {
     let date_from = validate_date_key(input.date_from.as_deref())?;
     let date_to = validate_date_key(input.date_to.as_deref())?;
-    let samples = load_samples(db, date_from.as_deref(), date_to.as_deref(), None)?;
+    let samples = load_samples(
+        db,
+        date_from.as_deref(),
+        date_to.as_deref(),
+        input.since_created_at_ms,
+        None,
+    )?;
     let coverage = field_coverage(&samples);
     let mut missing_core = Vec::new();
     if coverage.reasoning_tokens <= 0.0 {

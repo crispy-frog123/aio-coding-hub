@@ -62,6 +62,7 @@ export const codexReasoningAnalyticsKeys = {
   snapshot: (input: {
     dateFrom: string | null;
     dateTo: string | null;
+    sinceCreatedAtMs?: number | null;
     recentLimit: number | null;
   }) =>
     [
@@ -69,11 +70,13 @@ export const codexReasoningAnalyticsKeys = {
       "snapshot",
       input.dateFrom,
       input.dateTo,
+      input.sinceCreatedAtMs ?? null,
       input.recentLimit,
     ] as const,
   analyze: (input: {
     dateFrom: string | null;
     dateTo: string | null;
+    sinceCreatedAtMs?: number | null;
     reasoningTokens: readonly number[] | null;
   }) =>
     [
@@ -81,6 +84,7 @@ export const codexReasoningAnalyticsKeys = {
       "analyze",
       input.dateFrom,
       input.dateTo,
+      input.sinceCreatedAtMs ?? null,
       normalizeKeyParts((input.reasoningTokens ?? []).map(String)),
     ] as const,
 };
