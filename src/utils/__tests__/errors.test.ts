@@ -75,6 +75,31 @@ describe("utils/errors", () => {
     expect(formatUnknownError(err)).toContain('"bad":"[Unreadable]"');
   });
 
+  it("formatUnknownError serializes objects with function fields safely", () => {
+    const err = {
+      toJSON() {
+        return undefined;
+      },
+      toString() {
+        return "fallback-string";
+      },
+    };
+
+    expect(formatUnknownError(err)).toBe('{"toJSON":"[Function]","toString":"[Function]"}');
+  });
+
+  it("formatUnknownError still sanitizes objects even when custom methods throw", () => {
+    const err = Object.create(null);
+    err.toJSON = () => {
+      throw new Error("serialize boom");
+    };
+    err.toString = () => {
+      throw new Error("string boom");
+    };
+
+    expect(formatUnknownError(err)).toBe('{"toJSON":"[Function]","toString":"[Function]"}');
+  });
+
   it("parseErrorCodeMessage parses code prefix", () => {
     expect(parseErrorCodeMessage("GW_UPSTREAM_TIMEOUT: hello")).toEqual({
       error_code: "GW_UPSTREAM_TIMEOUT",

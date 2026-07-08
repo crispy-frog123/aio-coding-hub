@@ -1058,7 +1058,7 @@ mod tests {
             "no-key",
             Some(providers::ProviderAuthMode::ApiKey),
             vec!["https://nokey.example.com".to_string()],
-            Some("".to_string()),
+            Some("sk-temp".to_string()),
             None,
         );
         create_provider(
@@ -1070,6 +1070,14 @@ mod tests {
             Some("sk-cx".to_string()),
             Some(providers::CX2CC_BRIDGE_TYPE.to_string()),
         );
+
+        db.open_connection()
+            .expect("open db")
+            .execute(
+                "UPDATE providers SET api_key_plaintext = '' WHERE cli_key = ?1 AND name = ?2",
+                rusqlite::params!["codex", "no-key"],
+            )
+            .expect("clear api key");
 
         let sources = list_sources(&db, None).expect("list sources");
         assert_eq!(sources.len(), 1);
