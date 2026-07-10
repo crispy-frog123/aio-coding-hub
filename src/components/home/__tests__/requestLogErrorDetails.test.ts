@@ -147,6 +147,8 @@ describe("components/home/requestLogErrorDetails", () => {
           count: 3,
           providerNames: ["Provider A", "Provider B"],
           timeoutSecs: 300,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
         },
       ]);
     });
@@ -164,12 +166,16 @@ describe("components/home/requestLogErrorDetails", () => {
           count: 2,
           providerNames: ["Provider A"],
           timeoutSecs: null,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
         },
         {
           errorCode: GatewayErrorCodes.UPSTREAM_TIMEOUT,
           count: 1,
           providerNames: ["Provider A"],
           timeoutSecs: 30,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
         },
       ]);
     });
@@ -191,6 +197,8 @@ describe("components/home/requestLogErrorDetails", () => {
           count: 1,
           providerNames: ["Provider A"],
           timeoutSecs: null,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
         },
       ]);
     });
@@ -206,6 +214,57 @@ describe("components/home/requestLogErrorDetails", () => {
           count: 1,
           providerNames: ["Provider A"],
           timeoutSecs: null,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
+        },
+      ]);
+    });
+
+    it("carries circuit trigger code and latest recovery point for gate-skip attempts", () => {
+      const summary = buildAttemptFailureSummary([
+        createAttempt({
+          outcome: "skipped",
+          error_code: GatewayErrorCodes.PROVIDER_CIRCUIT_OPEN,
+          circuit_trigger_error_code: GatewayErrorCodes.UPSTREAM_TIMEOUT,
+          circuit_recover_at_unix: 1_750_001_800,
+        }),
+        createAttempt({
+          provider_id: 2,
+          provider_name: "Provider B",
+          outcome: "skipped",
+          error_code: GatewayErrorCodes.PROVIDER_CIRCUIT_OPEN,
+          circuit_recover_at_unix: 1_750_002_000,
+        }),
+      ]);
+
+      expect(summary).toEqual([
+        {
+          errorCode: GatewayErrorCodes.PROVIDER_CIRCUIT_OPEN,
+          count: 2,
+          providerNames: ["Provider A", "Provider B"],
+          timeoutSecs: null,
+          circuitTriggerErrorCode: GatewayErrorCodes.UPSTREAM_TIMEOUT,
+          circuitRecoverAtUnix: 1_750_002_000,
+        },
+      ]);
+    });
+
+    it("degrades to null attribution when the new fields are absent (legacy logs)", () => {
+      const summary = buildAttemptFailureSummary([
+        createAttempt({
+          outcome: "skipped",
+          error_code: GatewayErrorCodes.PROVIDER_CIRCUIT_OPEN,
+        }),
+      ]);
+
+      expect(summary).toEqual([
+        {
+          errorCode: GatewayErrorCodes.PROVIDER_CIRCUIT_OPEN,
+          count: 1,
+          providerNames: ["Provider A"],
+          timeoutSecs: null,
+          circuitTriggerErrorCode: null,
+          circuitRecoverAtUnix: null,
         },
       ]);
     });
@@ -229,6 +288,8 @@ describe("components/home/requestLogErrorDetails", () => {
             count: 3,
             providerNames: ["Provider A"],
             timeoutSecs: 30,
+            circuitTriggerErrorCode: null,
+            circuitRecoverAtUnix: null,
           },
         ],
       })

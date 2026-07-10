@@ -6,6 +6,7 @@ import {
 } from "../../constants/gatewayErrorCodes";
 import type { RequestLogErrorObservation } from "./requestLogErrorDetails";
 import { DisclosureSection } from "./DisclosureSection";
+import { formatCircuitRecovery } from "../../utils/formatters";
 
 export type RequestLogErrorObservationCardProps = {
   observation: RequestLogErrorObservation | null;
@@ -85,6 +86,12 @@ export function RequestLogErrorObservationCard({
                 {getGatewayErrorShortLabel(group.errorCode)} ×{group.count}（
                 {group.providerNames.join("、")}
                 {group.timeoutSecs != null ? `，${group.timeoutSecs} 秒` : ""}）
+                {group.circuitTriggerErrorCode
+                  ? ` 触发：${getGatewayErrorShortLabel(group.circuitTriggerErrorCode)}`
+                  : ""}
+                {group.circuitRecoverAtUnix != null
+                  ? `，${formatCircuitRecovery(group.circuitRecoverAtUnix)}`
+                  : ""}
               </div>
             ))}
           </div>

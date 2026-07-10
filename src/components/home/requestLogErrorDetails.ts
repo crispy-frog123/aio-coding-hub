@@ -43,6 +43,11 @@ export type AttemptFailureGroup = {
   // Max structured timeout_secs within the group; non-null only for the
   // GW_UPSTREAM_TIMEOUT group (never derived from outcome strings).
   timeoutSecs: number | null;
+  // Circuit attribution from gate-skip attempts: the error code that tripped
+  // the breaker (first seen) and the latest recovery point in the group.
+  // Both degrade to null for logs without attribution (e.g. after restart).
+  circuitTriggerErrorCode: string | null;
+  circuitRecoverAtUnix: number | null;
 };
 
 export type RequestLogErrorObservation = {
@@ -131,6 +136,8 @@ export function buildAttemptFailureSummary(
       count: 0,
       providerNames: [],
       timeoutSecs: null,
+      circuitTriggerErrorCode: null,
+      circuitRecoverAtUnix: null,
     };
     group.count += 1;
 
@@ -143,6 +150,18 @@ export function buildAttemptFailureSummary(
     if (errorCode === GatewayErrorCodes.UPSTREAM_TIMEOUT && timeoutSecs != null) {
       group.timeoutSecs =
         group.timeoutSecs == null ? timeoutSecs : Math.max(group.timeoutSecs, timeoutSecs);
+    }
+
+    const triggerErrorCode = asOptionalString(attempt.circuit_trigger_error_code);
+    if (triggerErrorCode && group.circuitTriggerErrorCode == null) {
+      group.circuitTriggerErrorCode = triggerErrorCode;
+    }
+    const recoverAtUnix = asFiniteNumber(attempt.circuit_recover_at_unix);
+    if (recoverAtUnix != null) {
+      group.circuitRecoverAtUnix =
+        group.circuitRecoverAtUnix == null
+          ? recoverAtUnix
+          : Math.max(group.circuitRecoverAtUnix, recoverAtUnix);
     }
 
     groups.set(errorCode, group);

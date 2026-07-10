@@ -24,6 +24,10 @@ export type AttemptJsonEntry = {
   circuit_state_after?: string | null;
   circuit_failure_count?: number | null;
   circuit_failure_threshold?: number | null;
+  // Circuit attribution for gate-skip attempts; the backend omits both keys
+  // entirely on success and non-circuit paths (space constraint).
+  circuit_recover_at_unix?: number | null;
+  circuit_trigger_error_code?: string | null;
   timeout_secs?: number | null;
 };
 

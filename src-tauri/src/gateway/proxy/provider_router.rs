@@ -15,6 +15,9 @@ pub(super) struct GateProviderArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) earliest_available_unix: &'a mut Option<i64>,
     pub(super) skipped_open: &'a mut usize,
     pub(super) skipped_cooldown: &'a mut usize,
+    /// Filled with the circuit snapshot when the gate denies, so callers can
+    /// attach circuit attribution to the skipped attempt.
+    pub(super) deny_snapshot: &'a mut Option<circuit_breaker::CircuitSnapshot>,
 }
 
 pub(super) fn gate_provider<R: tauri::Runtime>(
@@ -32,6 +35,7 @@ pub(super) fn gate_provider<R: tauri::Runtime>(
         earliest_available_unix,
         skipped_open,
         skipped_cooldown,
+        deny_snapshot,
     } = args;
 
     let allow = circuit.should_allow(provider_id, now_unix);
@@ -55,6 +59,7 @@ pub(super) fn gate_provider<R: tauri::Runtime>(
     }
 
     let snap = allow.after;
+    *deny_snapshot = Some(snap.clone());
     let reason = match snap.state {
         circuit_breaker::CircuitState::Open => {
             *skipped_open = skipped_open.saturating_add(1);
@@ -93,6 +98,9 @@ pub(super) fn gate_provider<R: tauri::Runtime>(
                 cooldown_until: snap.cooldown_until,
                 reason,
                 ts: now_unix,
+                // Non-transition skip event: no trigger-failure attribution.
+                trigger_error_code: None,
+                first_byte_timeout_secs: None,
             },
         );
     }
@@ -242,7 +250,7 @@ pub(in crate::gateway) fn record_failure_and_emit_transition(
         first_byte_timeout_secs,
     } = args;
 
-    let change = circuit.record_failure(provider_id, now_unix);
+    let change = circuit.record_failure(provider_id, now_unix, trigger_error_code);
     if let (Some(app), Some(t)) = (app, change.transition.as_ref()) {
         emit_circuit_transition(
             app,
@@ -293,6 +301,7 @@ mod tests {
         let mut earliest: Option<i64> = None;
         let mut skipped_open = 0usize;
         let mut skipped_cooldown = 0usize;
+        let mut deny_snapshot = None;
 
         let snap = gate_provider(TestGateProviderArgs {
             app: None,
@@ -306,6 +315,7 @@ mod tests {
             earliest_available_unix: &mut earliest,
             skipped_open: &mut skipped_open,
             skipped_cooldown: &mut skipped_cooldown,
+            deny_snapshot: &mut deny_snapshot,
         })
         .expect("should allow");
 
@@ -324,7 +334,7 @@ mod tests {
         let pid = 1;
         let now = 1_000;
 
-        cb.record_failure(pid, now);
+        cb.record_failure(pid, now, None);
         let open = cb.snapshot(pid, now);
         assert_eq!(open.state, circuit_breaker::CircuitState::Open);
         let open_until = open.open_until.expect("open_until");
@@ -332,6 +342,7 @@ mod tests {
         let mut earliest: Option<i64> = None;
         let mut skipped_open = 0usize;
         let mut skipped_cooldown = 0usize;
+        let mut deny_snapshot = None;
 
         let allowed = gate_provider(TestGateProviderArgs {
             app: None,
@@ -345,6 +356,7 @@ mod tests {
             earliest_available_unix: &mut earliest,
             skipped_open: &mut skipped_open,
             skipped_cooldown: &mut skipped_cooldown,
+            deny_snapshot: &mut deny_snapshot,
         });
 
         assert!(allowed.is_none());
@@ -369,6 +381,7 @@ mod tests {
         let mut earliest: Option<i64> = None;
         let mut skipped_open = 0usize;
         let mut skipped_cooldown = 0usize;
+        let mut deny_snapshot = None;
 
         let allowed = gate_provider(TestGateProviderArgs {
             app: None,
@@ -382,6 +395,7 @@ mod tests {
             earliest_available_unix: &mut earliest,
             skipped_open: &mut skipped_open,
             skipped_cooldown: &mut skipped_cooldown,
+            deny_snapshot: &mut deny_snapshot,
         });
 
         assert!(allowed.is_none());
@@ -398,12 +412,13 @@ mod tests {
         });
         let pid = 1;
         let now = 1_000;
-        cb.record_failure(pid, now);
+        cb.record_failure(pid, now, None);
         let open_until = cb.snapshot(pid, now).open_until.expect("open_until");
 
         let mut earliest: Option<i64> = None;
         let mut skipped_open = 0usize;
         let mut skipped_cooldown = 0usize;
+        let mut deny_snapshot = None;
 
         let snap = gate_provider(TestGateProviderArgs {
             app: None,
@@ -417,6 +432,7 @@ mod tests {
             earliest_available_unix: &mut earliest,
             skipped_open: &mut skipped_open,
             skipped_cooldown: &mut skipped_cooldown,
+            deny_snapshot: &mut deny_snapshot,
         })
         .expect("should allow after expiry");
 
@@ -484,7 +500,7 @@ mod tests {
         });
         let pid = 1;
         let now = 1_000;
-        cb.record_failure(pid, now);
+        cb.record_failure(pid, now, None);
         assert!(cb.snapshot(pid, now).failure_count > 0);
 
         let change = record_success_and_emit_transition(TestRecordCircuitArgs::new(

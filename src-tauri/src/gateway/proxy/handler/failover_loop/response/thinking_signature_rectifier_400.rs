@@ -403,6 +403,8 @@ pub(super) async fn handle_thinking_rectifiers_400<R: tauri::Runtime>(
             circuit_state_after,
             circuit_failure_count,
             circuit_failure_threshold,
+            circuit_recover_at_unix: None,
+            circuit_trigger_error_code: None,
             provider_bridged: Some(provider_ctx.provider_bridged),
             timeout_secs: None,
         });

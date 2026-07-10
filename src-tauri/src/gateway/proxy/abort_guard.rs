@@ -179,6 +179,8 @@ mod tests {
             circuit_state_after: None,
             circuit_failure_count: Some(0),
             circuit_failure_threshold: Some(5),
+            circuit_recover_at_unix: None,
+            circuit_trigger_error_code: None,
             provider_bridged: Some(true),
             timeout_secs: None,
         };

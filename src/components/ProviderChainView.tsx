@@ -5,6 +5,7 @@ import { Globe, AlertTriangle, Zap, ChevronDown, ArrowRight } from "lucide-react
 import { getGatewayErrorShortLabel } from "../constants/gatewayErrorCodes";
 import { DisclosureSection } from "./home/DisclosureSection";
 import { parseAttemptsJson, type AttemptJsonEntry } from "../services/gateway/attemptsJson";
+import { formatCircuitRecovery } from "../utils/formatters";
 
 export type ProviderChainAttemptLog = {
   attempt_index: number;
@@ -39,6 +40,8 @@ type ProviderChainAttempt = {
   circuit_state_after: string | null;
   circuit_failure_count: number | null;
   circuit_failure_threshold: number | null;
+  circuit_recover_at_unix: number | null;
+  circuit_trigger_error_code: string | null;
 };
 
 export function ProviderChainView({
@@ -86,6 +89,8 @@ export function ProviderChainView({
         circuit_state_after: a.circuit_state_after ?? null,
         circuit_failure_count: a.circuit_failure_count ?? null,
         circuit_failure_threshold: a.circuit_failure_threshold ?? null,
+        circuit_recover_at_unix: a.circuit_recover_at_unix ?? null,
+        circuit_trigger_error_code: a.circuit_trigger_error_code ?? null,
       }));
     }
 
@@ -123,6 +128,8 @@ export function ProviderChainView({
           circuit_state_after: json?.circuit_state_after ?? null,
           circuit_failure_count: json?.circuit_failure_count ?? null,
           circuit_failure_threshold: json?.circuit_failure_threshold ?? null,
+          circuit_recover_at_unix: json?.circuit_recover_at_unix ?? null,
+          circuit_trigger_error_code: json?.circuit_trigger_error_code ?? null,
         };
       });
 
@@ -335,10 +342,29 @@ function AttemptCard({
             ) : null}
 
             {hasCircuitBreaker ? (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Zap className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-muted-foreground">熔断器:</span>
                 <CircuitBadge attempt={attempt} />
+                {attempt.circuit_trigger_error_code ? (
+                  <span className="text-sm text-muted-foreground">
+                    触发：{getGatewayErrorShortLabel(attempt.circuit_trigger_error_code)}
+                  </span>
+                ) : null}
+                {attempt.circuit_recover_at_unix != null ? (
+                  <span className="text-sm text-muted-foreground">
+                    {formatCircuitRecovery(attempt.circuit_recover_at_unix)}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {skipped && attempt.reason ? (
+              <div className="rounded-lg border border-border bg-secondary/50 px-3 py-2">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">跳过原因</div>
+                <pre className="whitespace-pre-wrap break-all text-xs font-mono text-secondary-foreground leading-relaxed">
+                  {attempt.reason}
+                </pre>
               </div>
             ) : null}
 

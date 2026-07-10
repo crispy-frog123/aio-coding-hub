@@ -110,6 +110,7 @@ export const usageKeys = {
       cliKey: CliKey | null;
       providerId: number | null;
       folderKeys?: readonly string[] | null;
+      dayStartHour?: number | null;
       excludeCx2CcGatewayBridge?: boolean | null;
     }
   ) =>
@@ -122,6 +123,7 @@ export const usageKeys = {
       input.cliKey,
       input.providerId,
       normalizeKeyParts(input.folderKeys ?? []),
+      input.dayStartHour ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
   leaderboardV2: (
@@ -134,6 +136,7 @@ export const usageKeys = {
       providerId: number | null;
       limit: number | null;
       folderKeys?: readonly string[] | null;
+      dayStartHour?: number | null;
       excludeCx2CcGatewayBridge?: boolean | null;
     }
   ) =>
@@ -148,6 +151,7 @@ export const usageKeys = {
       input.providerId,
       input.limit,
       normalizeKeyParts(input.folderKeys ?? []),
+      input.dayStartHour ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
   dayDetailV1: (input: {
@@ -156,6 +160,7 @@ export const usageKeys = {
     providerId: number | null;
     folderLimit: number | null;
     folderKeys?: readonly string[] | null;
+    dayStartHour?: number | null;
     excludeCx2CcGatewayBridge?: boolean | null;
   }) =>
     [
@@ -166,6 +171,7 @@ export const usageKeys = {
       input.providerId,
       input.folderLimit,
       normalizeKeyParts(input.folderKeys ?? []),
+      input.dayStartHour ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
   dayDetailV1Disabled: () => [...usageAllKey, "dayDetailV1", "disabled"] as const,
@@ -176,6 +182,7 @@ export const usageKeys = {
       endTs: number | null;
       cliKey: CliKey | null;
       providerId: number | null;
+      dayStartHour?: number | null;
       excludeCx2CcGatewayBridge?: boolean | null;
     }
   ) =>
@@ -187,6 +194,7 @@ export const usageKeys = {
       input.endTs,
       input.cliKey,
       input.providerId,
+      input.dayStartHour ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
   providerCacheRateTrendV1: (
