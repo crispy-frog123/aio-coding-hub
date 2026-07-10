@@ -85,6 +85,7 @@ import {
   applySettingsRuntimeSnapshot,
   resetSettingsRuntimeController,
 } from "../app/settingsRuntimeController";
+import { getAppSessionStartedAtMs, resetAppSessionStartedAtMsForTests } from "../app/appSession";
 
 async function renderApp() {
   const { default: App } = await import("../App");
@@ -99,6 +100,7 @@ async function renderApp() {
 describe("App bootstrap", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAppSessionStartedAtMsForTests();
     vi.mocked(listenAppHeartbeat).mockResolvedValue(() => {});
     vi.mocked(listenGatewayEvents).mockResolvedValue(() => {});
     vi.mocked(listenNoticeEvents).mockResolvedValue(() => {});
@@ -117,9 +119,11 @@ describe("App bootstrap", () => {
   });
 
   it("wires listeners, startup tasks, and settings-driven toggles", async () => {
+    expect(getAppSessionStartedAtMs()).toBeNull();
     await renderApp();
 
     await vi.waitFor(() => {
+      expect(getAppSessionStartedAtMs()).toEqual(expect.any(Number));
       expect(listenAppHeartbeat).toHaveBeenCalledTimes(1);
       expect(listenAppStartupStatusSnapshot).toHaveBeenCalledTimes(1);
       expect(listenGatewayEvents).toHaveBeenCalledTimes(1);
