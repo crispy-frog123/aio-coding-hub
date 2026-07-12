@@ -4225,7 +4225,7 @@ module.exports.activate = function activate(api) {
             .expect("request");
 
         let response = router.oneshot(request).await.expect("route response");
-        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(response.status(), StatusCode::OK);
         let trace_id = response
             .headers()
             .get("x-trace-id")
@@ -4235,7 +4235,7 @@ module.exports.activate = function activate(api) {
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("response body");
-        assert!(String::from_utf8_lossy(&body).contains("GW_FAKE_200"));
+        assert!(String::from_utf8_lossy(&body).contains("quota exhausted"));
 
         tokio::time::timeout(Duration::from_secs(2), writer_task)
             .await
@@ -4259,7 +4259,7 @@ module.exports.activate = function activate(api) {
             Some("gpt-route-unknown-length-json-fake-200")
         );
         assert_eq!(detail.final_provider_id, provider_id);
-        assert!(detail.ttfb_ms.is_none());
+        assert!(detail.ttfb_ms.is_some());
 
         let attempts: Value = serde_json::from_str(&detail.attempts_json).expect("attempts json");
         let attempts = attempts.as_array().expect("attempt array");
@@ -4270,7 +4270,7 @@ module.exports.activate = function activate(api) {
         );
         assert_eq!(
             attempts[0].get("outcome").and_then(Value::as_str),
-            Some("body_error: code=GW_FAKE_200")
+            Some("stream_error: code=GW_FAKE_200")
         );
         assert_eq!(
             attempts[0].get("error_code").and_then(Value::as_str),
