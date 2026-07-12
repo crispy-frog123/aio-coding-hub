@@ -29,7 +29,25 @@ pub(super) async fn record_system_failure_and_decide<R: tauri::Runtime>(
 pub(super) async fn record_system_failure_and_decide_no_cooldown<R: tauri::Runtime>(
     args: RecordSystemFailureArgs<'_, R>,
 ) -> LoopControl {
-    record_system_failure_and_decide_impl(args, CooldownPolicy::Skip).await
+    record_failure_and_decide_impl(
+        args,
+        CooldownPolicy::Skip,
+        CircuitRecordPolicy::Always,
+        ErrorCategory::SystemError,
+    )
+    .await
+}
+
+pub(super) async fn record_transient_provider_failure_and_decide<R: tauri::Runtime>(
+    args: RecordSystemFailureArgs<'_, R>,
+) -> LoopControl {
+    record_failure_and_decide_impl(
+        args,
+        CooldownPolicy::Skip,
+        CircuitRecordPolicy::TerminalOnly,
+        ErrorCategory::ProviderError,
+    )
+    .await
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,9 +56,30 @@ enum CooldownPolicy {
     Skip,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum CircuitRecordPolicy {
+    Always,
+    TerminalOnly,
+}
+
 async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
     args: RecordSystemFailureArgs<'_, R>,
     cooldown_policy: CooldownPolicy,
+) -> LoopControl {
+    record_failure_and_decide_impl(
+        args,
+        cooldown_policy,
+        CircuitRecordPolicy::Always,
+        ErrorCategory::SystemError,
+    )
+    .await
+}
+
+async fn record_failure_and_decide_impl<R: tauri::Runtime>(
+    args: RecordSystemFailureArgs<'_, R>,
+    cooldown_policy: CooldownPolicy,
+    circuit_record_policy: CircuitRecordPolicy,
+    category: ErrorCategory,
 ) -> LoopControl {
     let RecordSystemFailureArgs {
         ctx,
@@ -80,7 +119,6 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
         abort_guard: _,
     } = loop_state;
 
-    let category = ErrorCategory::SystemError;
     let effective_status = status_override::effective_status(status, Some(error_code));
 
     let is_count_tokens =
@@ -92,7 +130,7 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
     let mut circuit_failure_count = Some(circuit_before.failure_count);
     let circuit_failure_threshold = Some(circuit_before.failure_threshold);
 
-    if !is_count_tokens {
+    if should_record_circuit_failure(circuit_record_policy, decision, is_count_tokens) {
         let change = provider_router::record_failure_and_emit_transition(
             provider_router::RecordCircuitArgs::from_state(
                 ctx.state,
@@ -190,6 +228,22 @@ async fn record_system_failure_and_decide_impl<R: tauri::Runtime>(
     }
 }
 
+fn should_record_circuit_failure(
+    policy: CircuitRecordPolicy,
+    decision: FailoverDecision,
+    is_count_tokens: bool,
+) -> bool {
+    if is_count_tokens {
+        return false;
+    }
+    match policy {
+        CircuitRecordPolicy::Always => true,
+        CircuitRecordPolicy::TerminalOnly => {
+            !matches!(decision, FailoverDecision::RetrySameProvider)
+        }
+    }
+}
+
 fn system_failure_decision_after_circuit_record(
     decision: FailoverDecision,
     is_count_tokens: bool,
@@ -225,8 +279,9 @@ fn system_failure_outcome_after_decision_override(
 #[cfg(test)]
 mod tests {
     use super::{
-        circuit_breaker, system_failure_decision_after_circuit_record,
-        system_failure_outcome_after_decision_override, FailoverDecision,
+        circuit_breaker, should_record_circuit_failure,
+        system_failure_decision_after_circuit_record,
+        system_failure_outcome_after_decision_override, CircuitRecordPolicy, FailoverDecision,
     };
 
     #[test]
@@ -273,5 +328,24 @@ mod tests {
 
         assert!(outcome.contains("decision=switch"));
         assert!(!outcome.contains("decision=retry"));
+    }
+
+    #[test]
+    fn transient_provider_failure_only_updates_circuit_when_switching() {
+        assert!(!should_record_circuit_failure(
+            CircuitRecordPolicy::TerminalOnly,
+            FailoverDecision::RetrySameProvider,
+            false,
+        ));
+        assert!(should_record_circuit_failure(
+            CircuitRecordPolicy::TerminalOnly,
+            FailoverDecision::SwitchProvider,
+            false,
+        ));
+        assert!(should_record_circuit_failure(
+            CircuitRecordPolicy::Always,
+            FailoverDecision::RetrySameProvider,
+            false,
+        ));
     }
 }

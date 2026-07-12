@@ -70,6 +70,7 @@ export type RequestLogErrorObservation = {
   rawDetailsText: string | null;
   reason: string | null;
   reasonCode: string | null;
+  recovered: boolean;
   retryIndex: number | null;
   selectionMethod: string | null;
   source: "error_details_json" | "summary";
@@ -282,6 +283,39 @@ function parseErrorDetailsJson(
   }
 }
 
+function parseFailedAttempt(attempts: AttemptJsonEntry[] | null): ParsedErrorDetailsJson | null {
+  const attempt = attempts
+    ?.slice()
+    .reverse()
+    .find((entry) => asOptionalString(entry.error_code) != null);
+  if (!attempt) return null;
+
+  const reasonFields = parseReasonFields(attempt.reason);
+  return {
+    attemptDurationMs: asFiniteNumber(attempt.attempt_duration_ms),
+    circuitFailureCount: asFiniteNumber(attempt.circuit_failure_count),
+    circuitFailureThreshold: asFiniteNumber(attempt.circuit_failure_threshold),
+    circuitStateAfter: asOptionalString(attempt.circuit_state_after),
+    circuitStateBefore: asOptionalString(attempt.circuit_state_before),
+    decision: asOptionalString(attempt.decision),
+    errorCategory: asOptionalString(attempt.error_category),
+    errorCode: asOptionalString(attempt.error_code),
+    gatewayErrorCode: null,
+    matchedRule: reasonFields.matchedRule,
+    outcome: asOptionalString(attempt.outcome),
+    providerId: asFiniteNumber(attempt.provider_id),
+    providerIndex: asFiniteNumber(attempt.provider_index),
+    providerName: asOptionalString(attempt.provider_name),
+    rawDetailsText: null,
+    reason: reasonFields.reason,
+    reasonCode: asOptionalString(attempt.reason_code),
+    retryIndex: asFiniteNumber(attempt.retry_index),
+    selectionMethod: asOptionalString(attempt.selection_method),
+    upstreamBodyPreview: reasonFields.upstreamBodyPreview,
+    upstreamStatus: asFiniteNumber(attempt.status),
+  };
+}
+
 function hasObservationSignal(input: RequestLogErrorObservation) {
   return (
     input.displayErrorCode != null ||
@@ -311,12 +345,27 @@ export function resolveRequestLogErrorObservation(
 ): RequestLogErrorObservation | null {
   if (!selectedLog) return null;
 
-  const parsedJson = parseErrorDetailsJson(selectedLog.error_details_json);
+  const attempts = parseAttemptsJson(selectedLog.attempts_json);
+  const attemptFailureSummary = buildAttemptFailureSummary(attempts);
+  const isSuccessfulRequest =
+    selectedLog.status != null &&
+    selectedLog.status >= 200 &&
+    selectedLog.status < 300 &&
+    selectedLog.error_code == null;
+  const recovered = isSuccessfulRequest && attemptFailureSummary != null;
+
+  // Older logs may contain final success diagnostics in error_details_json.
+  // A clean 2xx request is never an error observation regardless of that field.
+  if (isSuccessfulRequest && !recovered) return null;
+
+  const parsedJson =
+    (recovered ? parseFailedAttempt(attempts) : null) ??
+    parseErrorDetailsJson(selectedLog.error_details_json);
   const gatewayErrorCode = parsedJson.gatewayErrorCode ?? selectedLog.error_code ?? null;
   const displayErrorCode = parsedJson.errorCode ?? gatewayErrorCode;
   const observation: RequestLogErrorObservation = {
     attemptDurationMs: parsedJson.attemptDurationMs,
-    attemptFailureSummary: buildAttemptFailureSummary(parseAttemptsJson(selectedLog.attempts_json)),
+    attemptFailureSummary,
     circuitFailureCount: parsedJson.circuitFailureCount,
     circuitFailureThreshold: parsedJson.circuitFailureThreshold,
     circuitStateAfter: parsedJson.circuitStateAfter,
@@ -334,6 +383,7 @@ export function resolveRequestLogErrorObservation(
     rawDetailsText: parsedJson.rawDetailsText,
     reason: parsedJson.reason,
     reasonCode: parsedJson.reasonCode,
+    recovered,
     retryIndex: parsedJson.retryIndex,
     selectionMethod: parsedJson.selectionMethod,
     source: selectedLog.error_details_json != null ? "error_details_json" : "summary",
@@ -353,6 +403,7 @@ export function resolveRequestLogErrorObservation(
       displayErrorCode: selectedLog.error_code ?? null,
       gatewayErrorCode: selectedLog.error_code ?? null,
       gwDescription: lookupGatewayErrorDescription(selectedLog.error_code ?? null),
+      recovered: false,
       source: "summary",
       upstreamStatus:
         selectedLog.status != null && selectedLog.status >= 400 ? selectedLog.status : null,

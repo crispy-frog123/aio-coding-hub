@@ -1,4 +1,4 @@
-//! Usage: Fixed model service status Tauri command.
+//! Usage: Dynamic status.input.im model service status Tauri command.
 
 use crate::domain::service_status;
 

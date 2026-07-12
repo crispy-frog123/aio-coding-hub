@@ -402,8 +402,9 @@ where
         abort_guard,
     } = loop_state;
 
-    let should_inspect_codex_reasoning_guard =
-        common.codex_reasoning_guard_enabled && common.cli_key == "codex";
+    let should_inspect_codex_reasoning_guard = common.codex_reasoning_guard_enabled
+        && common.cli_key == "codex"
+        && codex_reasoning_guard::is_responses_path(common.forwarded_path.as_str());
     strip_hop_headers(&mut response_headers);
     let cx2cc_buffered_event_stream = cx2cc_active && is_event_stream(&response_headers);
     if should_passthrough_non_stream_success(
@@ -1116,7 +1117,7 @@ where
 
     if should_inspect_codex_reasoning_guard {
         if let Ok(body_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-            if let Some(matched) = codex_reasoning_guard::detect_from_json(
+            let guard_evaluation = codex_reasoning_guard::evaluate_from_json(
                 common.cli_key.as_str(),
                 common.requested_model.as_deref(),
                 &body_json,
@@ -1129,7 +1130,15 @@ where
                     fallback_values: common.codex_reasoning_guard_reasoning_equals.as_slice(),
                     model_rules: common.codex_reasoning_guard_model_rules.as_slice(),
                 },
-            ) {
+            );
+            codex_reasoning_guard::push_check_special_setting(
+                &common.special_settings,
+                provider_id,
+                provider_ctx_owned.provider_name_base.as_str(),
+                retry_index,
+                &guard_evaluation,
+            );
+            if let Some(matched) = guard_evaluation.matched {
                 let budget_decision = codex_reasoning_guard::budget_decision(
                     retry_state.codex_reasoning_guard_hits,
                     common.codex_reasoning_guard_immediate_retry_budget,

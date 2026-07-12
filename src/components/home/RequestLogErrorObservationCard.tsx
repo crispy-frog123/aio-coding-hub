@@ -1,4 +1,4 @@
-import { AlertTriangle, Lightbulb } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lightbulb } from "lucide-react";
 import { Card } from "../../ui/Card";
 import {
   GatewayErrorDescriptions,
@@ -40,37 +40,61 @@ export function RequestLogErrorObservationCard({
     detailFields.length > 0 ||
     observation.upstreamBodyPreview != null ||
     observation.rawDetailsText != null;
+  const recovered = observation.recovered;
+  const StatusIcon = recovered ? CheckCircle2 : AlertTriangle;
 
   return (
-    <Card padding="sm">
+    <Card
+      padding="sm"
+      className={recovered ? "border-emerald-200/70 dark:border-emerald-500/25" : undefined}
+    >
       <div className="space-y-2.5">
         {/* Header: error code badge + description */}
         <div className="flex flex-wrap items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400" />
+          <StatusIcon
+            className={
+              recovered
+                ? "mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                : "mt-0.5 h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400"
+            }
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
+              {recovered ? (
+                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                  切换前失败，最终已成功
+                </span>
+              ) : null}
               {observation.displayErrorCode ? (
-                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                <span
+                  className={
+                    recovered
+                      ? "rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                      : "rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                  }
+                >
                   {shortLabel !== observation.displayErrorCode
                     ? `${shortLabel} (${observation.displayErrorCode})`
                     : observation.displayErrorCode}
                 </span>
               ) : null}
-              {desc ? <span className="text-sm font-medium text-foreground">{desc}</span> : null}
+              {!recovered && desc ? (
+                <span className="text-sm font-medium text-foreground">{desc}</span>
+              ) : null}
             </div>
 
             {/* Reason text (if no desc available, show reason as primary text) */}
-            {!desc && observation.reason ? (
+            {!recovered && !desc && observation.reason ? (
               <p className="mt-1 text-sm text-secondary-foreground">{observation.reason}</p>
             ) : null}
-            {!desc && !observation.reason && fallbackTitle ? (
+            {!recovered && !desc && !observation.reason && fallbackTitle ? (
               <p className="text-sm font-medium text-foreground">{fallbackTitle}</p>
             ) : null}
           </div>
         </div>
 
         {/* Suggestion */}
-        {suggestion ? (
+        {!recovered && suggestion ? (
           <div className="flex items-start gap-2 rounded-lg bg-amber-50/60 px-3 py-2 dark:bg-amber-900/15">
             <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-xs text-amber-800 dark:text-amber-300">{suggestion}</p>
@@ -98,7 +122,7 @@ export function RequestLogErrorObservationCard({
         ) : null}
 
         {/* Dominant failure-code suggestion when it differs from the displayed terminal code */}
-        {dominantSuggestion ? (
+        {!recovered && dominantSuggestion ? (
           <div className="flex items-start gap-2 rounded-lg bg-amber-50/60 px-3 py-2 dark:bg-amber-900/15">
             <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-xs text-amber-800 dark:text-amber-300">{dominantSuggestion}</p>

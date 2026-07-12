@@ -101,6 +101,32 @@ describe("components/home/requestLogPresentation", () => {
     );
   });
 
+  it("marks checked Codex responses and shows the miss reason", () => {
+    const meta = buildRequestLogAuditMeta({
+      cli_key: "codex",
+      path: "/v1/responses",
+      status: 200,
+      special_settings_json: JSON.stringify([
+        {
+          type: "codex_reasoning_guard_check",
+          checked: true,
+          matched: false,
+          ruleMode: "reasoning_tokens",
+          reasoningMatchMode: "formula_518n_minus_2",
+          reasoningTokens: 700,
+          reasoningEffort: "xhigh",
+          missReason: "reasoning_tokens_not_formula_match",
+        },
+      ]),
+    });
+
+    expect(meta.muted).toBe(false);
+    expect(meta.tags.map((tag) => tag.label)).toContain("降智已检查");
+    expect(meta.tags.find((tag) => tag.label === "降智已检查")?.title).toContain(
+      "reasoning_tokens 不符合 518n-2"
+    );
+  });
+
   it("computes status badges across success, failover, errors, and client aborts", () => {
     expect(computeStatusBadge({ status: null, errorCode: null, inProgress: true })).toMatchObject({
       text: "进行中",

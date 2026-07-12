@@ -1,13 +1,14 @@
-//! Usage: Fixed model service status monitor backed by status.input.im.
+//! Usage: Dynamic model service status monitor backed by status.input.im.
 
 use crate::shared::error::AppError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::time::Duration;
 
 const STATUS_ENDPOINT: &str = "https://status.input.im/api/status";
 const STATUS_TIMEOUT_SECS: u64 = 20;
-pub const MONITORED_MODELS: &[&str] = &["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
+const MAX_MONITORED_SERVICES: usize = 64;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -154,11 +155,15 @@ fn convert_probe(value: RawProbe) -> ServiceStatusProbe {
 }
 
 fn convert_response(raw: RawResponse) -> ServiceStatusResponse {
+    let mut seen_models = HashSet::new();
     let services = raw
         .services
         .into_iter()
-        .filter(|service| MONITORED_MODELS.contains(&service.model.as_str()))
-        .map(|service| {
+        .filter_map(|mut service| {
+            service.model = service.model.trim().to_string();
+            if service.model.is_empty() || !seen_models.insert(service.model.clone()) {
+                return None;
+            }
             let last = service.last.map(convert_probe);
             let history = service
                 .history
@@ -166,15 +171,16 @@ fn convert_response(raw: RawResponse) -> ServiceStatusResponse {
                 .map(convert_probe)
                 .collect::<Vec<_>>();
             let latest_kind = classify_probe(last.as_ref());
-            ServiceStatusService {
+            Some(ServiceStatusService {
                 model: service.model,
                 uptime_pct: service.uptime_pct,
                 last,
                 history,
                 latest_kind,
                 status_text: status_text(latest_kind).to_string(),
-            }
+            })
         })
+        .take(MAX_MONITORED_SERVICES)
         .collect::<Vec<_>>();
 
     ServiceStatusResponse {
@@ -289,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_monitored_services_with_string_numbers() {
+    fn decodes_dynamic_services_with_string_numbers() {
         let raw: RawResponse = serde_json::from_str(
             r#"{
               "all_ok": true,
@@ -310,7 +316,7 @@ mod tests {
         )
         .expect("decode");
         let response = convert_response(raw);
-        assert_eq!(response.services.len(), 1);
+        assert_eq!(response.services.len(), 2);
         assert_eq!(response.services[0].model, "gpt-5.5");
         assert_eq!(response.services[0].uptime_pct, Some(81.67));
         assert_eq!(
@@ -321,5 +327,29 @@ mod tests {
             response.services[0].history[1].kind,
             ServiceStatusCellKind::Red
         );
+        assert_eq!(response.services[1].model, "other");
+    }
+
+    #[test]
+    fn dynamic_services_preserve_order_and_drop_blank_or_duplicate_models() {
+        let raw: RawResponse = serde_json::from_str(
+            r#"{
+              "services": [
+                {"model":" gpt-5.6-sol ","history":[]},
+                {"model":"","history":[]},
+                {"model":"gpt-5.6-terra","history":[]},
+                {"model":"gpt-5.6-sol","history":[]}
+              ]
+            }"#,
+        )
+        .expect("decode");
+
+        let response = convert_response(raw);
+        let models = response
+            .services
+            .iter()
+            .map(|service| service.model.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(models, vec!["gpt-5.6-sol", "gpt-5.6-terra"]);
     }
 }

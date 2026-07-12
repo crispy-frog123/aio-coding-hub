@@ -74,7 +74,7 @@ mod upstream_error;
 use crate::gateway::proxy::request_context::RequestContext;
 use attempt_record::{
     record_system_failure_and_decide, record_system_failure_and_decide_no_cooldown,
-    RecordSystemFailureArgs,
+    record_transient_provider_failure_and_decide, RecordSystemFailureArgs,
 };
 use codex_chatgpt::{
     is_codex_chatgpt_backend, maybe_apply_codex_chatgpt_request_compat,

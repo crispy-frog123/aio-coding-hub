@@ -24,6 +24,7 @@ const baseObservation: RequestLogErrorObservation = {
   rawDetailsText: null,
   reason: null,
   reasonCode: null,
+  recovered: false,
   retryIndex: null,
   selectionMethod: null,
   source: "summary",

@@ -473,16 +473,30 @@ where
             ) {
                 Ok(value) => value,
                 Err(err) => {
-                    let error_code = GatewayErrorCode::InternalError.as_str();
-                    let decision = FailoverDecision::SwitchProvider;
+                    let overloaded = is_retryable_upstream_overload(&err);
+                    let error_code = if overloaded {
+                        GatewayErrorCode::UpstreamOverloaded.as_str()
+                    } else {
+                        GatewayErrorCode::InternalError.as_str()
+                    };
+                    let category = if overloaded {
+                        ErrorCategory::ProviderError
+                    } else {
+                        ErrorCategory::SystemError
+                    };
+                    let decision = if overloaded && retry_index < max_attempts_per_provider {
+                        FailoverDecision::RetrySameProvider
+                    } else {
+                        FailoverDecision::SwitchProvider
+                    };
                     let outcome = format!(
                             "codex_event_stream_aggregate_error: category={} code={} decision={} err={err}",
-                            ErrorCategory::SystemError.as_str(),
+                            category.as_str(),
                             error_code,
                             decision.as_str(),
                         );
 
-                    return record_system_failure_and_decide_no_cooldown(RecordSystemFailureArgs {
+                    let args = RecordSystemFailureArgs {
                         ctx,
                         provider_ctx,
                         attempt_ctx,
@@ -493,18 +507,30 @@ where
                             circuit_snapshot,
                             abort_guard,
                         },
-                        status: Some(status.as_u16()),
+                        status: Some(if overloaded {
+                            StatusCode::SERVICE_UNAVAILABLE.as_u16()
+                        } else {
+                            status.as_u16()
+                        }),
                         error_code,
                         decision,
                         outcome,
                         reason: format!("failed to aggregate Codex responses event-stream: {err}"),
                         timeout_secs: None,
-                    })
-                    .await;
+                    };
+                    let control = if overloaded {
+                        record_transient_provider_failure_and_decide(args).await
+                    } else {
+                        record_system_failure_and_decide_no_cooldown(args).await
+                    };
+                    if overloaded && matches!(control, LoopControl::ContinueRetry) {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                    return control;
                 }
             };
 
-            if let Some(matched) = codex_reasoning_guard::detect_from_json(
+            let guard_evaluation = codex_reasoning_guard::evaluate_from_json(
                 common.cli_key.as_str(),
                 common.requested_model.as_deref(),
                 &aggregated,
@@ -517,7 +543,15 @@ where
                     fallback_values: common.codex_reasoning_guard_reasoning_equals.as_slice(),
                     model_rules: common.codex_reasoning_guard_model_rules.as_slice(),
                 },
-            ) {
+            );
+            codex_reasoning_guard::push_check_special_setting(
+                &common.special_settings,
+                provider_id,
+                provider_ctx_owned.provider_name_base.as_str(),
+                retry_index,
+                &guard_evaluation,
+            );
+            if let Some(matched) = guard_evaluation.matched {
                 let mut budget_decision = codex_reasoning_guard::budget_decision(
                     retry_state.codex_reasoning_guard_hits,
                     common.codex_reasoning_guard_immediate_retry_budget,
@@ -1117,4 +1151,28 @@ where
     }
 
     unreachable!("expected event-stream response")
+}
+
+fn is_retryable_upstream_overload(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("code=server_is_overloaded") || error.contains("type=service_unavailable_error")
+}
+
+#[cfg(test)]
+mod overload_tests {
+    use super::is_retryable_upstream_overload;
+
+    #[test]
+    fn recognizes_explicit_upstream_overload_errors_only() {
+        assert!(is_retryable_upstream_overload(
+            "Our servers are currently overloaded. type=service_unavailable_error code=server_is_overloaded"
+        ));
+        assert!(is_retryable_upstream_overload("code=server_is_overloaded"));
+        assert!(!is_retryable_upstream_overload(
+            "model unsupported type=invalid_request_error code=unsupported_value"
+        ));
+        assert!(!is_retryable_upstream_overload(
+            "invalid utf-8 in SSE frame"
+        ));
+    }
 }

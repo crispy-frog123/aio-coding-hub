@@ -8,6 +8,7 @@ export const GatewayErrorCodes = {
   NO_ENABLED_PROVIDER: "GW_NO_ENABLED_PROVIDER",
   UPSTREAM_TIMEOUT: "GW_UPSTREAM_TIMEOUT",
   UPSTREAM_CONNECT_FAILED: "GW_UPSTREAM_CONNECT_FAILED",
+  UPSTREAM_OVERLOADED: "GW_UPSTREAM_OVERLOADED",
   UPSTREAM_5XX: "GW_UPSTREAM_5XX",
   UPSTREAM_4XX: "GW_UPSTREAM_4XX",
   UPSTREAM_READ_ERROR: "GW_UPSTREAM_READ_ERROR",
@@ -51,6 +52,7 @@ const GatewayErrorShortLabels = {
   [GatewayErrorCodes.NO_ENABLED_PROVIDER]: "无供应商",
   [GatewayErrorCodes.UPSTREAM_TIMEOUT]: "上游超时",
   [GatewayErrorCodes.UPSTREAM_CONNECT_FAILED]: "连接失败",
+  [GatewayErrorCodes.UPSTREAM_OVERLOADED]: "上游过载",
   [GatewayErrorCodes.UPSTREAM_5XX]: "上游5XX",
   [GatewayErrorCodes.UPSTREAM_4XX]: "上游4XX",
   [GatewayErrorCodes.UPSTREAM_READ_ERROR]: "读取错误",
@@ -110,6 +112,10 @@ export const GatewayErrorDescriptions = {
   GW_UPSTREAM_CONNECT_FAILED: {
     desc: "无法连接到上游服务",
     suggestion: "Provider 不可达。请检查网络连接和 Provider 的 Base URL 是否正确。",
+  },
+  GW_UPSTREAM_OVERLOADED: {
+    desc: "上游服务当前过载",
+    suggestion: "系统会先重试当前 Provider；达到该 Provider 的最大尝试次数后再切换。",
   },
   GW_UPSTREAM_5XX: {
     desc: "上游服务返回服务端错误 (5xx)",

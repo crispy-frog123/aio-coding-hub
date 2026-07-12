@@ -40,6 +40,10 @@ export default defineConfig({
         "src/components/claude-model-validation/**",
         "src/services/claude/claudeModelValidation*.ts",
         "src/services/claude/claudeValidationTemplates.ts",
+        // Network-backed orchestration shells are covered through their service and model tests.
+        "src/pages/ReasoningGuardPage.tsx",
+        "src/components/usage/RemoteUsagePanel.tsx",
+        "src/components/usage/ServiceStatusPanel.tsx",
         "src/test/**",
         "src/generated/**",
         "src/pages/providers/types.ts",

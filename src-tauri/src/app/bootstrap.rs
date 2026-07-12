@@ -61,7 +61,7 @@ fn init_main_window_chrome(app: &tauri::App<tauri::Wry>) {
     use tauri::Manager;
 
     if let Some(window) = app.get_webview_window("main") {
-        crate::app::window_chrome::apply_main_window_chrome(&window);
+        crate::app::window_chrome::apply_main_window_chrome(app.handle(), &window);
     }
 }
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commands } from "../../../generated/bindings";
-import { monitoredServiceStatusModels, serviceStatusFetch } from "../serviceStatus";
+import { serviceStatusFetch } from "../serviceStatus";
 
 vi.mock("../../../generated/bindings", async () => {
   const actual = await vi.importActual<typeof import("../../../generated/bindings")>(
@@ -18,10 +18,6 @@ vi.mock("../../../generated/bindings", async () => {
 describe("services/usage/serviceStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("uses fixed monitored model order", () => {
-    expect(monitoredServiceStatusModels()).toEqual(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
   });
 
   it("fetches and validates status cell kinds", async () => {
@@ -85,5 +81,52 @@ describe("services/usage/serviceStatus", () => {
     });
 
     await expect(serviceStatusFetch()).rejects.toThrow("IPC_INVALID_LITERAL");
+  });
+
+  it("preserves an empty snapshot", async () => {
+    vi.mocked(commands.serviceStatusFetch).mockResolvedValueOnce({
+      status: "ok",
+      data: { error: "temporarily unavailable", snapshot: null },
+    });
+
+    await expect(serviceStatusFetch()).resolves.toEqual({
+      error: "temporarily unavailable",
+      snapshot: null,
+    });
+  });
+
+  it("normalizes services without a latest probe", async () => {
+    vi.mocked(commands.serviceStatusFetch).mockResolvedValueOnce({
+      status: "ok",
+      data: {
+        error: null,
+        snapshot: {
+          endpoint_url: "https://status.input.im/api/status",
+          refreshed_at: 1,
+          raw_json_text: "{}",
+          response: {
+            all_ok: false,
+            generated_at: 1,
+            services: [
+              {
+                model: "gpt-5.4",
+                uptime_pct: 95,
+                latest_kind: "yellow",
+                status_text: "波动",
+                last: null,
+                history: [],
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const result = await serviceStatusFetch();
+    expect(result.snapshot?.response.services[0]).toMatchObject({
+      latest_kind: "yellow",
+      last: null,
+      history: [],
+    });
   });
 });

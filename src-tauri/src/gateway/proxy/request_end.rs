@@ -398,18 +398,20 @@ fn select_claude_model_mapping(
 }
 
 fn select_error_observation_attempt(attempts: &[FailoverAttempt]) -> Option<&FailoverAttempt> {
-    attempts
-        .iter()
-        .rev()
-        .find(|attempt| {
-            attempt.error_code.is_some()
-                || attempt.error_category.is_some()
-                || attempt.reason.as_deref().and_then(non_empty_text).is_some()
-                || attempt.decision.is_some()
-                || attempt.reason_code.is_some()
-                || attempt.status.is_some()
-        })
-        .or_else(|| attempts.last())
+    attempts.iter().rev().find(|attempt| {
+        attempt.error_code.is_some()
+            || attempt.error_category.is_some()
+            || attempt.reason.as_deref().and_then(non_empty_text).is_some()
+            || attempt.status.is_some_and(|status| status >= 400)
+            || matches!(
+                attempt.decision,
+                Some("retry" | "switch" | "abort" | "skip")
+            )
+            || attempt
+                .reason_code
+                .is_some_and(|reason| !matches!(reason, "request_success" | "retry_success"))
+            || !matches!(attempt.outcome.as_str(), "" | "success")
+    })
 }
 
 fn split_attempt_reason(reason: &str) -> (Option<&str>, Option<&str>, Option<&str>) {
@@ -1562,6 +1564,46 @@ mod tests {
         assert_eq!(value.get("circuit_state_after"), Some(&json!("open")));
         assert_eq!(value.get("circuit_failure_count"), Some(&json!(3)));
         assert_eq!(value.get("circuit_failure_threshold"), Some(&json!(3)));
+    }
+
+    #[test]
+    fn build_error_details_json_ignores_pure_success_attempt() {
+        let mut attempt = sample_attempt();
+        attempt.decision = Some("success");
+        attempt.reason_code = Some("request_success");
+
+        assert!(build_error_details_json(None, &[attempt]).is_none());
+    }
+
+    #[test]
+    fn build_error_details_json_uses_failure_before_recovered_success() {
+        let mut failed = sample_attempt();
+        failed.provider_id = 2;
+        failed.provider_name = "First".to_string();
+        failed.outcome = "upstream_overloaded".to_string();
+        failed.status = Some(500);
+        failed.error_category = Some(ErrorCategory::ProviderError.as_str());
+        failed.error_code = Some(GatewayErrorCode::Upstream5xx.as_str());
+        failed.decision = Some("switch");
+        failed.reason = Some("upstream overloaded".to_string());
+        failed.reason_code = Some(ErrorCategory::ProviderError.reason_code());
+
+        let mut success = sample_attempt();
+        success.provider_id = 4;
+        success.provider_name = "Second".to_string();
+        success.decision = Some("success");
+        success.reason_code = Some("retry_success");
+
+        let encoded = build_error_details_json(None, &[failed, success])
+            .expect("recovered request keeps the failed attempt details");
+        let value: serde_json::Value = serde_json::from_str(&encoded).expect("valid json");
+
+        assert_eq!(value.get("provider_name"), Some(&json!("First")));
+        assert_eq!(
+            value.get("error_code"),
+            Some(&json!(GatewayErrorCode::Upstream5xx.as_str()))
+        );
+        assert_eq!(value.get("upstream_status"), Some(&json!(500)));
     }
 
     #[test]

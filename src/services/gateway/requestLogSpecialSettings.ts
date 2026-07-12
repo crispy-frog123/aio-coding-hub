@@ -17,6 +17,18 @@ export type CodexReasoningGuardSummary = {
   latestBudgetTotal: number | null;
 };
 
+export type CodexReasoningGuardCheckSummary = {
+  count: number;
+  checkedCount: number;
+  matchedCount: number;
+  latestRuleLabel: string | null;
+  latestReasoningTokens: number | null;
+  latestReasoningEffort: string | null;
+  latestMissReason: string | null;
+  latestMissReasonLabel: string | null;
+  latestExemptReason: string | null;
+};
+
 export type CodexReasoningEffort =
   | "none"
   | "minimal"
@@ -211,6 +223,76 @@ function normalizeCodexReasoningGuardRuleMode(value: unknown): string | null {
   if (mode === "final_answer_only_high_xhigh") return mode;
   if (mode === "reasoning_tokens") return mode;
   return null;
+}
+
+function formatCodexReasoningGuardMissReason(reason: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    context_compaction_exempt: "上下文压缩请求已豁免",
+    missing_reasoning_tokens: "响应未提供 reasoning_tokens",
+    reasoning_tokens_not_formula_match: "reasoning_tokens 不符合 518n-2",
+    no_configured_reasoning_rule: "没有可用的 reasoning_tokens 规则",
+    reasoning_tokens_not_matched: "reasoning_tokens 未命中当前规则",
+    zero_reasoning_tokens: "reasoning_tokens 为 0",
+    reasoning_effort_not_high_xhigh: "思考等级不是 high/xhigh",
+    missing_final_answer: "响应中未观察到 final answer",
+    commentary_observed: "响应包含 commentary",
+    tool_call_observed: "响应包含 tool call",
+    reasoning_item_observed: "响应包含 reasoning item",
+  };
+  return labels[reason] ?? reason;
+}
+
+export function resolveCodexReasoningGuardCheckSummary(
+  specialSettingsJson: string | null | undefined
+): CodexReasoningGuardCheckSummary {
+  const settings = parseRequestLogSpecialSettings(specialSettingsJson);
+  let count = 0;
+  let checkedCount = 0;
+  let matchedCount = 0;
+  let latestRuleLabel: string | null = null;
+  let latestReasoningTokens: number | null = null;
+  let latestReasoningEffort: string | null = null;
+  let latestMissReason: string | null = null;
+  let latestMissReasonLabel: string | null = null;
+  let latestExemptReason: string | null = null;
+
+  for (const setting of settings) {
+    if (setting.type !== "codex_reasoning_guard_check") continue;
+    count += 1;
+    if (setting.checked === true) checkedCount += 1;
+    if (setting.matched === true) matchedCount += 1;
+
+    const ruleMode = normalizeCodexReasoningGuardRuleMode(setting.ruleMode);
+    const matchMode = parsedSettingString(setting.reasoningMatchMode);
+    latestRuleLabel =
+      ruleMode === "final_answer_only_high_xhigh"
+        ? "final-answer-only / high,xhigh"
+        : matchMode === "formula_518n_minus_2"
+          ? "reasoning_tokens / 518n-2"
+          : ruleMode === "reasoning_tokens"
+            ? "reasoning_tokens"
+            : null;
+    const reasoningTokens = parsedSettingNumber(setting.reasoningTokens);
+    latestReasoningTokens = Number.isFinite(reasoningTokens) ? reasoningTokens : null;
+    latestReasoningEffort = parsedSettingString(setting.reasoningEffort) || null;
+    latestMissReason = parsedSettingString(setting.missReason) || null;
+    latestMissReasonLabel = latestMissReason
+      ? formatCodexReasoningGuardMissReason(latestMissReason)
+      : null;
+    latestExemptReason = parsedSettingString(setting.interceptExemptReason) || null;
+  }
+
+  return {
+    count,
+    checkedCount,
+    matchedCount,
+    latestRuleLabel,
+    latestReasoningTokens,
+    latestReasoningEffort,
+    latestMissReason,
+    latestMissReasonLabel,
+    latestExemptReason,
+  };
 }
 
 export function resolveCodexReasoningGuardSummary(

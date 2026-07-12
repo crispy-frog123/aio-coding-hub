@@ -519,20 +519,28 @@ fn row_to_request_log_analytics(
 fn build_request_log_sample(row: RequestLogAnalyticsRow) -> CodexReasoningAnalyticsSample {
     let settings = parse_special_settings(row.special_settings_json.as_deref());
     let guard = latest_setting(&settings, "codex_reasoning_guard");
+    let guard_check = latest_setting(&settings, "codex_reasoning_guard_check");
+    let observation = guard_check.or(guard);
     let continuation_recovery = latest_setting(&settings, "codex_continuation_recovery");
     let effort_setting = latest_setting(&settings, "codex_reasoning_effort");
-    let reasoning_effort = effort_setting
-        .and_then(|setting| normalize_effort(read_string(setting.get("effort")).as_deref()))
+    let reasoning_effort = read_string(observation.and_then(|value| value.get("reasoningEffort")))
+        .and_then(|effort| normalize_effort(Some(effort.as_str())))
+        .or_else(|| {
+            effort_setting
+                .and_then(|setting| normalize_effort(read_string(setting.get("effort")).as_deref()))
+        })
         .or_else(|| known_model_default_effort(row.requested_model.as_deref()));
-    let reasoning_tokens = read_i64(guard.and_then(|value| value.get("reasoningTokens")));
-    let final_answer_only = read_bool(guard.and_then(|value| value.get("finalAnswerOnly")));
-    let commentary_observed = read_bool(guard.and_then(|value| value.get("commentaryObserved")));
-    let has_tool_call = read_bool(guard.and_then(|value| value.get("hasToolCall")));
-    let has_reasoning_item = read_bool(guard.and_then(|value| value.get("hasReasoningItem")));
-    let request_kind = read_string(guard.and_then(|value| value.get("requestKind")))
+    let reasoning_tokens = read_i64(observation.and_then(|value| value.get("reasoningTokens")));
+    let final_answer_only = read_bool(observation.and_then(|value| value.get("finalAnswerOnly")));
+    let commentary_observed =
+        read_bool(observation.and_then(|value| value.get("commentaryObserved")));
+    let has_final_answer = read_bool(observation.and_then(|value| value.get("hasFinalAnswer")));
+    let has_tool_call = read_bool(observation.and_then(|value| value.get("hasToolCall")));
+    let has_reasoning_item = read_bool(observation.and_then(|value| value.get("hasReasoningItem")));
+    let request_kind = read_string(observation.and_then(|value| value.get("requestKind")))
         .unwrap_or_else(|| "turn".to_string());
     let intercept_exempt_reason =
-        read_string(guard.and_then(|value| value.get("interceptExemptReason")));
+        read_string(observation.and_then(|value| value.get("interceptExemptReason")));
     let guard_hit_count = count_guard_settings(&settings);
     let matched_current_rule = guard_hit_count > 0 && intercept_exempt_reason.is_none();
     let blocked_by_gateway = row.error_code.as_deref() == Some("GW_CODEX_REASONING_GUARD");
@@ -592,7 +600,7 @@ fn build_request_log_sample(row: RequestLogAnalyticsRow) -> CodexReasoningAnalyt
         final_answer_only: final_answer_only.unwrap_or(false),
         has_commentary: commentary_observed.unwrap_or(false),
         commentary_observed: commentary_observed.unwrap_or(false),
-        has_final_answer: final_answer_only.unwrap_or(false),
+        has_final_answer: has_final_answer.unwrap_or_else(|| final_answer_only.unwrap_or(false)),
         has_tool_call: has_tool_call.unwrap_or(false),
         has_reasoning_item: has_reasoning_item.unwrap_or(false),
         matched_current_rule,

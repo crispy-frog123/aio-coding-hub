@@ -88,23 +88,19 @@ describe("components/home/requestLogErrorDetails", () => {
     );
   });
 
-  it("keeps raw details for invalid or empty JSON and falls back to summary", () => {
+  it("suppresses stale raw details on success and preserves them on failure", () => {
     expect(
       resolveRequestLogErrorObservation(
         createRequestLogDetail({
           error_details_json: "not json",
         })
       )
-    ).toEqual(
-      expect.objectContaining({
-        rawDetailsText: "not json",
-        source: "error_details_json",
-      })
-    );
+    ).toBeNull();
 
     expect(
       resolveRequestLogErrorObservation(
         createRequestLogDetail({
+          status: 500,
           error_details_json: "{}",
         })
       )

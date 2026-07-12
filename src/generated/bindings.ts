@@ -2874,6 +2874,8 @@ export type CodexReasoningGuardModelRule = {
 export type CodexReasoningGuardModelStat = {
   requested_model: string;
   total_request_count: number;
+  checked_request_count: number;
+  checked_response_count: number;
   hit_request_count: number;
   normal_request_count: number;
   hit_attempt_count: number;
@@ -2881,6 +2883,8 @@ export type CodexReasoningGuardModelStat = {
 };
 export type CodexReasoningGuardRuleMode = "reasoning_tokens" | "final_answer_only_high_xhigh";
 export type CodexReasoningGuardStats = {
+  checked_request_count: number;
+  checked_response_count: number;
   hit_request_count: number;
   hit_attempt_count: number;
   normal_request_count: number;

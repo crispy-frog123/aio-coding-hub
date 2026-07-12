@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commands } from "../../../generated/bindings";
 import {
   normalizeRemoteUsageRefreshInput,
+  remoteUsageCustomSourceDelete,
+  remoteUsageCustomSourceSetEnabled,
+  remoteUsageCustomSourceUpsert,
   remoteUsageSnapshotsRefresh,
   remoteUsageSourcesList,
 } from "../remoteUsage";
@@ -16,6 +19,9 @@ vi.mock("../../../generated/bindings", async () => {
       ...actual.commands,
       remoteUsageSourcesList: vi.fn(),
       remoteUsageSnapshotsRefresh: vi.fn(),
+      remoteUsageCustomSourceUpsert: vi.fn(),
+      remoteUsageCustomSourceDelete: vi.fn(),
+      remoteUsageCustomSourceSetEnabled: vi.fn(),
     },
   };
 });
@@ -38,6 +44,13 @@ describe("services/usage/remoteUsage", () => {
 
     expect(() =>
       normalizeRemoteUsageRefreshInput({ cliKey: "codex", sourceIds: ["bad:1"] })
+    ).toThrow("SEC_INVALID_INPUT");
+    expect(normalizeRemoteUsageRefreshInput()).toEqual({ cliKey: null, sourceIds: null });
+    expect(
+      normalizeRemoteUsageRefreshInput({ cliKey: " " as never, sourceIds: [" ", ""] })
+    ).toEqual({ cliKey: null, sourceIds: null });
+    expect(() =>
+      normalizeRemoteUsageRefreshInput({ cliKey: "unknown" as never, sourceIds: null })
     ).toThrow("SEC_INVALID_INPUT");
   });
 
@@ -131,5 +144,118 @@ describe("services/usage/remoteUsage", () => {
       cliKey: "codex",
       sourceIds: ["custom:1"],
     });
+  });
+
+  it("rejects malformed source and snapshot rows", async () => {
+    vi.mocked(commands.remoteUsageSourcesList).mockResolvedValueOnce({
+      status: "ok",
+      data: [
+        {
+          source_id: "provider:1",
+          source_type: "provider",
+          cli_key: "codex",
+          name: "Provider",
+          base_url: "https://example.com",
+          endpoint_url: "https://example.com/v1/usage",
+          enabled: true,
+          provider_id: 0,
+          custom_source_id: null,
+          api_key_configured: true,
+        },
+      ],
+    });
+    await expect(remoteUsageSourcesList("codex")).rejects.toThrow("IPC_INVALID_RESULT");
+
+    vi.mocked(commands.remoteUsageSnapshotsRefresh).mockResolvedValueOnce({
+      status: "ok",
+      data: [
+        {
+          source: {
+            source_id: "custom:1",
+            source_type: "custom",
+            cli_key: "codex",
+            name: "Custom",
+            base_url: "https://example.com",
+            endpoint_url: "https://example.com/v1/usage",
+            enabled: true,
+            provider_id: null,
+            custom_source_id: 1,
+            api_key_configured: true,
+          },
+          status: "invalid" as never,
+          last_error: null,
+          last_successful_refresh_at: null,
+          snapshot: null,
+        },
+      ],
+    });
+    await expect(remoteUsageSnapshotsRefresh()).rejects.toThrow("IPC_INVALID_LITERAL");
+  });
+
+  it("normalizes custom source writes and validates ids", async () => {
+    const source = {
+      source_id: "custom:2",
+      source_type: "custom" as const,
+      cli_key: "codex" as const,
+      name: "Custom",
+      base_url: "https://example.com",
+      endpoint_url: "https://example.com/v1/usage",
+      enabled: true,
+      provider_id: null,
+      custom_source_id: 2,
+      api_key_configured: true,
+    };
+
+    vi.mocked(commands.remoteUsageCustomSourceUpsert).mockResolvedValueOnce({
+      status: "ok",
+      data: source,
+    });
+    await expect(
+      remoteUsageCustomSourceUpsert({
+        cliKey: " codex " as never,
+        name: " Custom ",
+        baseUrl: " https://example.com ",
+        apiKey: " secret ",
+        enabled: true,
+      })
+    ).resolves.toMatchObject({ source_id: "custom:2", custom_source_id: 2 });
+    expect(commands.remoteUsageCustomSourceUpsert).toHaveBeenCalledWith({
+      id: null,
+      cliKey: "codex",
+      name: "Custom",
+      baseUrl: "https://example.com",
+      apiKey: " secret ",
+      enabled: true,
+    });
+    await expect(
+      remoteUsageCustomSourceUpsert({
+        cliKey: " " as never,
+        name: "Custom",
+        baseUrl: "https://example.com",
+        enabled: true,
+      })
+    ).rejects.toThrow("cliKey is required");
+
+    vi.mocked(commands.remoteUsageCustomSourceDelete).mockResolvedValueOnce({
+      status: "ok",
+      data: true,
+    });
+    await expect(remoteUsageCustomSourceDelete(2)).resolves.toBe(true);
+    expect(commands.remoteUsageCustomSourceDelete).toHaveBeenCalledWith({ id: 2 });
+    await expect(remoteUsageCustomSourceDelete(0)).rejects.toThrow("IPC_INVALID_RESULT");
+    await expect(remoteUsageCustomSourceDelete(1.5)).rejects.toThrow("IPC_INVALID_RESULT");
+
+    vi.mocked(commands.remoteUsageCustomSourceSetEnabled).mockResolvedValueOnce({
+      status: "ok",
+      data: { ...source, enabled: false },
+    });
+    await expect(remoteUsageCustomSourceSetEnabled(2, false)).resolves.toMatchObject({
+      enabled: false,
+    });
+    expect(commands.remoteUsageCustomSourceSetEnabled).toHaveBeenCalledWith({
+      id: 2,
+      enabled: false,
+    });
+    await expect(remoteUsageCustomSourceSetEnabled(-1, true)).rejects.toThrow("IPC_INVALID_RESULT");
   });
 });

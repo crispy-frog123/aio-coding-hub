@@ -394,7 +394,7 @@ export function ReasoningGuardPage() {
       if (right.hit_request_count !== left.hit_request_count) {
         return right.hit_request_count - left.hit_request_count;
       }
-      return right.total_request_count - left.total_request_count;
+      return right.checked_request_count - left.checked_request_count;
     });
   }, [stats?.by_model]);
 
@@ -592,9 +592,9 @@ export function ReasoningGuardPage() {
           }
         />
         <MetricTile
-          label="命中请求"
-          value={String(stats?.hit_request_count ?? 0)}
-          hint={`${statsWindow === "session" ? "本次启动" : "全部"} / 尝试 ${stats?.hit_attempt_count ?? 0}`}
+          label="已检查请求"
+          value={String(stats?.checked_request_count ?? 0)}
+          hint={`${statsWindow === "session" ? "本次启动" : "全部"} / 响应 ${stats?.checked_response_count ?? 0}`}
         />
       </div>
 
@@ -967,11 +967,14 @@ export function ReasoningGuardPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
                 <MetricTile label="总请求" value={String(stats?.total_request_count ?? 0)} />
+                <MetricTile label="已检查请求" value={String(stats?.checked_request_count ?? 0)} />
+                <MetricTile label="已检查响应" value={String(stats?.checked_response_count ?? 0)} />
                 <MetricTile label="命中请求" value={String(stats?.hit_request_count ?? 0)} />
                 <MetricTile label="命中尝试" value={String(stats?.hit_attempt_count ?? 0)} />
-                <MetricTile label="正常请求" value={String(stats?.normal_request_count ?? 0)} />
+                <MetricTile label="未命中请求" value={String(stats?.normal_request_count ?? 0)} />
+                <MetricTile label="命中率" value={formatRate(stats?.hit_rate)} />
                 <MetricTile
                   label="续写恢复"
                   value={String(analyticsSnapshot?.summary.continuation_recovery_count ?? 0)}
@@ -990,14 +993,15 @@ export function ReasoningGuardPage() {
               ) : sortedModelStats.length === 0 ? (
                 <EmptyState
                   title="暂无降智拦截统计"
-                  description="发起 Codex 请求并触发降智拦截后，这里会显示模型维度的命中情况。"
+                  description="开启降智拦截并发起 Codex 请求后，这里会显示实际检查与命中情况。"
                 />
               ) : (
-                <div className="overflow-hidden rounded-lg border border-line-subtle">
-                  <div className="grid grid-cols-[minmax(0,1.4fr)_120px_120px_120px_120px] gap-2 border-b border-line-subtle bg-surface-inset px-3 py-2 text-[11px] font-semibold text-muted-foreground">
+                <div className="overflow-x-auto rounded-lg border border-line-subtle">
+                  <div className="grid min-w-[760px] grid-cols-[minmax(0,1.4fr)_110px_110px_110px_110px_110px] gap-2 border-b border-line-subtle bg-surface-inset px-3 py-2 text-[11px] font-semibold text-muted-foreground">
                     <span>模型</span>
+                    <span className="text-right">已检查</span>
                     <span className="text-right">命中请求</span>
-                    <span className="text-right">正常请求</span>
+                    <span className="text-right">未命中请求</span>
                     <span className="text-right">总请求</span>
                     <span className="text-right">命中率</span>
                   </div>
@@ -1005,13 +1009,16 @@ export function ReasoningGuardPage() {
                     {sortedModelStats.map((row) => (
                       <div
                         key={row.requested_model}
-                        className="grid grid-cols-[minmax(0,1.4fr)_120px_120px_120px_120px] gap-2 px-3 py-2 text-xs"
+                        className="grid min-w-[760px] grid-cols-[minmax(0,1.4fr)_110px_110px_110px_110px_110px] gap-2 px-3 py-2 text-xs"
                       >
                         <span
                           className="truncate font-mono text-foreground"
                           title={row.requested_model}
                         >
                           {row.requested_model}
+                        </span>
+                        <span className="text-right font-mono text-muted-foreground">
+                          {row.checked_request_count}
                         </span>
                         <span className="text-right font-mono text-foreground">
                           {row.hit_request_count}

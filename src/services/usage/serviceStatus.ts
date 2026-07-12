@@ -1,4 +1,4 @@
-// Usage: Frontend wrapper for fixed status.input.im model service status.
+// Usage: Frontend wrapper for status.input.im model service status.
 
 import {
   commands,
@@ -14,7 +14,6 @@ const CELL_KIND_VALUES = [
   "red",
   "gray",
 ] as const satisfies readonly ServiceStatusCellKind[];
-const MONITORED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] as const;
 
 export type { ServiceStatusCellKind };
 export type ServiceStatusResult = GeneratedServiceStatusResult;
@@ -45,10 +44,6 @@ function normalizeResult(value: GeneratedServiceStatusResult): ServiceStatusResu
       },
     },
   };
-}
-
-export function monitoredServiceStatusModels() {
-  return [...MONITORED_MODELS];
 }
 
 export async function serviceStatusFetch() {

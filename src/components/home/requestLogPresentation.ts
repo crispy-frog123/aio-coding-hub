@@ -7,6 +7,7 @@ import { createElement, type ReactNode } from "react";
 import { GatewayErrorCodes } from "../../constants/gatewayErrorCodes";
 import {
   parseRequestLogSpecialSettings,
+  resolveCodexReasoningGuardCheckSummary,
   resolveCodexReasoningGuardSummary,
 } from "../../services/gateway/requestLogSpecialSettings";
 import type { CliKey } from "../../services/providers/providers";
@@ -56,6 +57,9 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
   const settings = parseRequestLogSpecialSettings(log.special_settings_json);
   const settingTypes = new Set(settings.flatMap((item) => (item.type ? [item.type] : [])));
   const codexReasoningGuardSummary = resolveCodexReasoningGuardSummary(log.special_settings_json);
+  const codexReasoningGuardCheckSummary = resolveCodexReasoningGuardCheckSummary(
+    log.special_settings_json
+  );
   const isWarmupIntercept = settingTypes.has("warmup_intercept");
   const isCliProxyGuard = settingTypes.has("cli_proxy_guard");
   const isSuccessful = typeof log.status === "number" && log.status >= 200 && log.status < 300;
@@ -127,6 +131,28 @@ export function buildRequestLogAuditMeta(log: RequestLogAuditInput): RequestLogA
           codexReasoningGuardSummary.latestBudgetRemaining != null &&
           codexReasoningGuardSummary.latestBudgetTotal != null
             ? `预算：${codexReasoningGuardSummary.latestBudgetRemaining}/${codexReasoningGuardSummary.latestBudgetTotal}`
+            : null,
+        ])
+      )
+    );
+  } else if (codexReasoningGuardCheckSummary.checkedCount > 0) {
+    tags.push(
+      auditTag(
+        "降智已检查",
+        "bg-slate-100/90 text-slate-700 ring-1 ring-inset ring-slate-500/15 dark:bg-slate-500/15 dark:text-slate-200 dark:ring-slate-400/20",
+        compactAuditTitle([
+          `Codex 降智拦截已检查 ${codexReasoningGuardCheckSummary.checkedCount} 个响应`,
+          codexReasoningGuardCheckSummary.latestRuleLabel
+            ? `规则：${codexReasoningGuardCheckSummary.latestRuleLabel}`
+            : null,
+          codexReasoningGuardCheckSummary.latestReasoningTokens != null
+            ? `reasoning_tokens：${codexReasoningGuardCheckSummary.latestReasoningTokens}`
+            : null,
+          codexReasoningGuardCheckSummary.latestReasoningEffort
+            ? `effort：${codexReasoningGuardCheckSummary.latestReasoningEffort}`
+            : null,
+          codexReasoningGuardCheckSummary.latestMissReasonLabel
+            ? `未命中：${codexReasoningGuardCheckSummary.latestMissReasonLabel}`
             : null,
         ])
       )

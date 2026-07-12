@@ -1,11 +1,8 @@
-// Usage: Compact status.input.im fixed model status panel.
+// Usage: Compact status.input.im dynamic model status panel.
 
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useServiceStatusQuery } from "../../query/serviceStatus";
-import {
-  monitoredServiceStatusModels,
-  type ServiceStatusCellKind,
-} from "../../services/usage/serviceStatus";
+import { type ServiceStatusCellKind } from "../../services/usage/serviceStatus";
 import { Button } from "../../ui/Button";
 import { EmptyState } from "../../ui/EmptyState";
 import { Spinner } from "../../ui/Spinner";
@@ -188,7 +185,6 @@ export function ServiceStatusPanel({ enabled }: { enabled: boolean }) {
   const result = query.data;
   const snapshot = result?.snapshot ?? null;
   const services = snapshot?.response.services ?? [];
-  const models = monitoredServiceStatusModels();
   const refreshing = query.isFetching && !query.isLoading;
   const generatedAt = snapshot?.response.generated_at ?? null;
 
@@ -199,7 +195,7 @@ export function ServiceStatusPanel({ enabled }: { enabled: boolean }) {
       <div className="relative">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100">固定模型服务状态</h3>
+            <h3 className="text-sm font-semibold text-zinc-100">模型服务状态</h3>
             <div className="mt-1 text-xs text-zinc-400">
               status.input.im · 最近 60 分钟 · 60 秒轮询
             </div>
@@ -229,17 +225,13 @@ export function ServiceStatusPanel({ enabled }: { enabled: boolean }) {
         ) : services.length === 0 ? (
           <EmptyState
             variant="dashed"
-            title="暂无固定模型状态"
-            description={`未从 status.input.im 返回 ${models.join(" / ")} 的状态。`}
+            title="暂无模型状态"
+            description="status.input.im 当前没有返回可展示的监测项目。"
           />
         ) : (
           <div className={cn("space-y-6", refreshing && "opacity-70")}>
-            {models.map((model) => (
-              <ServiceStatusRow
-                key={model}
-                model={model}
-                service={services.find((item) => item.model === model)}
-              />
+            {services.map((service) => (
+              <ServiceStatusRow key={service.model} model={service.model} service={service} />
             ))}
             <div className="flex flex-wrap items-center gap-x-8 gap-y-1 pt-1 text-sm font-bold text-zinc-300">
               <span>接口生成 {shortTime(generatedAt)}</span>

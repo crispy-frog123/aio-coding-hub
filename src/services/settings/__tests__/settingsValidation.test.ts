@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN,
+  MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN,
+  MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN,
+  MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN,
+  MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE,
   formatHostPort,
   parseCustomListenAddress,
+  validateCodexProviderTestModel,
   validateCx2ccFallbackModel,
   validateCx2ccOptionalField,
   validateGatewayCustomListenAddress,
@@ -233,6 +239,227 @@ describe("services/settings/settingsValidation", () => {
       validateSettingsSetInput({
         wslHostAddressMode: "auto",
         wslCustomHostAddress: "127.0.0.1:37123",
+      })
+    ).toBeNull();
+  });
+
+  it("validates the Codex provider test model", () => {
+    expect(validateCodexProviderTestModel("测试模型", " gpt-5.4 ")).toBeNull();
+    expect(validateCodexProviderTestModel("测试模型", "  ")).toContain("不能为空");
+    expect(
+      validateCodexProviderTestModel(
+        "测试模型",
+        "x".repeat(MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN + 1)
+      )
+    ).toContain(`必须 <= ${MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN}`);
+    expect(validateCodexProviderTestModel("测试模型", "bad\u0000model")).toContain(
+      "不能包含控制字符"
+    );
+    expect(validateSettingsSetInput({ codexProviderTestModel: "gpt-5.4" })).toBeNull();
+    expect(validateSettingsSetInput({ codexProviderTestModel: "" })).toContain("不能为空");
+  });
+
+  it("accepts supported Codex reasoning guard modes and rejects unknown modes", () => {
+    const accepted = [
+      { codexReasoningGuardCompareMode: "equals" },
+      { codexReasoningGuardCompareMode: "less_than_or_equal" },
+      { codexReasoningGuardRuleMode: "reasoning_tokens" },
+      { codexReasoningGuardRuleMode: "final_answer_only_high_xhigh" },
+      { codexReasoningGuardMatchMode: "manual" },
+      { codexReasoningGuardMatchMode: "formula_518n_minus_2" },
+      { codexReasoningGuardMatchMode: "formula518n_minus2" },
+      { codexReasoningGuardMatchMode: "formula_51_8n_minus_2" },
+      { codexReasoningGuardStreamAction: "strict_502" },
+      { codexReasoningGuardStreamAction: "disconnect" },
+      { codexReasoningGuardStreamAction: "continuation_recovery" },
+      { codexReasoningGuardExhaustedAction: "return_error" },
+      { codexReasoningGuardExhaustedAction: "switch_provider" },
+    ];
+
+    for (const input of accepted) {
+      expect(validateSettingsSetInput(input as never)).toBeNull();
+    }
+
+    const rejected = [
+      [{ codexReasoningGuardCompareMode: "invalid" }, "比较模式"],
+      [{ codexReasoningGuardRuleMode: "invalid" }, "规则模式"],
+      [{ codexReasoningGuardMatchMode: "invalid" }, "命中来源"],
+      [{ codexReasoningGuardStreamAction: "invalid" }, "流式命中动作"],
+      [{ codexReasoningGuardExhaustedAction: "invalid" }, "预算耗尽动作"],
+    ] as const;
+
+    for (const [input, message] of rejected) {
+      expect(validateSettingsSetInput(input as never)).toContain(message);
+    }
+  });
+
+  it("validates Codex reasoning token lists and continuation markers", () => {
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardReasoningEquals: "invalid" as never })
+    ).toContain("至少需要一个");
+    expect(validateSettingsSetInput({ codexReasoningGuardReasoningEquals: [] })).toContain(
+      "至少需要一个"
+    );
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardReasoningEquals: Array.from(
+          { length: MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN + 1 },
+          (_, index) => index
+        ),
+      })
+    ).toContain("最多支持");
+    expect(validateSettingsSetInput({ codexReasoningGuardReasoningEquals: [1.5] })).toContain(
+      "必须是整数列表"
+    );
+    expect(validateSettingsSetInput({ codexReasoningGuardReasoningEquals: [-1] })).toContain(
+      "必须在 0 到"
+    );
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardReasoningEquals: [MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE + 1],
+      })
+    ).toContain("必须在 0 到");
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardReasoningEquals: [0, 516, 1034] })
+    ).toBeNull();
+
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardContinuationMarkerText: " Continue " })
+    ).toBeNull();
+    expect(validateSettingsSetInput({ codexReasoningGuardContinuationMarkerText: " " })).toContain(
+      "marker 不能为空"
+    );
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardContinuationMarkerText: "x".repeat(257) })
+    ).toContain("marker 必须 <= 256");
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardContinuationMarkerText: "bad\u0000marker" })
+    ).toContain("不能包含控制字符");
+  });
+
+  it("validates Codex reasoning guard retry budgets", () => {
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardImmediateRetryBudget: 100,
+        codexReasoningGuardDelayedRetryBudget: 100,
+        codexReasoningGuardDelayedRetryMs: 60_000,
+        codexReasoningGuardBackoffAfterHits: 100,
+        codexReasoningGuardBackoffMs: 60_000,
+      })
+    ).toBeNull();
+    expect(validateSettingsSetInput({ codexReasoningGuardImmediateRetryBudget: 1.5 })).toContain(
+      "必须是整数"
+    );
+    expect(validateSettingsSetInput({ codexReasoningGuardDelayedRetryBudget: -1 })).toContain(
+      "必须 >= 0"
+    );
+    expect(validateSettingsSetInput({ codexReasoningGuardDelayedRetryMs: 60_001 })).toContain(
+      "必须 <= 60000"
+    );
+    expect(validateSettingsSetInput({ codexReasoningGuardBackoffAfterHits: 101 })).toContain(
+      "必须 <= 100"
+    );
+    expect(validateSettingsSetInput({ codexReasoningGuardBackoffMs: 60_001 })).toContain(
+      "必须 <= 60000"
+    );
+  });
+
+  it("validates per-model Codex reasoning guard rules", () => {
+    const validRule = {
+      requested_model: "gpt-5.4",
+      compare_mode: "equals" as const,
+      reasoning_equals: [516],
+    };
+
+    expect(
+      validateSettingsSetInput({ codexReasoningGuardModelRules: "invalid" as never })
+    ).toContain("必须是列表");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: Array.from(
+          { length: MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN + 1 },
+          (_, index) => ({ ...validRule, requested_model: `gpt-${index}` })
+        ),
+      })
+    ).toContain("最多支持");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, requested_model: " " }],
+      })
+    ).toContain("必须填写模型名");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [
+          {
+            ...validRule,
+            requested_model: "x".repeat(MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN + 1),
+          },
+        ],
+      })
+    ).toContain("模型名必须 <=");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, requested_model: "bad\u0000model" }],
+      })
+    ).toContain("模型名不能包含控制字符");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [validRule, { ...validRule, requested_model: "GPT-5.4" }],
+      })
+    ).toContain("重复");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, compare_mode: "invalid" as never }],
+      })
+    ).toContain("比较模式");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, reasoning_equals: [] }],
+      })
+    ).toContain("至少需要一个");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [
+          {
+            ...validRule,
+            reasoning_equals: Array.from(
+              { length: MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN + 1 },
+              (_, index) => index
+            ),
+          },
+        ],
+      })
+    ).toContain("最多支持");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, reasoning_equals: [1.5] }],
+      })
+    ).toContain("必须是整数列表");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [{ ...validRule, reasoning_equals: [-1] }],
+      })
+    ).toContain("值必须在 0 到");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [
+          {
+            ...validRule,
+            reasoning_equals: [MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE + 1],
+          },
+        ],
+      })
+    ).toContain("值必须在 0 到");
+    expect(
+      validateSettingsSetInput({
+        codexReasoningGuardModelRules: [
+          validRule,
+          {
+            requested_model: "gpt-5.5",
+            compare_mode: "less_than_or_equal",
+            reasoning_equals: [0, MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE],
+          },
+        ],
       })
     ).toBeNull();
   });

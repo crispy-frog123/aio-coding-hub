@@ -17,6 +17,7 @@ pub(in crate::gateway) fn status_override_for_error_code(error_code: Option<&str
         GatewayErrorCode::AllProvidersUnavailable | GatewayErrorCode::NoEnabledProvider => {
             Some(503)
         }
+        GatewayErrorCode::UpstreamOverloaded => Some(503),
         GatewayErrorCode::CliProxyDisabled => Some(403),
         GatewayErrorCode::InvalidCliKey => Some(400),
         GatewayErrorCode::BodyTooLarge => Some(413),

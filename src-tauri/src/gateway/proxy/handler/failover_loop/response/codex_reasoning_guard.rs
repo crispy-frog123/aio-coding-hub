@@ -66,6 +66,20 @@ pub(super) struct CodexReasoningObservation {
     pub(super) structure: CodexResponseStructure,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CodexReasoningGuardEvaluation {
+    pub(super) checked: bool,
+    pub(super) rule_mode: CodexReasoningGuardRuleMode,
+    pub(super) match_mode: CodexReasoningGuardMatchMode,
+    pub(super) observation: CodexReasoningObservation,
+    pub(super) matched: Option<CodexReasoningGuardMatch>,
+    pub(super) miss_reason: Option<&'static str>,
+    pub(super) intercept_exempt_reason: Option<&'static str>,
+    pub(super) requested_model: Option<String>,
+    pub(super) reasoning_effort: Option<String>,
+    pub(super) request_kind: CodexRequestKind,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ResolvedCodexReasoningGuardRule<'a> {
     compare_mode: CodexReasoningGuardCompareMode,
@@ -92,20 +106,23 @@ const REASONING_POINTERS: &[&str] = &[
     "/response/usage/completion_tokens_details/reasoning_tokens",
 ];
 
-pub(super) fn detect_from_json(
+#[cfg(test)]
+fn detect_from_json(
     cli_key: &str,
     requested_model: Option<&str>,
     value: &serde_json::Value,
     options: CodexReasoningGuardDetectionOptions<'_>,
 ) -> Option<CodexReasoningGuardMatch> {
-    if cli_key != "codex" {
-        return None;
-    }
+    evaluate_from_json(cli_key, requested_model, value, options).matched
+}
 
+pub(super) fn evaluate_from_json(
+    cli_key: &str,
+    requested_model: Option<&str>,
+    value: &serde_json::Value,
+    options: CodexReasoningGuardDetectionOptions<'_>,
+) -> CodexReasoningGuardEvaluation {
     let observation = observe_response(value);
-    if is_context_compaction_exempt(options.request_kind, observation.reasoning_tokens) {
-        return None;
-    }
     let requested_model = requested_model
         .map(str::trim)
         .filter(|model| !model.is_empty())
@@ -116,92 +133,193 @@ pub(super) fn detect_from_json(
         .filter(|effort| !effort.is_empty())
         .map(|effort| effort.to_ascii_lowercase());
 
-    match options.rule_mode {
+    if cli_key != "codex" {
+        return CodexReasoningGuardEvaluation {
+            checked: false,
+            rule_mode: options.rule_mode,
+            match_mode: options.match_mode,
+            observation,
+            matched: None,
+            miss_reason: Some("not_codex_request"),
+            intercept_exempt_reason: None,
+            requested_model,
+            reasoning_effort,
+            request_kind: options.request_kind,
+        };
+    }
+
+    if is_context_compaction_exempt(options.request_kind, observation.reasoning_tokens) {
+        return CodexReasoningGuardEvaluation {
+            checked: true,
+            rule_mode: options.rule_mode,
+            match_mode: options.match_mode,
+            observation,
+            matched: None,
+            miss_reason: Some("context_compaction_exempt"),
+            intercept_exempt_reason: Some("context_compaction"),
+            requested_model,
+            reasoning_effort,
+            request_kind: options.request_kind,
+        };
+    }
+
+    let (matched, miss_reason) = match options.rule_mode {
         CodexReasoningGuardRuleMode::ReasoningTokens => {
             if options.match_mode == CodexReasoningGuardMatchMode::Formula518nMinus2 {
-                let reasoning_tokens = observation.reasoning_tokens?;
+                let Some(reasoning_tokens) = observation.reasoning_tokens else {
+                    return CodexReasoningGuardEvaluation {
+                        checked: true,
+                        rule_mode: options.rule_mode,
+                        match_mode: options.match_mode,
+                        observation,
+                        matched: None,
+                        miss_reason: Some("missing_reasoning_tokens"),
+                        intercept_exempt_reason: None,
+                        requested_model,
+                        reasoning_effort,
+                        request_kind: options.request_kind,
+                    };
+                };
                 if !matches_formula_518n_minus_2(reasoning_tokens) {
-                    return None;
+                    (None, Some("reasoning_tokens_not_formula_match"))
+                } else {
+                    (
+                        Some(CodexReasoningGuardMatch {
+                            rule_mode: options.rule_mode,
+                            match_mode: options.match_mode,
+                            reasoning_tokens: Some(reasoning_tokens),
+                            pointer: observation.reasoning_pointer,
+                            compare_mode: CodexReasoningGuardCompareMode::Equals,
+                            matched_rule_value: Some(reasoning_tokens),
+                            requested_model: requested_model.clone(),
+                            rule_source: CODEX_REASONING_GUARD_RULE_SOURCE_FORMULA_518N_MINUS_2,
+                            rule_model: None,
+                            final_answer_only: observation.structure.final_answer_only(),
+                            commentary_observed: observation.structure.has_commentary,
+                            has_tool_call: observation.structure.has_tool_call,
+                            has_reasoning_item: observation.structure.has_reasoning_item,
+                            request_kind: options.request_kind,
+                            intercept_exempt_reason: None,
+                            reasoning_effort: reasoning_effort.clone(),
+                        }),
+                        None,
+                    )
                 }
-                return Some(CodexReasoningGuardMatch {
-                    rule_mode: options.rule_mode,
-                    match_mode: options.match_mode,
-                    reasoning_tokens: Some(reasoning_tokens),
-                    pointer: observation.reasoning_pointer,
-                    compare_mode: CodexReasoningGuardCompareMode::Equals,
-                    matched_rule_value: Some(reasoning_tokens),
-                    requested_model,
-                    rule_source: CODEX_REASONING_GUARD_RULE_SOURCE_FORMULA_518N_MINUS_2,
-                    rule_model: None,
-                    final_answer_only: observation.structure.final_answer_only(),
-                    commentary_observed: observation.structure.has_commentary,
-                    has_tool_call: observation.structure.has_tool_call,
-                    has_reasoning_item: observation.structure.has_reasoning_item,
-                    request_kind: options.request_kind,
-                    intercept_exempt_reason: None,
-                    reasoning_effort,
-                });
+            } else {
+                let Some(resolved_rule) = resolve_guard_rule(
+                    requested_model.as_deref(),
+                    options.fallback_compare_mode,
+                    options.fallback_values,
+                    options.model_rules,
+                ) else {
+                    return CodexReasoningGuardEvaluation {
+                        checked: true,
+                        rule_mode: options.rule_mode,
+                        match_mode: options.match_mode,
+                        observation,
+                        matched: None,
+                        miss_reason: Some("no_configured_reasoning_rule"),
+                        intercept_exempt_reason: None,
+                        requested_model,
+                        reasoning_effort,
+                        request_kind: options.request_kind,
+                    };
+                };
+                let Some(reasoning_tokens) = observation.reasoning_tokens else {
+                    return CodexReasoningGuardEvaluation {
+                        checked: true,
+                        rule_mode: options.rule_mode,
+                        match_mode: options.match_mode,
+                        observation,
+                        matched: None,
+                        miss_reason: Some("missing_reasoning_tokens"),
+                        intercept_exempt_reason: None,
+                        requested_model,
+                        reasoning_effort,
+                        request_kind: options.request_kind,
+                    };
+                };
+                if let Some(matched_rule_value) = find_matched_rule_value(
+                    resolved_rule.compare_mode,
+                    reasoning_tokens,
+                    resolved_rule.configured_values,
+                ) {
+                    (
+                        Some(CodexReasoningGuardMatch {
+                            rule_mode: options.rule_mode,
+                            match_mode: options.match_mode,
+                            reasoning_tokens: Some(reasoning_tokens),
+                            pointer: observation.reasoning_pointer,
+                            compare_mode: resolved_rule.compare_mode,
+                            matched_rule_value: Some(matched_rule_value),
+                            requested_model: requested_model.clone(),
+                            rule_source: resolved_rule.rule_source,
+                            rule_model: resolved_rule.rule_model.map(ToOwned::to_owned),
+                            final_answer_only: observation.structure.final_answer_only(),
+                            commentary_observed: observation.structure.has_commentary,
+                            has_tool_call: observation.structure.has_tool_call,
+                            has_reasoning_item: observation.structure.has_reasoning_item,
+                            request_kind: options.request_kind,
+                            intercept_exempt_reason: None,
+                            reasoning_effort: reasoning_effort.clone(),
+                        }),
+                        None,
+                    )
+                } else {
+                    (None, Some("reasoning_tokens_not_matched"))
+                }
             }
-            let resolved_rule = resolve_guard_rule(
-                requested_model.as_deref(),
-                options.fallback_compare_mode,
-                options.fallback_values,
-                options.model_rules,
-            )?;
-            let reasoning_tokens = observation.reasoning_tokens?;
-            let matched_rule_value = find_matched_rule_value(
-                resolved_rule.compare_mode,
-                reasoning_tokens,
-                resolved_rule.configured_values,
-            )?;
-            Some(CodexReasoningGuardMatch {
-                rule_mode: options.rule_mode,
-                match_mode: options.match_mode,
-                reasoning_tokens: Some(reasoning_tokens),
-                pointer: observation.reasoning_pointer,
-                compare_mode: resolved_rule.compare_mode,
-                matched_rule_value: Some(matched_rule_value),
-                requested_model,
-                rule_source: resolved_rule.rule_source,
-                rule_model: resolved_rule.rule_model.map(ToOwned::to_owned),
-                final_answer_only: observation.structure.final_answer_only(),
-                commentary_observed: observation.structure.has_commentary,
-                has_tool_call: observation.structure.has_tool_call,
-                has_reasoning_item: observation.structure.has_reasoning_item,
-                request_kind: options.request_kind,
-                intercept_exempt_reason: None,
-                reasoning_effort,
-            })
         }
         CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh => {
             if !should_intercept_final_answer_only_reasoning(observation.reasoning_tokens) {
-                return None;
+                (None, Some("zero_reasoning_tokens"))
+            } else if !is_final_answer_only_intercept_effort(reasoning_effort.as_deref()) {
+                (None, Some("reasoning_effort_not_high_xhigh"))
+            } else if !observation.structure.has_final_answer {
+                (None, Some("missing_final_answer"))
+            } else if observation.structure.has_commentary {
+                (None, Some("commentary_observed"))
+            } else if observation.structure.has_tool_call {
+                (None, Some("tool_call_observed"))
+            } else if observation.structure.has_reasoning_item {
+                (None, Some("reasoning_item_observed"))
+            } else {
+                (
+                    Some(CodexReasoningGuardMatch {
+                        rule_mode: options.rule_mode,
+                        match_mode: options.match_mode,
+                        reasoning_tokens: observation.reasoning_tokens,
+                        pointer: observation.reasoning_pointer,
+                        compare_mode: options.fallback_compare_mode,
+                        matched_rule_value: None,
+                        requested_model: requested_model.clone(),
+                        rule_source: CODEX_REASONING_GUARD_RULE_SOURCE_FINAL_ANSWER_ONLY,
+                        rule_model: None,
+                        final_answer_only: true,
+                        commentary_observed: false,
+                        has_tool_call: false,
+                        has_reasoning_item: false,
+                        request_kind: options.request_kind,
+                        intercept_exempt_reason: None,
+                        reasoning_effort: reasoning_effort.clone(),
+                    }),
+                    None,
+                )
             }
-            if !is_final_answer_only_intercept_effort(reasoning_effort.as_deref()) {
-                return None;
-            }
-            if !observation.structure.final_answer_only() {
-                return None;
-            }
-            Some(CodexReasoningGuardMatch {
-                rule_mode: options.rule_mode,
-                match_mode: options.match_mode,
-                reasoning_tokens: observation.reasoning_tokens,
-                pointer: observation.reasoning_pointer,
-                compare_mode: options.fallback_compare_mode,
-                matched_rule_value: None,
-                requested_model,
-                rule_source: CODEX_REASONING_GUARD_RULE_SOURCE_FINAL_ANSWER_ONLY,
-                rule_model: None,
-                final_answer_only: true,
-                commentary_observed: false,
-                has_tool_call: false,
-                has_reasoning_item: false,
-                request_kind: options.request_kind,
-                intercept_exempt_reason: None,
-                reasoning_effort,
-            })
         }
+    };
+
+    CodexReasoningGuardEvaluation {
+        checked: true,
+        rule_mode: options.rule_mode,
+        match_mode: options.match_mode,
+        observation,
+        matched,
+        miss_reason,
+        intercept_exempt_reason: None,
+        requested_model,
+        reasoning_effort,
+        request_kind: options.request_kind,
     }
 }
 
@@ -424,6 +542,42 @@ fn compare_mode_symbol(compare_mode: CodexReasoningGuardCompareMode) -> &'static
         CodexReasoningGuardCompareMode::Equals => "==",
         CodexReasoningGuardCompareMode::LessThanOrEqual => "<=",
     }
+}
+
+pub(super) fn push_check_special_setting(
+    special_settings: &Arc<Mutex<Vec<serde_json::Value>>>,
+    provider_id: i64,
+    provider_name: &str,
+    retry_index: u32,
+    evaluation: &CodexReasoningGuardEvaluation,
+) {
+    let structure = &evaluation.observation.structure;
+    response_fixer::push_special_setting(
+        special_settings,
+        serde_json::json!({
+            "type": "codex_reasoning_guard_check",
+            "scope": "attempt",
+            "checked": evaluation.checked,
+            "matched": evaluation.matched.is_some(),
+            "ruleMode": evaluation.rule_mode,
+            "reasoningMatchMode": evaluation.match_mode,
+            "providerId": provider_id,
+            "providerName": provider_name,
+            "retryAttemptNumber": retry_index,
+            "reasoningTokens": evaluation.observation.reasoning_tokens,
+            "pointer": evaluation.observation.reasoning_pointer,
+            "reasoningEffort": evaluation.reasoning_effort,
+            "requestedModel": evaluation.requested_model,
+            "hasFinalAnswer": structure.has_final_answer,
+            "finalAnswerOnly": structure.final_answer_only(),
+            "commentaryObserved": structure.has_commentary,
+            "hasToolCall": structure.has_tool_call,
+            "hasReasoningItem": structure.has_reasoning_item,
+            "requestKind": evaluation.request_kind.as_str(),
+            "interceptExemptReason": evaluation.intercept_exempt_reason,
+            "missReason": evaluation.miss_reason,
+        }),
+    );
 }
 
 pub(super) fn is_responses_path(path: &str) -> bool {
@@ -1189,6 +1343,37 @@ mod tests {
     }
 
     #[test]
+    fn evaluate_from_json_explains_token_rule_miss() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 700 } }
+        });
+
+        let evaluation = evaluate_from_json(
+            "codex",
+            Some("gpt-5.5"),
+            &value,
+            detection_options(
+                CodexReasoningGuardRuleMode::ReasoningTokens,
+                CodexReasoningGuardMatchMode::Formula518nMinus2,
+                CodexRequestKind::Normal,
+                Some("xhigh"),
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            ),
+        );
+
+        assert!(evaluation.checked);
+        assert!(evaluation.matched.is_none());
+        assert_eq!(
+            evaluation.miss_reason,
+            Some("reasoning_tokens_not_formula_match")
+        );
+        assert_eq!(evaluation.observation.reasoning_tokens, Some(700));
+        assert_eq!(evaluation.reasoning_effort.as_deref(), Some("xhigh"));
+    }
+
+    #[test]
     fn detect_from_json_matches_less_than_or_equal_rule() {
         let value = serde_json::json!({
             "usage": { "output_tokens_details": { "reasoning_tokens": 300 } }
@@ -1436,6 +1621,35 @@ mod tests {
             );
             assert!(matched.is_none());
         }
+    }
+
+    #[test]
+    fn evaluate_from_json_records_context_compaction_exemption() {
+        let value = serde_json::json!({
+            "usage": { "output_tokens_details": { "reasoning_tokens": 0 } }
+        });
+        let evaluation = evaluate_from_json(
+            "codex",
+            Some("gpt-5.5"),
+            &value,
+            detection_options(
+                CodexReasoningGuardRuleMode::ReasoningTokens,
+                CodexReasoningGuardMatchMode::Manual,
+                CodexRequestKind::ContextCompaction,
+                Some("high"),
+                CodexReasoningGuardCompareMode::Equals,
+                &[516],
+                &[],
+            ),
+        );
+
+        assert!(evaluation.checked);
+        assert!(evaluation.matched.is_none());
+        assert_eq!(evaluation.miss_reason, Some("context_compaction_exempt"));
+        assert_eq!(
+            evaluation.intercept_exempt_reason,
+            Some("context_compaction")
+        );
     }
 
     #[test]

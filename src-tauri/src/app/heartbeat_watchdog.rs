@@ -809,7 +809,7 @@ fn rebuild_main_window(app: &tauri::AppHandle, show: bool) -> Result<(), AppErro
                 .map_err(map_build_err)?
         }
     };
-    crate::app::window_chrome::apply_main_window_chrome(&new_window);
+    crate::app::window_chrome::apply_main_window_chrome(app, &new_window);
 
     if show {
         let _ = new_window.show();

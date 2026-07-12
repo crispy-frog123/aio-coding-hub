@@ -648,7 +648,7 @@ pub fn codex_reasoning_guard_stats(
     } else {
         ""
     };
-    let hit_time_filter = if since_created_at_ms.is_some() {
+    let special_time_filter = if since_created_at_ms.is_some() {
         " AND request_logs.created_at_ms >= ?1"
     } else {
         ""
@@ -662,15 +662,46 @@ WITH codex_requests AS (
   FROM request_logs
   WHERE cli_key = 'codex'{time_filter}
 ),
+guard_check_attempts AS (
+  SELECT
+    request_logs.id AS request_id,
+    COALESCE(NULLIF(TRIM(request_logs.requested_model), ''), '{unknown}') AS requested_model
+  FROM request_logs
+  JOIN json_each(
+    CASE WHEN json_valid(request_logs.special_settings_json)
+      THEN request_logs.special_settings_json ELSE '[]' END
+  ) AS special
+  WHERE request_logs.cli_key = 'codex'
+    {special_time_filter}
+    AND json_extract(special.value, '$.type') = 'codex_reasoning_guard_check'
+    AND COALESCE(json_extract(special.value, '$.checked'), 0) = 1
+),
 guard_hit_attempts AS (
   SELECT
     request_logs.id AS request_id,
     COALESCE(NULLIF(TRIM(request_logs.requested_model), ''), '{unknown}') AS requested_model
   FROM request_logs
-  JOIN json_each(request_logs.special_settings_json) AS special
+  JOIN json_each(
+    CASE WHEN json_valid(request_logs.special_settings_json)
+      THEN request_logs.special_settings_json ELSE '[]' END
+  ) AS special
   WHERE request_logs.cli_key = 'codex'
-    {hit_time_filter}
+    {special_time_filter}
     AND json_extract(special.value, '$.type') = 'codex_reasoning_guard'
+),
+guard_checked_attempts AS (
+  SELECT request_id, requested_model FROM guard_check_attempts
+  UNION ALL
+  SELECT hit.request_id, hit.requested_model
+  FROM guard_hit_attempts hit
+  WHERE NOT EXISTS (
+    SELECT 1 FROM guard_check_attempts checked WHERE checked.request_id = hit.request_id
+  )
+),
+guard_checked_requests AS (
+  SELECT request_id, requested_model, COUNT(1) AS checked_response_count
+  FROM guard_checked_attempts
+  GROUP BY request_id, requested_model
 ),
 guard_hit_requests AS (
   SELECT request_id, requested_model, COUNT(1) AS hit_attempt_count
@@ -678,21 +709,31 @@ guard_hit_requests AS (
   GROUP BY request_id, requested_model
 )
 SELECT
+  COALESCE((SELECT COUNT(*) FROM guard_checked_requests), 0) AS checked_request_count,
+  COALESCE((SELECT SUM(checked_response_count) FROM guard_checked_requests), 0) AS checked_response_count,
   COALESCE((SELECT COUNT(*) FROM guard_hit_requests), 0) AS hit_request_count,
   COALESCE((SELECT SUM(hit_attempt_count) FROM guard_hit_requests), 0) AS hit_attempt_count,
   COALESCE((SELECT COUNT(*) FROM codex_requests), 0) AS total_request_count
 "#,
         unknown = UNKNOWN_CODEX_REQUESTED_MODEL_LABEL,
         time_filter = time_filter,
-        hit_time_filter = hit_time_filter
+        special_time_filter = special_time_filter
     );
 
-    let (hit_request_count, hit_attempt_count, total_request_count) = conn
+    let (
+        checked_request_count,
+        checked_response_count,
+        hit_request_count,
+        hit_attempt_count,
+        total_request_count,
+    ) = conn
         .query_row(
             &overall_sql,
             params_from_iter(since_created_at_ms.iter()),
             |row| {
                 Ok((
+                    row.get::<_, i64>("checked_request_count")?.max(0),
+                    row.get::<_, i64>("checked_response_count")?.max(0),
                     row.get::<_, i64>("hit_request_count")?.max(0),
                     row.get::<_, i64>("hit_attempt_count")?.max(0),
                     row.get::<_, i64>("total_request_count")?.max(0),
@@ -710,40 +751,100 @@ WITH codex_requests AS (
   FROM request_logs
   WHERE cli_key = 'codex'{time_filter}
 ),
+guard_check_attempts AS (
+  SELECT
+    request_logs.id AS request_id,
+    COALESCE(NULLIF(TRIM(request_logs.requested_model), ''), '{unknown}') AS requested_model
+  FROM request_logs
+  JOIN json_each(
+    CASE WHEN json_valid(request_logs.special_settings_json)
+      THEN request_logs.special_settings_json ELSE '[]' END
+  ) AS special
+  WHERE request_logs.cli_key = 'codex'
+    {special_time_filter}
+    AND json_extract(special.value, '$.type') = 'codex_reasoning_guard_check'
+    AND COALESCE(json_extract(special.value, '$.checked'), 0) = 1
+),
 guard_hit_attempts AS (
   SELECT
     request_logs.id AS request_id,
     COALESCE(NULLIF(TRIM(request_logs.requested_model), ''), '{unknown}') AS requested_model
   FROM request_logs
-  JOIN json_each(request_logs.special_settings_json) AS special
+  JOIN json_each(
+    CASE WHEN json_valid(request_logs.special_settings_json)
+      THEN request_logs.special_settings_json ELSE '[]' END
+  ) AS special
   WHERE request_logs.cli_key = 'codex'
-    {hit_time_filter}
+    {special_time_filter}
     AND json_extract(special.value, '$.type') = 'codex_reasoning_guard'
+),
+guard_checked_attempts AS (
+  SELECT request_id, requested_model FROM guard_check_attempts
+  UNION ALL
+  SELECT hit.request_id, hit.requested_model
+  FROM guard_hit_attempts hit
+  WHERE NOT EXISTS (
+    SELECT 1 FROM guard_check_attempts checked WHERE checked.request_id = hit.request_id
+  )
+),
+guard_checked_requests AS (
+  SELECT request_id, requested_model, COUNT(1) AS checked_response_count
+  FROM guard_checked_attempts
+  GROUP BY request_id, requested_model
 ),
 guard_hit_requests AS (
   SELECT request_id, requested_model, COUNT(1) AS hit_attempt_count
   FROM guard_hit_attempts
   GROUP BY request_id, requested_model
+),
+codex_model_counts AS (
+  SELECT requested_model, COUNT(*) AS total_request_count
+  FROM codex_requests
+  GROUP BY requested_model
+),
+checked_model_counts AS (
+  SELECT
+    requested_model,
+    COUNT(*) AS checked_request_count,
+    SUM(checked_response_count) AS checked_response_count
+  FROM guard_checked_requests
+  GROUP BY requested_model
+),
+hit_model_counts AS (
+  SELECT
+    requested_model,
+    COUNT(*) AS hit_request_count,
+    SUM(hit_attempt_count) AS hit_attempt_count
+  FROM guard_hit_requests
+  GROUP BY requested_model
 )
 SELECT
   all_models.requested_model,
-  COUNT(DISTINCT codex_requests.id) AS total_request_count,
-  COUNT(DISTINCT guard_hit_requests.request_id) AS hit_request_count,
-  MAX(COUNT(DISTINCT codex_requests.id) - COUNT(DISTINCT guard_hit_requests.request_id), 0) AS normal_request_count,
-  COALESCE(SUM(guard_hit_requests.hit_attempt_count), 0) AS hit_attempt_count
+  COALESCE(codex_model_counts.total_request_count, 0) AS total_request_count,
+  COALESCE(checked_model_counts.checked_request_count, 0) AS checked_request_count,
+  COALESCE(checked_model_counts.checked_response_count, 0) AS checked_response_count,
+  COALESCE(hit_model_counts.hit_request_count, 0) AS hit_request_count,
+  MAX(
+    COALESCE(checked_model_counts.checked_request_count, 0)
+      - COALESCE(hit_model_counts.hit_request_count, 0),
+    0
+  ) AS normal_request_count,
+  COALESCE(hit_model_counts.hit_attempt_count, 0) AS hit_attempt_count
 FROM (
-  SELECT requested_model FROM codex_requests
+  SELECT requested_model FROM codex_model_counts
   UNION
-  SELECT requested_model FROM guard_hit_requests
+  SELECT requested_model FROM checked_model_counts
+  UNION
+  SELECT requested_model FROM hit_model_counts
 ) all_models
-LEFT JOIN codex_requests ON codex_requests.requested_model = all_models.requested_model
-LEFT JOIN guard_hit_requests ON guard_hit_requests.requested_model = all_models.requested_model
-GROUP BY all_models.requested_model
+LEFT JOIN codex_model_counts ON codex_model_counts.requested_model = all_models.requested_model
+LEFT JOIN checked_model_counts ON checked_model_counts.requested_model = all_models.requested_model
+LEFT JOIN hit_model_counts ON hit_model_counts.requested_model = all_models.requested_model
 ORDER BY hit_request_count DESC, total_request_count DESC, all_models.requested_model ASC
 "#,
         unknown = UNKNOWN_CODEX_REQUESTED_MODEL_LABEL,
         time_filter = time_filter,
-        hit_time_filter = hit_time_filter
+        special_time_filter = special_time_filter
     );
 
     let mut stmt = conn
@@ -766,8 +867,12 @@ ORDER BY hit_request_count DESC, total_request_count DESC, all_models.requested_
             .get::<_, i64>("hit_request_count")
             .map_err(|e| db_err!("invalid codex reasoning guard hit_request_count: {e}"))?
             .max(0);
-        let hit_rate = if total_model_requests > 0 {
-            hit_model_requests as f64 / total_model_requests as f64
+        let checked_model_requests = row
+            .get::<_, i64>("checked_request_count")
+            .map_err(|e| db_err!("invalid codex reasoning guard checked_request_count: {e}"))?
+            .max(0);
+        let hit_rate = if checked_model_requests > 0 {
+            hit_model_requests as f64 / checked_model_requests as f64
         } else {
             0.0
         };
@@ -777,6 +882,11 @@ ORDER BY hit_request_count DESC, total_request_count DESC, all_models.requested_
                 .get("requested_model")
                 .map_err(|e| db_err!("invalid codex reasoning guard requested_model: {e}"))?,
             total_request_count: total_model_requests,
+            checked_request_count: checked_model_requests,
+            checked_response_count: row
+                .get::<_, i64>("checked_response_count")
+                .map_err(|e| db_err!("invalid codex reasoning guard checked_response_count: {e}"))?
+                .max(0),
             hit_request_count: hit_model_requests,
             normal_request_count: row
                 .get::<_, i64>("normal_request_count")
@@ -790,14 +900,16 @@ ORDER BY hit_request_count DESC, total_request_count DESC, all_models.requested_
         });
     }
 
-    let normal_request_count = (total_request_count - hit_request_count).max(0);
-    let hit_rate = if total_request_count > 0 {
-        hit_request_count as f64 / total_request_count as f64
+    let normal_request_count = (checked_request_count - hit_request_count).max(0);
+    let hit_rate = if checked_request_count > 0 {
+        hit_request_count as f64 / checked_request_count as f64
     } else {
         0.0
     };
 
     Ok(CodexReasoningGuardStats {
+        checked_request_count,
+        checked_response_count,
         hit_request_count,
         hit_attempt_count,
         normal_request_count,
@@ -810,9 +922,9 @@ ORDER BY hit_request_count DESC, total_request_count DESC, all_models.requested_
 #[cfg(test)]
 mod tests {
     use super::{
-        final_provider_from_attempts, get_by_id, get_by_trace_id, list_after_id_all, list_recent,
-        list_recent_all, load_source_provider_info_map, parse_attempts, route_from_attempts,
-        start_provider_from_attempts,
+        codex_reasoning_guard_stats, final_provider_from_attempts, get_by_id, get_by_trace_id,
+        list_after_id_all, list_recent, list_recent_all, load_source_provider_info_map,
+        parse_attempts, route_from_attempts, start_provider_from_attempts,
     };
     use crate::db;
     use rusqlite::Connection;
@@ -834,6 +946,92 @@ INSERT INTO request_logs (
             rusqlite::params![id, trace_id, cli_key, path, id * 1000, id],
         )
         .unwrap();
+    }
+
+    fn set_reasoning_guard_test_data(
+        conn: &Connection,
+        id: i64,
+        requested_model: &str,
+        special_settings_json: Option<&str>,
+    ) {
+        conn.execute(
+            "UPDATE request_logs SET requested_model = ?2, special_settings_json = ?3 WHERE id = ?1",
+            rusqlite::params![id, requested_model, special_settings_json],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn reasoning_guard_stats_only_use_checked_requests_as_hit_rate_denominator() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("request-logs.db");
+        let db = db::init_for_tests(&db_path).unwrap();
+        let conn = db.open_connection().unwrap();
+
+        for id in 1..=5 {
+            seed_request_log(
+                &conn,
+                id,
+                format!("trace-{id}").as_str(),
+                "codex",
+                "/v1/responses",
+            );
+        }
+        set_reasoning_guard_test_data(
+            &conn,
+            1,
+            "gpt-a",
+            Some(r#"[{"type":"codex_reasoning_guard_check","checked":true,"matched":false}]"#),
+        );
+        set_reasoning_guard_test_data(
+            &conn,
+            2,
+            "gpt-a",
+            Some(
+                r#"[
+                  {"type":"codex_reasoning_guard_check","checked":true,"matched":true},
+                  {"type":"codex_reasoning_guard","hit":true},
+                  {"type":"codex_reasoning_guard_check","checked":true,"matched":false}
+                ]"#,
+            ),
+        );
+        set_reasoning_guard_test_data(&conn, 3, "gpt-a", None);
+        set_reasoning_guard_test_data(
+            &conn,
+            4,
+            "gpt-b",
+            Some(r#"[{"type":"codex_reasoning_guard","hit":true}]"#),
+        );
+        set_reasoning_guard_test_data(&conn, 5, "gpt-b", Some("not-json"));
+        drop(conn);
+
+        let stats = codex_reasoning_guard_stats(&db, None).unwrap();
+        assert_eq!(stats.total_request_count, 5);
+        assert_eq!(stats.checked_request_count, 3);
+        assert_eq!(stats.checked_response_count, 4);
+        assert_eq!(stats.hit_request_count, 2);
+        assert_eq!(stats.hit_attempt_count, 2);
+        assert_eq!(stats.normal_request_count, 1);
+        assert!((stats.hit_rate - (2.0 / 3.0)).abs() < f64::EPSILON);
+
+        let model_a = stats
+            .by_model
+            .iter()
+            .find(|row| row.requested_model == "gpt-a")
+            .unwrap();
+        assert_eq!(model_a.total_request_count, 3);
+        assert_eq!(model_a.checked_request_count, 2);
+        assert_eq!(model_a.checked_response_count, 3);
+        assert_eq!(model_a.hit_request_count, 1);
+        assert_eq!(model_a.normal_request_count, 1);
+        assert_eq!(model_a.hit_rate, 0.5);
+
+        let recent = codex_reasoning_guard_stats(&db, Some(3_500)).unwrap();
+        assert_eq!(recent.total_request_count, 2);
+        assert_eq!(recent.checked_request_count, 1);
+        assert_eq!(recent.hit_request_count, 1);
+        assert_eq!(recent.normal_request_count, 0);
+        assert_eq!(recent.hit_rate, 1.0);
     }
 
     #[test]
