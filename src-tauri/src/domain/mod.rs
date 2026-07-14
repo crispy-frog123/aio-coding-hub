@@ -16,6 +16,7 @@ pub(crate) mod plugins;
 pub(crate) mod prompts;
 pub(crate) mod provider_availability;
 pub(crate) mod provider_limit_usage;
+pub(crate) mod provider_models;
 pub(crate) mod provider_oauth_limits;
 pub(crate) mod providers;
 pub(crate) mod remote_usage;

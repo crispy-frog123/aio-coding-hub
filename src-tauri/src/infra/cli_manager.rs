@@ -19,7 +19,7 @@ const ENV_KEY_DISABLE_ERROR_REPORTING: &str = "DISABLE_ERROR_REPORTING";
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(2);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(windows)]
-const CODEX_APP_RESTART_TIMEOUT: Duration = Duration::from_secs(10);
+const CODEX_APP_RESTART_TIMEOUT: Duration = Duration::from_secs(20);
 const CMD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const COMMAND_OUTPUT_STREAM_LIMIT: usize = 16 * 1024;
 const COMMAND_OUTPUT_READ_CHUNK_SIZE: usize = 8 * 1024;
@@ -763,11 +763,15 @@ pub fn codex_app_restart(
 ) -> crate::shared::error::AppResult<CodexAppRestartResult> {
     let script = r#"
 $ErrorActionPreference = "Stop"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 
-function Test-CodexExe([string]$Path) {
+function Test-StandaloneCodexExe([string]$Path) {
   if (-not $Path) { return $false }
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-  return ([System.IO.Path]::GetFileName($Path) -ieq "Codex.exe")
+  if ([System.IO.Path]::GetFileName($Path) -ine "Codex.exe") { return $false }
+  return ($Path -notlike "*\WindowsApps\OpenAI.Codex_*\*")
 }
 
 function Join-PathIfRoot([string]$Root, [string]$Child) {
@@ -785,7 +789,7 @@ function Find-KnownCodexExe {
     (Join-PathIfRoot ${env:PROGRAMFILES(x86)} "Codex\Codex.exe")
   ) | Where-Object { $_ }
   foreach ($candidate in $candidates) {
-    if (Test-CodexExe $candidate) {
+    if (Test-StandaloneCodexExe $candidate) {
       return @{ Path = $candidate; Source = "known_path" }
     }
   }
@@ -801,7 +805,7 @@ function Find-KnownCodexExe {
     $match = Get-ChildItem -LiteralPath $root -Filter "Codex.exe" -Recurse -ErrorAction SilentlyContinue |
       Sort-Object LastWriteTime -Descending |
       Select-Object -First 1
-    if ($match -and (Test-CodexExe $match.FullName)) {
+    if ($match -and (Test-StandaloneCodexExe $match.FullName)) {
       return @{ Path = $match.FullName; Source = "path_search" }
     }
   }
@@ -809,25 +813,88 @@ function Find-KnownCodexExe {
   return $null
 }
 
-$targets = @()
-try {
-  $targets = @(Get-CimInstance Win32_Process | Where-Object {
-    $_.ExecutablePath -and
-    $_.Name -ieq "Codex.exe" -and
-    ($_.ExecutablePath -like "*\OpenAI\Codex\*" -or $_.ExecutablePath -like "*\Codex.exe")
-  })
-} catch {
-  $targets = @()
+function Find-PackagedCodexApp {
+  try {
+    $startApp = @(Get-StartApps | Where-Object {
+      $_.AppID -like "OpenAI.Codex_*!*"
+    } | Select-Object -First 1)[0]
+    if (-not $startApp) { return $null }
+
+    $installRoot = $null
+    $executablePath = $null
+    try {
+      $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+      if ($package) {
+        $installRoot = [string]$package.InstallLocation
+        $manifest = $package | Get-AppxPackageManifest -ErrorAction Stop
+        $application = @($manifest.Package.Applications.Application | Where-Object {
+          ([string]$_.Id) -and ("$($package.PackageFamilyName)!$($_.Id)" -eq [string]$startApp.AppID)
+        } | Select-Object -First 1)[0]
+        if ($application -and ([string]$application.Executable)) {
+          $relativeExecutable = ([string]$application.Executable).Replace("/", "\")
+          $executablePath = Join-Path $installRoot $relativeExecutable
+        }
+      }
+    } catch {
+    }
+
+    return @{
+      AppUserModelId = [string]$startApp.AppID
+      InstallRoot = $installRoot
+      ExecutablePath = $executablePath
+    }
+  } catch {
+    return $null
+  }
 }
 
+function Test-PackagedCodexProcess([string]$Path, [string]$InstallRoot) {
+  if (-not $Path) { return $false }
+  if ($InstallRoot) {
+    $rootWithSeparator = $InstallRoot.TrimEnd("\") + "\"
+    return $Path.StartsWith($rootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)
+  }
+  return ($Path -like "*\WindowsApps\OpenAI.Codex_*\*")
+}
+
+$allProcesses = @()
+try {
+  $allProcesses = @(Get-CimInstance Win32_Process)
+} catch {
+  $allProcesses = @()
+}
+
+$packagedApp = Find-PackagedCodexApp
+$launchMode = "standalone"
+$appUserModelId = $null
+$installRoot = $null
+$targets = @()
 $exe = $null
 $source = "unknown"
-if ($targets.Count -gt 0) {
-  $exe = @($targets | Select-Object -ExpandProperty ExecutablePath -Unique | Select-Object -First 1)[0]
-  $source = "running_process"
+
+if ($packagedApp) {
+  $launchMode = "packaged"
+  $appUserModelId = [string]$packagedApp.AppUserModelId
+  $installRoot = [string]$packagedApp.InstallRoot
+  $exe = [string]$packagedApp.ExecutablePath
+  $source = "appx_package"
+  $targets = @($allProcesses | Where-Object {
+    Test-PackagedCodexProcess ([string]$_.ExecutablePath) $installRoot
+  })
+} else {
+  $targets = @($allProcesses | Where-Object {
+    $_.Name -ieq "Codex.exe" -and
+    (Test-StandaloneCodexExe ([string]$_.ExecutablePath))
+  })
+  if ($targets.Count -gt 0) {
+    $exe = @($targets | Select-Object -ExpandProperty ExecutablePath -Unique | Select-Object -First 1)[0]
+    $source = "running_process"
+  }
 }
 
-if (-not (Test-CodexExe $exe)) {
+if ($launchMode -eq "standalone" -and (-not (Test-StandaloneCodexExe $exe))) {
   $known = Find-KnownCodexExe
   if ($known) {
     $exe = [string]$known.Path
@@ -835,7 +902,8 @@ if (-not (Test-CodexExe $exe)) {
   }
 }
 
-if (-not (Test-CodexExe $exe)) {
+if (($launchMode -eq "packaged" -and (-not $appUserModelId)) -or
+    ($launchMode -eq "standalone" -and (-not (Test-StandaloneCodexExe $exe)))) {
   [ordered]@{
     ok = $false
     action = "not_found"
@@ -843,14 +911,18 @@ if (-not (Test-CodexExe $exe)) {
     killed_count = 0
     started = $false
     source = "not_found"
-    message = "未发现正在运行的 Codex，也没有找到 Codex.exe 安装路径。请先手动启动一次 Codex。"
+    message = "未找到可启动的 Codex 桌面应用。请先手动启动一次 Codex。"
   } | ConvertTo-Json -Compress
   exit 0
 }
 
 $targetPids = @()
 if ($targets.Count -gt 0) {
-  $targetPids = @($targets | Where-Object { $_.ExecutablePath -eq $exe } | ForEach-Object { [int]$_.ProcessId })
+  if ($launchMode -eq "packaged") {
+    $targetPids = @($targets | ForEach-Object { [int]$_.ProcessId })
+  } else {
+    $targetPids = @($targets | Where-Object { $_.ExecutablePath -eq $exe } | ForEach-Object { [int]$_.ProcessId })
+  }
 }
 
 foreach ($processIdValue in $targetPids) {
@@ -864,30 +936,41 @@ if ($targetPids.Count -gt 0) {
   Start-Sleep -Milliseconds 1500
 }
 
-$workingDirectory = Split-Path -Parent $exe
-$startArgs = @{ FilePath = $exe }
-if ($workingDirectory -and (Test-Path -LiteralPath $workingDirectory -PathType Container)) {
-  $startArgs.WorkingDirectory = $workingDirectory
-}
+if ($launchMode -eq "packaged") {
+  $explorer = Join-Path $env:WINDIR "explorer.exe"
+  Start-Process -FilePath $explorer -ArgumentList ("shell:AppsFolder\" + $appUserModelId) | Out-Null
+} else {
+  $workingDirectory = Split-Path -Parent $exe
+  $startArgs = @{ FilePath = $exe }
+  if ($workingDirectory -and (Test-Path -LiteralPath $workingDirectory -PathType Container)) {
+    $startArgs.WorkingDirectory = $workingDirectory
+  }
 
-try {
-  Start-Process @startArgs | Out-Null
-} catch {
-  # Some packaged installs expose Codex.exe under a directory that exists but
-  # cannot be used as a process working directory. Retry without it.
-  if ($startArgs.ContainsKey("WorkingDirectory")) {
-    $startArgs.Remove("WorkingDirectory")
+  try {
     Start-Process @startArgs | Out-Null
-  } else {
-    throw
+  } catch {
+    if ($startArgs.ContainsKey("WorkingDirectory")) {
+      $startArgs.Remove("WorkingDirectory")
+      Start-Process @startArgs | Out-Null
+    } else {
+      throw
+    }
   }
 }
 
 $action = if ($targetPids.Count -gt 0) { "restarted" } else { "started" }
 $message = if ($targetPids.Count -gt 0) {
-  "已关闭旧 Codex 进程并重新启动。"
+  if ($launchMode -eq "packaged") {
+    "已通过 Windows 应用入口关闭并重新启动 Codex。"
+  } else {
+    "已关闭旧 Codex 进程并重新启动。"
+  }
 } else {
-  "未发现正在运行的 Codex，已启动 Codex。"
+  if ($launchMode -eq "packaged") {
+    "未发现正在运行的 Codex，已通过 Windows 应用入口启动。"
+  } else {
+    "未发现正在运行的 Codex，已启动 Codex。"
+  }
 }
 
 [ordered]@{

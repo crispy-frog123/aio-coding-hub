@@ -46,6 +46,9 @@ vi.mock("../../pages/McpPage", () => ({
 vi.mock("../../pages/PluginsPage", () => ({
   PluginsPage: () => <h1>plugins-route</h1>,
 }));
+vi.mock("../../pages/ModelDetectionPage", () => ({
+  ModelDetectionPage: () => <h1>model-detection-route</h1>,
+}));
 vi.mock("../../pages/LogsPage", () => ({
   LogsPage: () => <h1>logs-route</h1>,
 }));
@@ -87,6 +90,7 @@ describe("app/AppRoutes", () => {
     ["/prompts", "prompts-route"],
     ["/mcp", "mcp-route"],
     ["/plugins", "plugins-route"],
+    ["/model-detection", "model-detection-route"],
     ["/logs", "logs-route"],
     ["/console", "console-route"],
     ["/usage", "usage-route"],

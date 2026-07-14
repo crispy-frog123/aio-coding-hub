@@ -101,6 +101,8 @@ macro_rules! generated_command_registry {
             provider_copy_api_key_to_clipboard => crate::commands::providers::provider_copy_api_key_to_clipboard,
             base_url_ping_ms => crate::commands::providers::base_url_ping_ms,
             provider_test_availability => crate::commands::provider_availability::provider_test_availability,
+            provider_models_list => crate::commands::provider_models::provider_models_list,
+            provider_model_probe => crate::commands::provider_models::provider_model_probe,
             provider_oauth_start_flow => crate::commands::providers::provider_oauth_start_flow,
             provider_oauth_start_device_flow => crate::commands::providers::provider_oauth_start_device_flow,
             provider_oauth_poll_device_flow => crate::commands::providers::provider_oauth_poll_device_flow,

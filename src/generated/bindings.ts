@@ -754,6 +754,35 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async providerModelsList(
+    providerId: number,
+    baseUrl: string | null
+  ): Promise<Result<ProviderModelsResult, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("provider_models_list", { providerId, baseUrl }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async providerModelProbe(
+    providerId: number,
+    model: string,
+    baseUrl: string | null
+  ): Promise<Result<ProviderModelProbeResult, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("provider_model_probe", { providerId, model, baseUrl }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async providerOauthStartFlow(
     cliKey: string,
     providerId: number
@@ -3843,6 +3872,40 @@ export type ProviderLimitUsageRow = {
   window_daily_start_ts: number;
   window_weekly_start_ts: number;
   window_monthly_start_ts: number;
+};
+export type ProviderModelInfo = {
+  id: string;
+  display_name: string | null;
+  owned_by: string | null;
+  model_type: string | null;
+  supported_methods: string[];
+};
+export type ProviderModelProbeResult = {
+  ok: boolean;
+  provider_id: number;
+  provider_name: string;
+  model: string;
+  protocol: string;
+  endpoint: string;
+  status: number | null;
+  latency_ms: number;
+  outcome: string;
+  error: string | null;
+  response_preview: string | null;
+};
+export type ProviderModelsResult = {
+  ok: boolean;
+  provider_id: number;
+  provider_name: string;
+  cli_key: string;
+  auth_mode: string;
+  base_url: string;
+  endpoint: string;
+  status: number | null;
+  latency_ms: number;
+  models: ProviderModelInfo[];
+  error: string | null;
+  response_preview: string | null;
 };
 export type ProviderOAuthDeviceCodeCancelResult = { cancelled: boolean };
 export type ProviderOAuthDeviceCodePollInput = {
