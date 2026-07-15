@@ -19,6 +19,18 @@ pub(super) async fn emit_attempt_event_and_log<R: tauri::Runtime>(
     status: Option<u16>,
     circuit: AttemptCircuitFields,
 ) {
+    if let Some(timing) = attempt_ctx.policy_timing {
+        let final_action = match status {
+            Some(status) if (200..300).contains(&status) => "upstream_success_processed",
+            Some(_) => "upstream_error_handled",
+            None => "upstream_transport_error",
+        };
+        super::layered_policy::mark_attempt_final_action_if_unset(
+            ctx.special_settings,
+            timing.sequence,
+            final_action,
+        );
+    }
     if !ctx.observe {
         return;
     }

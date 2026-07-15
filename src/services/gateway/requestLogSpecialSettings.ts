@@ -29,6 +29,39 @@ export type CodexReasoningGuardCheckSummary = {
   latestExemptReason: string | null;
 };
 
+export type CodexGatewayPolicyAttempt = {
+  attemptSequence: number | null;
+  providerId: number | null;
+  providerName: string | null;
+  retryAttemptNumber: number | null;
+  policyTrigger: string | null;
+  policyAction: string | null;
+  retryTrigger: string | null;
+  retryDelayMs: number | null;
+  retryAfterRaw: string | null;
+  retryAfterMs: number | null;
+  retryBudgetUsed: number | null;
+  retryBudgetRemaining: number | null;
+  upstreamFetchStartedAtMs: number | null;
+  upstreamHttpStatus: number | null;
+  firstProgressAtMs: number | null;
+  timeToFirstProgressMs: number | null;
+  clientHeadersSentAtMs: number | null;
+  clientFirstWriteAtMs: number | null;
+  timeToClientFirstWriteMs: number | null;
+  timeoutPhase: string | null;
+  timeoutLimitMs: number | null;
+  timeoutResponseControlLost: boolean;
+  responseForwardingStarted: boolean;
+  finalAction: string | null;
+};
+
+export type CodexGatewayPolicyAttemptSummary = {
+  count: number;
+  attempts: CodexGatewayPolicyAttempt[];
+  latest: CodexGatewayPolicyAttempt | null;
+};
+
 export type CodexReasoningEffort =
   | "none"
   | "minimal"
@@ -36,6 +69,8 @@ export type CodexReasoningEffort =
   | "medium"
   | "high"
   | "xhigh"
+  | "max"
+  | "ultra"
   | "unknown";
 
 export type CodexReasoningEffortSource = "request" | "default" | "unknown";
@@ -52,6 +87,8 @@ const CODEX_REASONING_EFFORTS = new Set<CodexReasoningEffort>([
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ]);
 
 const KNOWN_CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, CodexReasoningEffort>> =
@@ -101,6 +138,16 @@ function parsedSettingNumber(value: unknown): number {
 
 function parsedSettingBoolean(value: unknown): boolean {
   return typeof value === "boolean" ? value : false;
+}
+
+function parsedOptionalSettingString(value: unknown): string | null {
+  const parsed = parsedSettingString(value);
+  return parsed ? parsed : null;
+}
+
+function parsedOptionalSettingNumber(value: unknown): number | null {
+  const parsed = parsedSettingNumber(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeCodexReasoningEffort(
@@ -354,6 +401,45 @@ export function resolveCodexReasoningGuardSummary(
     latestDelayMs,
     latestBudgetRemaining,
     latestBudgetTotal,
+  };
+}
+
+export function resolveCodexGatewayPolicyAttemptSummary(
+  specialSettingsJson: string | null | undefined
+): CodexGatewayPolicyAttemptSummary {
+  const attempts = parseRequestLogSpecialSettings(specialSettingsJson)
+    .filter((setting) => setting.type === "codex_gateway_policy_attempt")
+    .map<CodexGatewayPolicyAttempt>((setting) => ({
+      attemptSequence: parsedOptionalSettingNumber(setting.attemptSequence),
+      providerId: parsedOptionalSettingNumber(setting.providerId),
+      providerName: parsedOptionalSettingString(setting.providerName),
+      retryAttemptNumber: parsedOptionalSettingNumber(setting.retryAttemptNumber),
+      policyTrigger: parsedOptionalSettingString(setting.policyTrigger),
+      policyAction: parsedOptionalSettingString(setting.policyAction),
+      retryTrigger: parsedOptionalSettingString(setting.retryTrigger),
+      retryDelayMs: parsedOptionalSettingNumber(setting.retryDelayMs),
+      retryAfterRaw: parsedOptionalSettingString(setting.retryAfterRaw),
+      retryAfterMs: parsedOptionalSettingNumber(setting.retryAfterMs),
+      retryBudgetUsed: parsedOptionalSettingNumber(setting.retryBudgetUsed),
+      retryBudgetRemaining: parsedOptionalSettingNumber(setting.retryBudgetRemaining),
+      upstreamFetchStartedAtMs: parsedOptionalSettingNumber(setting.upstreamFetchStartedAtMs),
+      upstreamHttpStatus: parsedOptionalSettingNumber(setting.upstreamHttpStatus),
+      firstProgressAtMs: parsedOptionalSettingNumber(setting.firstProgressAtMs),
+      timeToFirstProgressMs: parsedOptionalSettingNumber(setting.timeToFirstProgressMs),
+      clientHeadersSentAtMs: parsedOptionalSettingNumber(setting.clientHeadersSentAtMs),
+      clientFirstWriteAtMs: parsedOptionalSettingNumber(setting.clientFirstWriteAtMs),
+      timeToClientFirstWriteMs: parsedOptionalSettingNumber(setting.timeToClientFirstWriteMs),
+      timeoutPhase: parsedOptionalSettingString(setting.timeoutPhase),
+      timeoutLimitMs: parsedOptionalSettingNumber(setting.timeoutLimitMs),
+      timeoutResponseControlLost: parsedSettingBoolean(setting.timeoutResponseControlLost),
+      responseForwardingStarted: parsedSettingBoolean(setting.responseForwardingStarted),
+      finalAction: parsedOptionalSettingString(setting.finalAction),
+    }));
+
+  return {
+    count: attempts.length,
+    attempts,
+    latest: attempts[attempts.length - 1] ?? null,
   };
 }
 

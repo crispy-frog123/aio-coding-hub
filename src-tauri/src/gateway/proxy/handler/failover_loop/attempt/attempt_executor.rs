@@ -8,6 +8,7 @@ use super::*;
 use crate::gateway::plugins::context::{GatewayPluginHookName, GatewayRequestHookInput};
 use crate::gateway::proxy::abort_guard::RequestAbortGuard;
 use crate::gateway::proxy::request_context::RequestContext;
+use crate::shared::mutex_ext::MutexExt;
 use std::sync::{Arc, Mutex};
 
 /// Mutable per-provider state that persists across retries within one provider.
@@ -18,7 +19,6 @@ pub(super) struct RetryLoopState {
     pub(super) thinking_signature_rectifier_retried: bool,
     pub(super) thinking_budget_rectifier_retried: bool,
     pub(super) allow_next_retry_beyond_max_attempts: bool,
-    pub(super) codex_reasoning_guard_hits: u32,
     pub(super) codex_continuation_request_body: Option<Bytes>,
     pub(super) codex_continuation_base_request_body: Option<Bytes>,
     pub(super) codex_strip_encrypted_reasoning_response: bool,
@@ -35,7 +35,6 @@ impl RetryLoopState {
             thinking_signature_rectifier_retried: false,
             thinking_budget_rectifier_retried: false,
             allow_next_retry_beyond_max_attempts: false,
-            codex_reasoning_guard_hits: 0,
             codex_continuation_request_body: None,
             codex_continuation_base_request_body: None,
             codex_strip_encrypted_reasoning_response: false,
@@ -49,12 +48,14 @@ impl RetryLoopState {
 pub(super) struct AttemptTiming {
     pub(super) attempt_started_ms: u128,
     pub(super) attempt_started: Instant,
+    pub(super) policy_timing: layered_policy::AttemptPolicyTiming,
 }
 
 /// Result of building + sending one attempt.
 pub(super) enum AttemptSendOutcome {
     Response(reqwest::Response, AttemptTiming),
     Timeout(AttemptTiming),
+    LayeredTimeout(layered_policy::TimeoutPhase, AttemptTiming),
     ReqwestError(reqwest::Error, AttemptTiming),
     /// URL build failure already recorded; caller should apply the returned LoopControl.
     UrlBuildFailed(LoopControl),
@@ -238,17 +239,43 @@ where
         &upstream_body,
     );
 
+    let dispatch_started = Instant::now();
+    let (policy_timing, policy_applies) = {
+        let mut policy = ctx.layered_policy_state.lock_or_recover();
+        let applies = policy.applies();
+        (policy.begin_attempt(dispatch_started), applies)
+    };
+    if policy_applies {
+        layered_policy::record_attempt_dispatch(
+            ctx.special_settings,
+            policy_timing,
+            prepared.provider_id,
+            &prepared.provider_name_base,
+            retry_index,
+        );
+    }
     let timing = AttemptTiming {
         attempt_started_ms,
-        attempt_started: Instant::now(),
+        attempt_started: dispatch_started,
+        policy_timing,
     };
 
-    let send_result =
-        send::send_upstream(ctx, input.req_method.clone(), url, headers, upstream_body).await;
+    let send_result = send::send_upstream(
+        ctx,
+        input.req_method.clone(),
+        url,
+        headers,
+        upstream_body,
+        policy_timing,
+    )
+    .await;
 
     match send_result {
         send::SendResult::Ok(resp) => AttemptSendOutcome::Response(resp, timing),
         send::SendResult::Timeout => AttemptSendOutcome::Timeout(timing),
+        send::SendResult::LayeredTimeout(phase) => {
+            AttemptSendOutcome::LayeredTimeout(phase, timing)
+        }
         send::SendResult::Err(err) => AttemptSendOutcome::ReqwestError(err, timing),
     }
 }
@@ -394,6 +421,7 @@ fn build_attempt_ctx<'a>(
         provider_max_attempts: prepared.provider_max_attempts,
         attempt_started_ms,
         attempt_started: Instant::now(),
+        policy_timing: None,
         circuit_before,
         gemini_oauth_response_mode: prepared.gemini_oauth_response_mode,
         cx2cc_active: prepared.cx2cc_active,

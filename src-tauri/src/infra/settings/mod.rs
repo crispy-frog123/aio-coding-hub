@@ -7,7 +7,8 @@ mod types;
 
 // Re-export public API (preserves identical surface for all consumers).
 pub use defaults::{
-    DEFAULT_CODEX_REASONING_GUARD_CONTINUATION_MARKER_TEXT,
+    DEFAULT_CODEX_GATEWAY_FIRST_PROGRESS_TIMEOUT_MS, DEFAULT_CODEX_GATEWAY_LATENCY_GUARD_ENABLED,
+    DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS, DEFAULT_CODEX_REASONING_GUARD_CONTINUATION_MARKER_TEXT,
     DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
     DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_MS, DEFAULT_CODEX_REASONING_GUARD_ENABLED,
     DEFAULT_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
@@ -23,7 +24,8 @@ pub use persistence::{
     clear_cache, log_retention_days_fail_open, read, request_log_retention_days_fail_open, write,
 };
 pub use types::{
-    AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
+    AppSettings, CodexGatewayFirstProgressAction, CodexGatewayPolicyAction, CodexHomeMode,
+    CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
     CodexReasoningGuardMatchMode, CodexReasoningGuardModelRule, CodexReasoningGuardRuleMode,
     CodexReasoningGuardStreamAction, GatewayListenMode, HomeUsagePeriod, WslHostAddressMode,
     WslTargetCli,

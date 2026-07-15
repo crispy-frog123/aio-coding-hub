@@ -7,6 +7,7 @@ use crate::gateway::proxy::{
     gemini_oauth, is_fake_200_non_stream_body, protocol_bridge, provider_router,
     upstream_client_error_rules, GatewayErrorCode,
 };
+use std::time::Duration;
 
 fn buffer_cx2cc_event_stream_as_json(
     cx2cc_active: bool,
@@ -202,6 +203,7 @@ fn should_passthrough_non_stream_success(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NonStreamBodyReadError {
     Timeout,
+    PolicyTimeout(layered_policy::TimeoutPhase),
     ReadError,
     TooLarge,
 }
@@ -210,6 +212,10 @@ impl NonStreamBodyReadError {
     fn as_str(self) -> &'static str {
         match self {
             Self::Timeout => "timeout",
+            Self::PolicyTimeout(layered_policy::TimeoutPhase::FirstProgress) => {
+                "first_progress_timeout"
+            }
+            Self::PolicyTimeout(layered_policy::TimeoutPhase::Total) => "total_timeout",
             Self::ReadError => "read_error",
             Self::TooLarge => "too_large",
         }
@@ -218,6 +224,7 @@ impl NonStreamBodyReadError {
     fn error_code(self) -> &'static str {
         match self {
             Self::Timeout => GatewayErrorCode::UpstreamTimeout.as_str(),
+            Self::PolicyTimeout(phase) => phase.gateway_error_code(),
             Self::ReadError => GatewayErrorCode::UpstreamReadError.as_str(),
             Self::TooLarge => GatewayErrorCode::UpstreamBodyReadError.as_str(),
         }
@@ -225,7 +232,9 @@ impl NonStreamBodyReadError {
 
     fn decision(self, retry_index: u32, max_attempts_per_provider: u32) -> FailoverDecision {
         match self {
-            Self::Timeout | Self::TooLarge => FailoverDecision::SwitchProvider,
+            Self::Timeout | Self::PolicyTimeout(_) | Self::TooLarge => {
+                FailoverDecision::SwitchProvider
+            }
             Self::ReadError if retry_index < max_attempts_per_provider => {
                 FailoverDecision::RetrySameProvider
             }
@@ -236,6 +245,12 @@ impl NonStreamBodyReadError {
     fn reason(self, limit_bytes: usize) -> String {
         match self {
             Self::Timeout => "failed to read upstream body: timeout".to_string(),
+            Self::PolicyTimeout(phase) => {
+                format!(
+                    "upstream {} deadline expired while reading body",
+                    phase.as_str()
+                )
+            }
             Self::ReadError => "failed to read upstream body".to_string(),
             Self::TooLarge => format!(
                 "upstream body exceeded gateway non-stream transform buffer limit ({} bytes)",
@@ -249,6 +264,7 @@ async fn read_non_stream_body_with_limit(
     mut resp: reqwest::Response,
     started: Instant,
     timeout: Option<std::time::Duration>,
+    policy_timing: Option<layered_policy::AttemptPolicyTiming>,
     limit_bytes: usize,
 ) -> Result<Bytes, NonStreamBodyReadError> {
     if resp
@@ -266,13 +282,32 @@ async fn read_non_stream_body_with_limit(
     let mut out = Vec::with_capacity(capacity);
 
     loop {
-        let chunk_result = match timeout.and_then(|total| total.checked_sub(started.elapsed())) {
-            Some(remaining) if remaining.is_zero() => Err(NonStreamBodyReadError::Timeout),
-            Some(remaining) => match tokio::time::timeout(remaining, resp.chunk()).await {
-                Ok(Ok(chunk)) => Ok(chunk),
-                Ok(Err(_)) => Err(NonStreamBodyReadError::ReadError),
-                Err(_) => Err(NonStreamBodyReadError::Timeout),
-            },
+        if let Some(phase) = policy_timing.and_then(|timing| timing.expired_phase(false)) {
+            return Err(NonStreamBodyReadError::PolicyTimeout(phase));
+        }
+
+        let now = Instant::now();
+        let request_deadline = timeout.and_then(|total| started.checked_add(total));
+        let policy_deadline = policy_timing.and_then(|timing| timing.next_deadline(false));
+        let deadline = match (request_deadline, policy_deadline) {
+            (Some(request), Some((policy, phase))) if policy <= request => {
+                Some((policy, NonStreamBodyReadError::PolicyTimeout(phase)))
+            }
+            (Some(request), _) => Some((request, NonStreamBodyReadError::Timeout)),
+            (None, Some((policy, phase))) => {
+                Some((policy, NonStreamBodyReadError::PolicyTimeout(phase)))
+            }
+            (None, None) => None,
+        };
+        let chunk_result = match deadline {
+            Some((deadline, error)) if deadline <= now => Err(error),
+            Some((deadline, error)) => {
+                match tokio::time::timeout_at(deadline.into(), resp.chunk()).await {
+                    Ok(Ok(chunk)) => Ok(chunk),
+                    Ok(Err(_)) => Err(NonStreamBodyReadError::ReadError),
+                    Err(_) => Err(error),
+                }
+            }
             None => resp
                 .chunk()
                 .await
@@ -280,6 +315,9 @@ async fn read_non_stream_body_with_limit(
         }?;
 
         let Some(chunk) = chunk_result else {
+            if let Some(phase) = policy_timing.and_then(|timing| timing.expired_phase(false)) {
+                return Err(NonStreamBodyReadError::PolicyTimeout(phase));
+            }
             return Ok(Bytes::from(out));
         };
         if chunk.len() > limit_bytes.saturating_sub(out.len()) {
@@ -385,6 +423,7 @@ where
         retry_index,
         attempt_started_ms,
         attempt_started,
+        policy_timing,
         circuit_before,
         gemini_oauth_response_mode,
         cx2cc_active,
@@ -405,6 +444,8 @@ where
     let should_inspect_codex_reasoning_guard = common.codex_reasoning_guard_enabled
         && common.cli_key == "codex"
         && codex_reasoning_guard::is_responses_path(common.forwarded_path.as_str());
+    let policy_requires_buffering =
+        policy_timing.is_some_and(|timing| timing.next_deadline(false).is_some());
     strip_hop_headers(&mut response_headers);
     let cx2cc_buffered_event_stream = cx2cc_active && is_event_stream(&response_headers);
     if should_passthrough_non_stream_success(
@@ -412,6 +453,7 @@ where
         cx2cc_buffered_event_stream,
         cx2cc_active,
     ) && !should_inspect_codex_reasoning_guard
+        && !policy_requires_buffering
     {
         let should_gunzip = has_gzip_content_encoding(&response_headers);
 
@@ -620,6 +662,7 @@ where
         resp,
         started,
         upstream_request_timeout_non_streaming,
+        policy_timing,
         MAX_NON_SSE_BODY_BYTES,
     )
     .await;
@@ -635,6 +678,22 @@ where
                 )
             });
             b
+        }
+        Err(NonStreamBodyReadError::PolicyTimeout(phase)) => {
+            return layered_policy::handle_timeout_before_forward(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                LoopState {
+                    attempts,
+                    failed_provider_ids,
+                    last_outcome,
+                    circuit_snapshot,
+                    abort_guard,
+                },
+                phase,
+            )
+            .await;
         }
         Err(kind) => {
             let error_code = kind.error_code();
@@ -758,6 +817,49 @@ where
         };
 
     body_bytes = classified_payload.body_bytes;
+
+    let non_stream_progress_seen = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+        .map(|value| layered_policy::meaningful_progress_from_json(&value))
+        .unwrap_or_else(|_| body_bytes.iter().any(|byte| !byte.is_ascii_whitespace()));
+    if non_stream_progress_seen {
+        if let Some(timing) = policy_timing {
+            if let Some(phase) = timing.expired_phase(false) {
+                return layered_policy::handle_timeout_before_forward(
+                    ctx,
+                    provider_ctx,
+                    attempt_ctx,
+                    LoopState {
+                        attempts,
+                        failed_provider_ids,
+                        last_outcome,
+                        circuit_snapshot,
+                        abort_guard,
+                    },
+                    phase,
+                )
+                .await;
+            }
+            layered_policy::mark_first_progress(&common.special_settings, timing);
+        }
+    }
+    if let Some(phase) =
+        policy_timing.and_then(|timing| timing.expired_phase(non_stream_progress_seen))
+    {
+        return layered_policy::handle_timeout_before_forward(
+            ctx,
+            provider_ctx,
+            attempt_ctx,
+            LoopState {
+                attempts,
+                failed_provider_ids,
+                last_outcome,
+                circuit_snapshot,
+                abort_guard,
+            },
+            phase,
+        )
+        .await;
+    }
 
     match classified_payload.kind {
         Cx2ccSuccessPayloadKind::NonStreamJson => {
@@ -1065,7 +1167,53 @@ where
         headers: response_headers.clone(),
         body: body_bytes.clone(),
     };
-    match state.plugin_pipeline.run_response_hook(hook_input).await {
+    let hook_result = if let Some((deadline, phase)) =
+        policy_timing.and_then(|timing| timing.next_deadline(non_stream_progress_seen))
+    {
+        if deadline <= Instant::now() {
+            return layered_policy::handle_timeout_before_forward(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                LoopState {
+                    attempts,
+                    failed_provider_ids,
+                    last_outcome,
+                    circuit_snapshot,
+                    abort_guard,
+                },
+                phase,
+            )
+            .await;
+        }
+        match tokio::time::timeout_at(
+            deadline.into(),
+            state.plugin_pipeline.run_response_hook(hook_input),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                return layered_policy::handle_timeout_before_forward(
+                    ctx,
+                    provider_ctx,
+                    attempt_ctx,
+                    LoopState {
+                        attempts,
+                        failed_provider_ids,
+                        last_outcome,
+                        circuit_snapshot,
+                        abort_guard,
+                    },
+                    phase,
+                )
+                .await;
+            }
+        }
+    } else {
+        state.plugin_pipeline.run_response_hook(hook_input).await
+    };
+    match hook_result {
         Ok(output) => {
             crate::gateway::plugins::audit::persist_gateway_plugin_diagnostics(
                 &state.db,
@@ -1117,6 +1265,25 @@ where
         }
     }
 
+    if let Some(phase) =
+        policy_timing.and_then(|timing| timing.expired_phase(non_stream_progress_seen))
+    {
+        return layered_policy::handle_timeout_before_forward(
+            ctx,
+            provider_ctx,
+            attempt_ctx,
+            LoopState {
+                attempts,
+                failed_provider_ids,
+                last_outcome,
+                circuit_snapshot,
+                abort_guard,
+            },
+            phase,
+        )
+        .await;
+    }
+
     if should_inspect_codex_reasoning_guard {
         if let Ok(body_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
             let guard_evaluation = codex_reasoning_guard::evaluate_from_json(
@@ -1141,13 +1308,27 @@ where
                 &guard_evaluation,
             );
             if let Some(matched) = guard_evaluation.matched {
-                let budget_decision = codex_reasoning_guard::budget_decision(
-                    retry_state.codex_reasoning_guard_hits,
+                let budget_decision = codex_reasoning_guard::shared_budget_decision(
+                    &common.layered_policy_state,
                     common.codex_reasoning_guard_immediate_retry_budget,
                     common.codex_reasoning_guard_delayed_retry_budget,
-                    common.codex_reasoning_guard_delayed_retry_ms,
                     common.codex_reasoning_guard_exhausted_action,
                 );
+                if let Some(policy_timing) = policy_timing {
+                    layered_policy::update_attempt_telemetry(
+                        &common.special_settings,
+                        policy_timing.sequence,
+                        serde_json::json!({
+                            "policyTrigger": "reasoning",
+                            "policyAction": budget_decision.action_taken,
+                            "retryTrigger": matches!(budget_decision.action, codex_reasoning_guard::CodexReasoningGuardBudgetAction::RetrySameProvider).then_some("reasoning"),
+                            "retryDelayMs": budget_decision.delay_ms,
+                            "retryBudgetUsed": budget_decision.hit_number.min(budget_decision.total_budget),
+                            "retryBudgetRemaining": budget_decision.remaining_budget,
+                            "finalAction": budget_decision.action_taken,
+                        }),
+                    );
+                }
                 codex_reasoning_guard::push_special_setting(
                     &common.special_settings,
                     provider_id,
@@ -1199,9 +1380,12 @@ where
                 .await;
                 match budget_decision.action {
                     codex_reasoning_guard::CodexReasoningGuardBudgetAction::RetrySameProvider => {
-                        retry_state.codex_reasoning_guard_hits =
-                            retry_state.codex_reasoning_guard_hits.saturating_add(1);
-                        codex_reasoning_guard::apply_delay_if_needed(budget_decision).await;
+                        retry_state.allow_next_retry_beyond_max_attempts = true;
+                        layered_policy::sleep_before_retry(
+                            &common.layered_policy_state,
+                            Duration::from_millis(budget_decision.delay_ms as u64),
+                        )
+                        .await;
                         return LoopControl::ContinueRetry;
                     }
                     codex_reasoning_guard::CodexReasoningGuardBudgetAction::ReturnError => {
@@ -1268,6 +1452,24 @@ where
         }
     }
 
+    if let Some(phase) =
+        policy_timing.and_then(|timing| timing.expired_phase(non_stream_progress_seen))
+    {
+        return layered_policy::handle_timeout_before_forward(
+            ctx,
+            provider_ctx,
+            attempt_ctx,
+            LoopState {
+                attempts,
+                failed_provider_ids,
+                last_outcome,
+                circuit_snapshot,
+                abort_guard,
+            },
+            phase,
+        )
+        .await;
+    }
     let usage = usage::parse_usage_from_json_or_sse_bytes(common.cli_key.as_str(), &body_bytes);
     let usage_metrics = usage.as_ref().map(|u| u.metrics.clone());
     let requested_model_for_log = common.requested_model.clone().or_else(|| {
@@ -1277,6 +1479,31 @@ where
             usage::parse_model_from_json_or_sse_bytes(common.cli_key.as_str(), &body_bytes)
         }
     });
+
+    if let Some(phase) =
+        policy_timing.and_then(|timing| timing.expired_phase(non_stream_progress_seen))
+    {
+        return layered_policy::handle_timeout_before_forward(
+            ctx,
+            provider_ctx,
+            attempt_ctx,
+            LoopState {
+                attempts,
+                failed_provider_ids,
+                last_outcome,
+                circuit_snapshot,
+                abort_guard,
+            },
+            phase,
+        )
+        .await;
+    }
+    if let Some(timing) = policy_timing {
+        layered_policy::mark_response_forwarding(&common.special_settings, timing.sequence);
+        if !body_bytes.is_empty() {
+            layered_policy::mark_client_first_write(&common.special_settings, timing);
+        }
+    }
 
     let body = Body::from(body_bytes);
     let mut builder = Response::builder().status(status);
@@ -1458,6 +1685,7 @@ mod tests {
             response,
             Instant::now(),
             Some(Duration::from_secs(2)),
+            None,
             limit,
         )
         .await
@@ -1477,6 +1705,7 @@ mod tests {
             response,
             Instant::now(),
             Some(Duration::from_secs(2)),
+            None,
             limit,
         )
         .await

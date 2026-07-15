@@ -33,6 +33,7 @@ where
     /// Accumulator for partial SSE lines from the upstream.
     line_buf: Vec<u8>,
     terminated: bool,
+    upstream_ended: bool,
 }
 
 /// Owned version of StreamTranslator that doesn't borrow from Bridge.
@@ -142,6 +143,7 @@ where
             buffer: VecDeque::new(),
             line_buf: Vec::new(),
             terminated: false,
+            upstream_ended: false,
         }
     }
 
@@ -174,7 +176,7 @@ where
             let take = remaining.len().min(available);
             self.line_buf.extend_from_slice(&remaining[..take]);
             remaining = &remaining[take..];
-            self.process_complete_frames();
+            self.process_complete_frames(false);
 
             if !remaining.is_empty() && self.line_buf.len() >= MAX_BRIDGE_SSE_FRAME_BUFFER_BYTES {
                 self.terminate_oversized_frame();
@@ -187,9 +189,8 @@ where
         }
     }
 
-    fn process_complete_frames(&mut self) {
-        // SSE frames are delimited by `\n\n` or `\r\n\r\n`.
-        while let Some(end) = find_sse_event_end(&self.line_buf) {
+    fn process_complete_frames(&mut self, allow_trailing_cr: bool) {
+        while let Some(end) = find_sse_event_end(&self.line_buf, allow_trailing_cr) {
             let frame_bytes: Vec<u8> = self.line_buf.drain(..end).collect();
             let frame_str = match std::str::from_utf8(&frame_bytes) {
                 Ok(s) => s,
@@ -238,6 +239,10 @@ where
                 return Poll::Ready(None);
             }
 
+            if this.upstream_ended {
+                return Poll::Ready(None);
+            }
+
             // Poll upstream for more data.
             match Pin::new(&mut this.upstream).poll_next(cx) {
                 Poll::Ready(Some(Ok(bytes))) => {
@@ -245,7 +250,13 @@ where
                     // Loop back to check buffer — avoids spurious wakeup.
                 }
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
-                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(None) => {
+                    this.upstream_ended = true;
+                    // A CR at the end of the final chunk is a complete SSE line
+                    // ending. Flush only fully terminated events; partial data is
+                    // intentionally not synthesized into an event.
+                    this.process_complete_frames(true);
+                }
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -254,26 +265,34 @@ where
 
 // ─── SSE parsing helpers ────────────────────────────────────────────────────
 
-/// Find the byte offset immediately after the first complete SSE event,
-/// terminated by `\n\n` or `\r\n\r\n`.
-fn find_sse_event_end(buffer: &[u8]) -> Option<usize> {
-    let mut i = 0;
-    while i < buffer.len() {
-        if buffer[i] == b'\n' {
-            if i + 1 < buffer.len() && buffer[i + 1] == b'\n' {
-                return Some(i + 2);
-            }
-        } else if buffer[i] == b'\r'
-            && i + 3 < buffer.len()
-            && buffer[i + 1] == b'\n'
-            && buffer[i + 2] == b'\r'
-            && buffer[i + 3] == b'\n'
-        {
-            return Some(i + 4);
+/// Find the byte offset immediately after the first complete SSE event.
+/// SSE permits CR, LF, CRLF, and legal mixtures of two adjacent line endings.
+fn find_sse_event_end(buffer: &[u8], allow_trailing_cr: bool) -> Option<usize> {
+    let mut index = 0usize;
+    while index < buffer.len() {
+        let first_len = sse_line_ending_len(buffer, index, allow_trailing_cr);
+        if first_len == 0 {
+            index += 1;
+            continue;
         }
-        i += 1;
+        let second_index = index + first_len;
+        let second_len = sse_line_ending_len(buffer, second_index, allow_trailing_cr);
+        if second_len > 0 {
+            return Some(second_index + second_len);
+        }
+        index = second_index;
     }
     None
+}
+
+fn sse_line_ending_len(buffer: &[u8], index: usize, allow_trailing_cr: bool) -> usize {
+    match buffer.get(index).copied() {
+        Some(b'\n') => 1,
+        Some(b'\r') if index + 1 >= buffer.len() => usize::from(allow_trailing_cr),
+        Some(b'\r') if buffer[index + 1] == b'\n' => 2,
+        Some(b'\r') => 1,
+        _ => 0,
+    }
 }
 
 /// Parse a single SSE frame string into (event_type, data_json).
@@ -282,6 +301,7 @@ fn find_sse_event_end(buffer: &[u8]) -> Option<usize> {
 /// In the latter case, the event type is inferred from the `type` field of the
 /// JSON data.
 fn parse_sse_frame(frame: &str) -> Option<(String, Value)> {
+    let frame = frame.strip_prefix('\u{feff}').unwrap_or(frame);
     let mut event_type = None;
     let mut data_parts: Vec<&str> = Vec::new();
 
@@ -324,7 +344,7 @@ pub(crate) fn aggregate_responses_event_stream(raw: &[u8]) -> Result<Value, Stri
     let mut output: Vec<Value> = Vec::new();
     let mut cursor = 0usize;
 
-    while let Some(relative_end) = find_sse_event_end(&raw[cursor..]) {
+    while let Some(relative_end) = find_sse_event_end(&raw[cursor..], true) {
         let event_end = cursor + relative_end;
         let frame = &raw[cursor..event_end];
         cursor = event_end;
@@ -436,10 +456,13 @@ mod tests {
 
     #[test]
     fn find_sse_event_end_basic() {
-        assert_eq!(find_sse_event_end(b"abc\n\ndef"), Some(5));
-        assert_eq!(find_sse_event_end(b"abc\ndef"), None);
-        assert_eq!(find_sse_event_end(b"\n\n"), Some(2));
-        assert_eq!(find_sse_event_end(b"abc\r\n\r\ndef"), Some(7));
+        assert_eq!(find_sse_event_end(b"abc\n\ndef", false), Some(5));
+        assert_eq!(find_sse_event_end(b"abc\ndef", false), None);
+        assert_eq!(find_sse_event_end(b"\n\n", false), Some(2));
+        assert_eq!(find_sse_event_end(b"abc\r\n\r\ndef", false), Some(7));
+        assert_eq!(find_sse_event_end(b"abc\r\ndef\n\r", false), Some(10));
+        assert_eq!(find_sse_event_end(b"abc\r\r", false), None);
+        assert_eq!(find_sse_event_end(b"abc\r\r", true), Some(5));
     }
 
     #[test]
@@ -456,6 +479,28 @@ mod tests {
         let (evt, data) = parse_sse_frame(frame).unwrap();
         assert_eq!(evt, "response.completed");
         assert_eq!(data.get("id").unwrap().as_str().unwrap(), "r2");
+    }
+
+    #[test]
+    fn parse_sse_frame_ignores_one_leading_bom() {
+        let frame = "\u{feff}data: {\"type\":\"response.completed\",\"id\":\"r2\"}\r\r";
+        let (evt, data) = parse_sse_frame(frame).unwrap();
+        assert_eq!(evt, "response.completed");
+        assert_eq!(data.get("id").and_then(Value::as_str), Some("r2"));
+    }
+
+    #[test]
+    fn aggregate_handles_mixed_line_endings_and_trailing_cr_boundary() {
+        let raw = concat!(
+            "\u{feff}event: response.created\r",
+            "data: {\"response\":{\"id\":\"mixed\",\"status\":\"in_progress\"}}\n\r",
+            "event: response.completed\n",
+            "data: {\"response\":{\"id\":\"mixed\",\"status\":\"completed\"}}\r\r"
+        );
+
+        let aggregated = aggregate_responses_event_stream(raw.as_bytes()).expect("aggregate");
+        assert_eq!(aggregated["id"], "mixed");
+        assert_eq!(aggregated["status"], "completed");
     }
 
     #[test]

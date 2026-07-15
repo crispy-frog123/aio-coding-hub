@@ -255,7 +255,7 @@ describe("components/cli-manager/tabs/Cx2ccTab", () => {
     expect(highRadio).toBeChecked();
   });
 
-  it("persists reasoning effort change", () => {
+  it("persists max and ultra reasoning effort changes", () => {
     const persistSettings = vi.fn().mockResolvedValue(null);
     render(
       <CliManagerCx2ccTab
@@ -265,12 +265,20 @@ describe("components/cli-manager/tabs/Cx2ccTab", () => {
       />
     );
 
-    const lowRadio = screen.getByRole("radio", { name: "low" });
-    fireEvent.click(lowRadio);
+    const maxRadio = screen.getByRole("radio", { name: "max" });
+    fireEvent.click(maxRadio);
 
-    expect(lowRadio).toBeChecked();
+    expect(maxRadio).toBeChecked();
     expect(persistSettings).toHaveBeenCalledWith({
-      cx2cc_model_reasoning_effort: "low",
+      cx2cc_model_reasoning_effort: "max",
+    });
+
+    const ultraRadio = screen.getByRole("radio", { name: "ultra" });
+    fireEvent.click(ultraRadio);
+
+    expect(ultraRadio).toBeChecked();
+    expect(persistSettings).toHaveBeenCalledWith({
+      cx2cc_model_reasoning_effort: "ultra",
     });
   });
 

@@ -940,6 +940,55 @@ foo = "bar"
 }
 
 #[test]
+fn sync_enabled_keeps_current_codex_proxy_files_unchanged() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let base_origin = "http://127.0.0.1:37123";
+
+    write_codex_direct_files(
+        &handle,
+        r#"model_provider = "openai"
+
+[model_providers.openai]
+name = "openai"
+base_url = "https://api.openai.com/v1"
+"#,
+        r#"{"tokens":{"access":"oauth-token"},"profile":"direct"}"#,
+    );
+    let enabled = set_enabled(&handle, "codex", true, base_origin).expect("enable codex");
+    assert!(enabled.ok, "{enabled:?}");
+
+    let config_path = codex_config_path(&handle).expect("codex config path");
+    let auth_path = codex_auth_path(&handle).expect("codex auth path");
+    let root = cli_proxy_root_dir(&handle, "codex").expect("codex root");
+    let manifest_path = cli_proxy_manifest_path(&root);
+    let manifest_before = std::fs::read(&manifest_path).expect("read manifest before sync");
+    let config_before = std::fs::read(&config_path).expect("read config before sync");
+    let auth_before = std::fs::read(&auth_path).expect("read auth before sync");
+
+    let sync_rows = sync_enabled(&handle, base_origin, true).expect("sync current proxy");
+    let codex_row = sync_rows
+        .iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex sync result");
+    assert!(codex_row.ok, "{codex_row:?}");
+    assert_eq!(codex_row.message, "已是最新，无需同步");
+
+    assert_eq!(
+        std::fs::read(&manifest_path).expect("read manifest after sync"),
+        manifest_before
+    );
+    assert_eq!(
+        std::fs::read(&config_path).expect("read config after sync"),
+        config_before
+    );
+    assert_eq!(
+        std::fs::read(&auth_path).expect("read auth after sync"),
+        auth_before
+    );
+}
+
+#[test]
 fn sync_enabled_rebases_codex_manifest_when_codex_home_changes() {
     let app = CliProxyTestApp::new();
     let handle = app.handle();

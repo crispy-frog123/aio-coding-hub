@@ -99,6 +99,12 @@ pub(crate) struct SettingsUpdate {
         Option<settings::CodexReasoningGuardExhaustedAction>,
     pub codex_reasoning_guard_backoff_after_hits: Option<u32>,
     pub codex_reasoning_guard_backoff_ms: Option<u32>,
+    pub codex_gateway_capacity_error_action: Option<settings::CodexGatewayPolicyAction>,
+    pub codex_gateway_http_429_action: Option<settings::CodexGatewayPolicyAction>,
+    pub codex_gateway_latency_guard_enabled: Option<bool>,
+    pub codex_gateway_first_progress_timeout_ms: Option<u32>,
+    pub codex_gateway_first_progress_action: Option<settings::CodexGatewayFirstProgressAction>,
+    pub codex_gateway_total_timeout_ms: Option<u32>,
     #[serde(rename = "cx2CcFallbackModelOpus")]
     #[specta(rename = "cx2CcFallbackModelOpus")]
     pub cx2cc_fallback_model_opus: Option<String>,
@@ -178,6 +184,12 @@ pub(crate) struct SettingsView {
     pub codex_reasoning_guard_exhausted_action: settings::CodexReasoningGuardExhaustedAction,
     pub codex_reasoning_guard_backoff_after_hits: u32,
     pub codex_reasoning_guard_backoff_ms: u32,
+    pub codex_gateway_capacity_error_action: settings::CodexGatewayPolicyAction,
+    pub codex_gateway_http_429_action: settings::CodexGatewayPolicyAction,
+    pub codex_gateway_latency_guard_enabled: bool,
+    pub codex_gateway_first_progress_timeout_ms: u32,
+    pub codex_gateway_first_progress_action: settings::CodexGatewayFirstProgressAction,
+    pub codex_gateway_total_timeout_ms: u32,
     pub auto_start: bool,
     pub start_minimized: bool,
     pub tray_enabled: bool,
@@ -320,6 +332,12 @@ impl From<&settings::AppSettings> for SettingsView {
             codex_reasoning_guard_backoff_after_hits: value
                 .codex_reasoning_guard_backoff_after_hits,
             codex_reasoning_guard_backoff_ms: value.codex_reasoning_guard_backoff_ms,
+            codex_gateway_capacity_error_action: value.codex_gateway_capacity_error_action,
+            codex_gateway_http_429_action: value.codex_gateway_http_429_action,
+            codex_gateway_latency_guard_enabled: value.codex_gateway_latency_guard_enabled,
+            codex_gateway_first_progress_timeout_ms: value.codex_gateway_first_progress_timeout_ms,
+            codex_gateway_first_progress_action: value.codex_gateway_first_progress_action,
+            codex_gateway_total_timeout_ms: value.codex_gateway_total_timeout_ms,
             auto_start: value.auto_start,
             start_minimized: value.start_minimized,
             tray_enabled: value.tray_enabled,
@@ -650,6 +668,12 @@ pub(crate) async fn settings_set_impl(
         codex_reasoning_guard_exhausted_action,
         codex_reasoning_guard_backoff_after_hits,
         codex_reasoning_guard_backoff_ms,
+        codex_gateway_capacity_error_action,
+        codex_gateway_http_429_action,
+        codex_gateway_latency_guard_enabled,
+        codex_gateway_first_progress_timeout_ms,
+        codex_gateway_first_progress_action,
+        codex_gateway_total_timeout_ms,
         cx2cc_fallback_model_opus,
         cx2cc_fallback_model_sonnet,
         cx2cc_fallback_model_haiku,
@@ -750,6 +774,19 @@ pub(crate) async fn settings_set_impl(
                     .unwrap_or(previous.codex_reasoning_guard_backoff_after_hits);
             let codex_reasoning_guard_backoff_ms =
                 codex_reasoning_guard_backoff_ms.unwrap_or(previous.codex_reasoning_guard_backoff_ms);
+            let codex_gateway_capacity_error_action = codex_gateway_capacity_error_action
+                .unwrap_or(previous.codex_gateway_capacity_error_action);
+            let codex_gateway_http_429_action = codex_gateway_http_429_action
+                .unwrap_or(previous.codex_gateway_http_429_action);
+            let codex_gateway_latency_guard_enabled = codex_gateway_latency_guard_enabled
+                .unwrap_or(previous.codex_gateway_latency_guard_enabled);
+            let codex_gateway_first_progress_timeout_ms =
+                codex_gateway_first_progress_timeout_ms
+                    .unwrap_or(previous.codex_gateway_first_progress_timeout_ms);
+            let codex_gateway_first_progress_action = codex_gateway_first_progress_action
+                .unwrap_or(previous.codex_gateway_first_progress_action);
+            let codex_gateway_total_timeout_ms = codex_gateway_total_timeout_ms
+                .unwrap_or(previous.codex_gateway_total_timeout_ms);
             let cx2cc_fallback_model_opus = cx2cc_fallback_model_opus
                 .unwrap_or(previous.cx2cc_fallback_model_opus.clone())
                 .trim()
@@ -887,6 +924,12 @@ pub(crate) async fn settings_set_impl(
                 codex_reasoning_guard_exhausted_action,
                 codex_reasoning_guard_backoff_after_hits,
                 codex_reasoning_guard_backoff_ms,
+                codex_gateway_capacity_error_action,
+                codex_gateway_http_429_action,
+                codex_gateway_latency_guard_enabled,
+                codex_gateway_first_progress_timeout_ms,
+                codex_gateway_first_progress_action,
+                codex_gateway_total_timeout_ms,
                 auto_start: next_auto_start,
                 start_minimized,
                 tray_enabled,

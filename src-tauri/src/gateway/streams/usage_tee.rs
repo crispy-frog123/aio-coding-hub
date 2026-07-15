@@ -6,6 +6,7 @@ use axum::body::{Body, Bytes};
 use futures_core::Stream;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -170,6 +171,7 @@ where
     finalized: bool,
     defer_terminal_error: bool,
     stop_after_terminal_error: bool,
+    policy_termination: Option<Arc<Mutex<Option<&'static str>>>>,
 }
 
 impl<S, B, R> UsageSseTeeStream<S, B, R>
@@ -195,12 +197,27 @@ where
             finalized: false,
             defer_terminal_error: false,
             stop_after_terminal_error: false,
+            policy_termination: None,
         }
     }
 
     pub(in crate::gateway) fn with_defer_terminal_error(mut self) -> Self {
         self.defer_terminal_error = true;
         self
+    }
+
+    pub(in crate::gateway) fn with_policy_termination(
+        mut self,
+        termination: Arc<Mutex<Option<&'static str>>>,
+    ) -> Self {
+        self.policy_termination = Some(termination);
+        self
+    }
+
+    fn policy_error_code(&self) -> Option<&'static str> {
+        self.policy_termination
+            .as_ref()
+            .and_then(|state| state.lock().ok().and_then(|value| *value))
     }
 
     fn poll_next_inner(
@@ -229,6 +246,10 @@ where
                 Poll::Pending
             }
             Poll::Ready(None) => {
+                if let Some(code) = self.policy_error_code() {
+                    self.finalize(Some(code));
+                    return Poll::Ready(None);
+                }
                 // When defer_terminal_error is set and the tracker saw a terminal
                 // error, skip finalization here — the relay task will decide the
                 // final error_code with Codex-specific tolerance logic.
@@ -429,6 +450,10 @@ where
 {
     fn drop(&mut self) {
         if !self.finalized {
+            if let Some(code) = self.policy_error_code() {
+                self.finalize(Some(code));
+                return;
+            }
             // Best-effort flush for trailing partial SSE data before deciding abort/success.
             let usage = self.tracker.finalize();
             let usage_seen = usage.is_some();
@@ -461,6 +486,7 @@ pub(in crate::gateway) fn spawn_usage_sse_relay_body<S, R>(
     ctx: StreamFinalizeCtx<R>,
     idle_timeout: Option<Duration>,
     initial_first_byte_ms: Option<u128>,
+    policy_termination: Option<Arc<Mutex<Option<&'static str>>>>,
 ) -> Body
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
@@ -472,6 +498,9 @@ where
 
     let mut tee = UsageSseTeeStream::new(upstream, ctx, idle_timeout, initial_first_byte_ms)
         .with_defer_terminal_error();
+    if let Some(termination) = policy_termination {
+        tee = tee.with_policy_termination(termination);
+    }
 
     tokio::spawn(async move {
         let mut forwarded_chunks: i64 = 0;
@@ -1288,6 +1317,7 @@ mod tests {
             ctx,
             Some(Duration::from_millis(10)),
             None,
+            None,
         );
 
         upstream_tx
@@ -1352,6 +1382,7 @@ mod tests {
             ctx,
             Some(Duration::from_millis(500)),
             None,
+            None,
         );
         let mut body_stream = body.into_data_stream();
 
@@ -1407,7 +1438,8 @@ mod tests {
         let (upstream_tx, upstream_rx) =
             tokio::sync::mpsc::channel::<Result<Bytes, reqwest::Error>>(4);
 
-        let body = spawn_usage_sse_relay_body(RelayBodyStream::new(upstream_rx), ctx, None, None);
+        let body =
+            spawn_usage_sse_relay_body(RelayBodyStream::new(upstream_rx), ctx, None, None, None);
         let mut body_stream = body.into_data_stream();
 
         upstream_tx

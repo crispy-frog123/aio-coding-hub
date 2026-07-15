@@ -6,6 +6,7 @@ import {
   parseRequestLogSpecialSettings,
   hasCodexSystemRequestSpecialSetting,
   resolveClaudeModelMappingFromSpecialSettings,
+  resolveCodexGatewayPolicyAttemptSummary,
   resolveCodexReasoningEffort,
   resolveCodexReasoningGuardCheckSummary,
   resolveCodexReasoningGuardSummary,
@@ -96,6 +97,18 @@ describe("services/gateway/requestLogSpecialSettings", () => {
         JSON.stringify([{ type: "codex_reasoning_effort", effort: " HIGH " }])
       )
     ).toEqual({ effort: "high", source: "request" });
+    expect(
+      resolveCodexReasoningEffort(
+        "gpt-5.6-sol",
+        JSON.stringify([{ type: "codex_reasoning_effort", effort: " MAX " }])
+      )
+    ).toEqual({ effort: "max", source: "request" });
+    expect(
+      resolveCodexReasoningEffort(
+        "gpt-5.6-terra",
+        JSON.stringify([{ type: "codex_reasoning_effort", effort: "Ultra" }])
+      )
+    ).toEqual({ effort: "ultra", source: "request" });
     expect(
       resolveCodexReasoningEffort(
         "gpt-5.4",
@@ -248,6 +261,75 @@ describe("services/gateway/requestLogSpecialSettings", () => {
       latestBudgetTotal: null,
     });
     expect(resolveCodexReasoningGuardSummary(null).count).toBe(0);
+  });
+
+  it("preserves layered gateway telemetry for every upstream attempt", () => {
+    const settings = JSON.stringify([
+      {
+        type: "codex_gateway_policy_attempt",
+        attemptSequence: 1,
+        providerId: 7,
+        providerName: "Provider A",
+        retryAttemptNumber: 0,
+        upstreamFetchStartedAtMs: 1000,
+        upstreamHttpStatus: 429,
+        firstProgressAtMs: 1120,
+        timeToFirstProgressMs: 120,
+        policyTrigger: "capacity",
+        policyAction: "retry_then_pass_through",
+        retryTrigger: "capacity",
+        retryDelayMs: 250,
+        retryAfterRaw: "0.25",
+        retryAfterMs: 250,
+        retryBudgetUsed: 1,
+        retryBudgetRemaining: 4,
+        finalAction: "capacity_internal_retry",
+      },
+      { type: "noop" },
+      {
+        type: "codex_gateway_policy_attempt",
+        attemptSequence: 2,
+        providerId: 7,
+        providerName: "Provider A",
+        retryAttemptNumber: 1,
+        upstreamFetchStartedAtMs: 1300,
+        clientHeadersSentAtMs: 1500,
+        clientFirstWriteAtMs: 1510,
+        timeToClientFirstWriteMs: 210,
+        policyTrigger: "total_timeout",
+        policyAction: "disconnect_after_forward",
+        timeoutPhase: "total",
+        timeoutLimitMs: 5000,
+        timeoutResponseControlLost: true,
+        responseForwardingStarted: true,
+        finalAction: "timeout_disconnected_after_forward",
+      },
+    ]);
+
+    const summary = resolveCodexGatewayPolicyAttemptSummary(settings);
+    expect(summary.count).toBe(2);
+    expect(summary.attempts[0]).toMatchObject({
+      attemptSequence: 1,
+      policyTrigger: "capacity",
+      retryAfterMs: 250,
+      upstreamHttpStatus: 429,
+      retryBudgetUsed: 1,
+      retryBudgetRemaining: 4,
+    });
+    expect(summary.latest).toMatchObject({
+      attemptSequence: 2,
+      policyTrigger: "total_timeout",
+      timeoutPhase: "total",
+      timeoutLimitMs: 5000,
+      timeoutResponseControlLost: true,
+      responseForwardingStarted: true,
+      finalAction: "timeout_disconnected_after_forward",
+    });
+    expect(resolveCodexGatewayPolicyAttemptSummary("bad-json")).toEqual({
+      count: 0,
+      attempts: [],
+      latest: null,
+    });
   });
 
   it("identifies only the structured Codex system request marker", () => {

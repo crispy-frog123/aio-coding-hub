@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_CODEX_PROVIDER_TEST_MODEL_NAME_LEN,
+  MAX_CODEX_GATEWAY_TIMEOUT_MS,
   MAX_CODEX_REASONING_GUARD_MODEL_NAME_LEN,
   MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN,
   MAX_CODEX_REASONING_GUARD_REASONING_EQUALS_LEN,
@@ -362,6 +363,48 @@ describe("services/settings/settingsValidation", () => {
     expect(validateSettingsSetInput({ codexReasoningGuardBackoffMs: 60_001 })).toContain(
       "必须 <= 60000"
     );
+  });
+
+  it("validates layered Codex gateway policy actions and timeouts", () => {
+    for (const action of [
+      "pass_through",
+      "return_502",
+      "retry_then_pass_through",
+      "retry_then_502",
+    ] as const) {
+      expect(validateSettingsSetInput({ codexGatewayCapacityErrorAction: action })).toBeNull();
+      expect(validateSettingsSetInput({ codexGatewayHttp429Action: action })).toBeNull();
+    }
+    expect(
+      validateSettingsSetInput({ codexGatewayCapacityErrorAction: "invalid" as never })
+    ).toContain("Capacity 策略");
+    expect(validateSettingsSetInput({ codexGatewayHttp429Action: "invalid" as never })).toContain(
+      "HTTP 429 策略"
+    );
+    expect(
+      validateSettingsSetInput({
+        codexGatewayFirstProgressAction: "retry_then_pass_through" as never,
+      })
+    ).toContain("首个有效输出超时动作");
+    expect(
+      validateSettingsSetInput({
+        codexGatewayLatencyGuardEnabled: true,
+        codexGatewayFirstProgressTimeoutMs: 0,
+        codexGatewayTotalTimeoutMs: 0,
+      })
+    ).toContain("至少填写一个非零值");
+    expect(
+      validateSettingsSetInput({
+        codexGatewayLatencyGuardEnabled: true,
+        codexGatewayFirstProgressTimeoutMs: 15_000,
+        codexGatewayFirstProgressAction: "retry_then_502",
+        codexGatewayTotalTimeoutMs: 120_000,
+      })
+    ).toBeNull();
+    expect(
+      validateSettingsSetInput({ codexGatewayTotalTimeoutMs: MAX_CODEX_GATEWAY_TIMEOUT_MS + 1 })
+    ).toContain(`必须 <= ${MAX_CODEX_GATEWAY_TIMEOUT_MS}`);
+    expect(validateSettingsSetInput({ codexGatewayLatencyGuardEnabled: true })).toBeNull();
   });
 
   it("validates per-model Codex reasoning guard rules", () => {

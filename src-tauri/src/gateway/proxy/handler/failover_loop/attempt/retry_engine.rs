@@ -34,6 +34,11 @@ where
 
     let mut retry_index = 1;
     loop {
+        if let Some(response) =
+            layered_policy::maybe_finish_expired_total(ctx, prepared, loop_state.reborrow()).await
+        {
+            return Some(response);
+        }
         let beyond_max_attempts = retry_index > prepared.provider_max_attempts;
         if beyond_max_attempts && !retry_state.allow_next_retry_beyond_max_attempts {
             break;
@@ -129,6 +134,27 @@ where
             send_timeout::handle_timeout(ctx, provider_ctx, attempt_ctx, loop_state.reborrow())
                 .await
         }
+        AttemptSendOutcome::LayeredTimeout(phase, timing) => {
+            let (attempt_ctx, provider_ctx) = build_error_contexts(
+                input,
+                prepared,
+                &timing,
+                indices.attempt_index,
+                indices.retry_index,
+            );
+            let control = layered_policy::handle_timeout_before_forward(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                loop_state.reborrow(),
+                phase,
+            )
+            .await;
+            if matches!(control, LoopControl::ContinueRetry) {
+                retry_state.allow_next_retry_beyond_max_attempts = true;
+            }
+            control
+        }
         AttemptSendOutcome::ReqwestError(err, timing) => {
             let (attempt_ctx, provider_ctx) = build_error_contexts(
                 input,
@@ -163,6 +189,7 @@ fn build_error_contexts<'a, R: tauri::Runtime>(
         provider_max_attempts: prepared.provider_max_attempts,
         attempt_started_ms: timing.attempt_started_ms,
         attempt_started: timing.attempt_started,
+        policy_timing: Some(timing.policy_timing),
         circuit_before: &prepared.circuit_snapshot,
         gemini_oauth_response_mode: prepared.gemini_oauth_response_mode,
         cx2cc_active: prepared.cx2cc_active,

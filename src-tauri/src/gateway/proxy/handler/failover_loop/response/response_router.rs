@@ -30,6 +30,11 @@ where
     R::Handle: Unpin,
 {
     let status = resp.status();
+    layered_policy::mark_upstream_response(
+        ctx.special_settings,
+        timing.policy_timing,
+        status.as_u16(),
+    );
     let response_headers = resp.headers().clone();
     let response_content_type = response_headers
         .get(header::CONTENT_TYPE)
@@ -63,6 +68,7 @@ where
         provider_max_attempts: prepared.provider_max_attempts,
         attempt_started_ms: timing.attempt_started_ms,
         attempt_started: timing.attempt_started,
+        policy_timing: Some(timing.policy_timing),
         circuit_before: &circuit_before,
         gemini_oauth_response_mode: prepared.gemini_oauth_response_mode,
         cx2cc_active: prepared.cx2cc_active,
@@ -101,8 +107,14 @@ where
         // The stream handler already handles cx2cc translation via BridgeStream,
         // and the non-stream handler can still synthesize SSE from buffered JSON
         // when the upstream returns a non-SSE response.
-        if is_event_stream(&response_headers) {
-            return success_event_stream::handle_success_event_stream(
+        let stream_content_type_candidate = response_content_type.is_empty()
+            || response_content_type
+                .to_ascii_lowercase()
+                .starts_with("text/plain");
+        if is_event_stream(&response_headers)
+            || (prepared.anthropic_stream_requested && stream_content_type_candidate)
+        {
+            let control = success_event_stream::handle_success_event_stream(
                 ctx,
                 provider_ctx,
                 attempt_ctx,
@@ -113,8 +125,12 @@ where
                 response_headers,
             )
             .await;
+            if matches!(control, LoopControl::ContinueRetry) {
+                retry_state.allow_next_retry_beyond_max_attempts = true;
+            }
+            return control;
         }
-        return success_non_stream::handle_success_non_stream(
+        let control = success_non_stream::handle_success_non_stream(
             ctx,
             provider_ctx,
             attempt_ctx,
@@ -125,6 +141,10 @@ where
             response_headers,
         )
         .await;
+        if matches!(control, LoopControl::ContinueRetry) {
+            retry_state.allow_next_retry_beyond_max_attempts = true;
+        }
+        return control;
     }
 
     // Release provider_ctx (immutable borrow of prepared) before mutable borrows.
@@ -166,6 +186,7 @@ where
         provider_max_attempts: prepared.provider_max_attempts,
         attempt_started_ms: timing.attempt_started_ms,
         attempt_started: timing.attempt_started,
+        policy_timing: Some(timing.policy_timing),
         circuit_before: &circuit_before,
         gemini_oauth_response_mode: prepared.gemini_oauth_response_mode,
         cx2cc_active: prepared.cx2cc_active,
@@ -204,6 +225,8 @@ where
                     .thinking_signature_rectifier_retried,
                 thinking_budget_rectifier_retried: &mut retry_state
                     .thinking_budget_rectifier_retried,
+                allow_next_retry_beyond_max_attempts: &mut retry_state
+                    .allow_next_retry_beyond_max_attempts,
             },
         },
     )

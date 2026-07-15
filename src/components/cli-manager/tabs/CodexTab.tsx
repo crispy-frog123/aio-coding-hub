@@ -1033,6 +1033,8 @@ function CodexBasicConfigSection({
               { value: "medium", label: "中 (medium)" },
               { value: "high", label: "高 (high)" },
               { value: "xhigh", label: "极高 (xhigh)" },
+              { value: "max", label: "最大 (max)" },
+              { value: "ultra", label: "超高 (ultra)" },
             ]}
             disabled={saving}
           />

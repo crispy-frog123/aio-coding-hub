@@ -31,6 +31,12 @@ pub(super) struct HandlerRuntimeSettings {
     pub(super) codex_reasoning_guard_delayed_retry_budget: u32,
     pub(super) codex_reasoning_guard_delayed_retry_ms: u32,
     pub(super) codex_reasoning_guard_exhausted_action: settings::CodexReasoningGuardExhaustedAction,
+    pub(super) codex_gateway_capacity_error_action: settings::CodexGatewayPolicyAction,
+    pub(super) codex_gateway_http_429_action: settings::CodexGatewayPolicyAction,
+    pub(super) codex_gateway_latency_guard_enabled: bool,
+    pub(super) codex_gateway_first_progress_timeout_ms: u32,
+    pub(super) codex_gateway_first_progress_action: settings::CodexGatewayFirstProgressAction,
+    pub(super) codex_gateway_total_timeout_ms: u32,
     pub(super) enable_claude_metadata_user_id_injection: bool,
     pub(super) max_attempts_per_provider: u32,
     pub(super) max_providers_to_try: u32,
@@ -166,6 +172,24 @@ pub(super) fn handler_runtime_settings(
         codex_reasoning_guard_exhausted_action: settings_cfg
             .map(|cfg| cfg.codex_reasoning_guard_exhausted_action)
             .unwrap_or_default(),
+        codex_gateway_capacity_error_action: settings_cfg
+            .map(|cfg| cfg.codex_gateway_capacity_error_action)
+            .unwrap_or(settings::CodexGatewayPolicyAction::RetryThenPassThrough),
+        codex_gateway_http_429_action: settings_cfg
+            .map(|cfg| cfg.codex_gateway_http_429_action)
+            .unwrap_or(settings::CodexGatewayPolicyAction::PassThrough),
+        codex_gateway_latency_guard_enabled: settings_cfg
+            .map(|cfg| cfg.codex_gateway_latency_guard_enabled)
+            .unwrap_or(settings::DEFAULT_CODEX_GATEWAY_LATENCY_GUARD_ENABLED),
+        codex_gateway_first_progress_timeout_ms: settings_cfg
+            .map(|cfg| cfg.codex_gateway_first_progress_timeout_ms)
+            .unwrap_or(settings::DEFAULT_CODEX_GATEWAY_FIRST_PROGRESS_TIMEOUT_MS),
+        codex_gateway_first_progress_action: settings_cfg
+            .map(|cfg| cfg.codex_gateway_first_progress_action)
+            .unwrap_or_default(),
+        codex_gateway_total_timeout_ms: settings_cfg
+            .map(|cfg| cfg.codex_gateway_total_timeout_ms)
+            .unwrap_or(settings::DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS),
         enable_claude_metadata_user_id_injection: settings_cfg
             .map(|cfg| cfg.enable_claude_metadata_user_id_injection)
             .unwrap_or(true)

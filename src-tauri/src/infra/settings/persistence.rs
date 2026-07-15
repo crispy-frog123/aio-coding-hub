@@ -5,7 +5,8 @@ use super::migration::{
     normalize_cli_priority_order, normalize_codex_home_override, repair_settings,
 };
 use super::types::{
-    AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
+    AppSettings, CodexGatewayFirstProgressAction, CodexGatewayPolicyAction, CodexHomeMode,
+    CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
     CodexReasoningGuardMatchMode, CodexReasoningGuardRuleMode, CodexReasoningGuardStreamAction,
     GatewayListenMode, WslHostAddressMode,
 };
@@ -424,6 +425,43 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
     match settings.codex_reasoning_guard_exhausted_action {
         CodexReasoningGuardExhaustedAction::ReturnError
         | CodexReasoningGuardExhaustedAction::SwitchProvider => {}
+    }
+    match settings.codex_gateway_capacity_error_action {
+        CodexGatewayPolicyAction::PassThrough
+        | CodexGatewayPolicyAction::Return502
+        | CodexGatewayPolicyAction::RetryThenPassThrough
+        | CodexGatewayPolicyAction::RetryThen502 => {}
+    }
+    match settings.codex_gateway_http_429_action {
+        CodexGatewayPolicyAction::PassThrough
+        | CodexGatewayPolicyAction::Return502
+        | CodexGatewayPolicyAction::RetryThenPassThrough
+        | CodexGatewayPolicyAction::RetryThen502 => {}
+    }
+    match settings.codex_gateway_first_progress_action {
+        CodexGatewayFirstProgressAction::Return502
+        | CodexGatewayFirstProgressAction::RetryThen502 => {}
+    }
+    if settings.codex_gateway_first_progress_timeout_ms > MAX_CODEX_GATEWAY_TIMEOUT_MS {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_gateway_first_progress_timeout_ms must be <= {MAX_CODEX_GATEWAY_TIMEOUT_MS}"
+        )
+        .into());
+    }
+    if settings.codex_gateway_total_timeout_ms > MAX_CODEX_GATEWAY_TIMEOUT_MS {
+        return Err(format!(
+            "SEC_INVALID_INPUT: codex_gateway_total_timeout_ms must be <= {MAX_CODEX_GATEWAY_TIMEOUT_MS}"
+        )
+        .into());
+    }
+    if settings.codex_gateway_latency_guard_enabled
+        && settings.codex_gateway_first_progress_timeout_ms == 0
+        && settings.codex_gateway_total_timeout_ms == 0
+    {
+        return Err(
+            "SEC_INVALID_INPUT: enabled Codex gateway latency guard requires at least one non-zero timeout"
+                .into(),
+        );
     }
     if settings.codex_reasoning_guard_model_rules.len() > MAX_CODEX_REASONING_GUARD_MODEL_RULES_LEN
     {

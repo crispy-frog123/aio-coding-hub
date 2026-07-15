@@ -2,7 +2,8 @@
 
 use super::defaults::*;
 use super::types::{
-    AppSettings, CodexHomeMode, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
+    AppSettings, CodexGatewayFirstProgressAction, CodexGatewayPolicyAction, CodexHomeMode,
+    CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
     CodexReasoningGuardRuleMode,
 };
 use crate::shared::error::AppResult;
@@ -808,9 +809,31 @@ fn migrate_add_codex_reasoning_guard_rule_mode(
     true
 }
 
+fn migrate_add_codex_gateway_layered_policies(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    if !migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_CODEX_GATEWAY_LAYERED_POLICIES,
+    ) {
+        return false;
+    }
+
+    settings.codex_gateway_capacity_error_action = CodexGatewayPolicyAction::RetryThenPassThrough;
+    settings.codex_gateway_http_429_action = CodexGatewayPolicyAction::PassThrough;
+    settings.codex_gateway_latency_guard_enabled = DEFAULT_CODEX_GATEWAY_LATENCY_GUARD_ENABLED;
+    settings.codex_gateway_first_progress_timeout_ms =
+        DEFAULT_CODEX_GATEWAY_FIRST_PROGRESS_TIMEOUT_MS;
+    settings.codex_gateway_first_progress_action = CodexGatewayFirstProgressAction::Return502;
+    settings.codex_gateway_total_timeout_ms = DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS;
+    true
+}
+
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 34] = [
+const SETTINGS_MIGRATIONS: [SettingsMigration; 35] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -845,6 +868,7 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 34] = [
     migrate_add_codex_provider_test_model,
     migrate_add_codex_reasoning_guard_budget,
     migrate_add_codex_reasoning_guard_rule_mode,
+    migrate_add_codex_gateway_layered_policies,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {
@@ -1255,6 +1279,57 @@ mod tests {
     fn app_settings_default_has_current_schema_version() {
         let s = AppSettings::default();
         assert_eq!(s.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migrate_add_codex_gateway_layered_policies_bumps_40_to_41() {
+        let mut s = AppSettings {
+            schema_version: SCHEMA_VERSION_ADD_CODEX_REASONING_GUARD_RULE_MODE,
+            codex_gateway_capacity_error_action: CodexGatewayPolicyAction::Return502,
+            codex_gateway_http_429_action: CodexGatewayPolicyAction::RetryThen502,
+            codex_gateway_latency_guard_enabled: true,
+            codex_gateway_first_progress_timeout_ms: 123,
+            codex_gateway_first_progress_action: CodexGatewayFirstProgressAction::RetryThen502,
+            codex_gateway_total_timeout_ms: 456,
+            ..Default::default()
+        };
+
+        assert!(migrate_add_codex_gateway_layered_policies(&mut s, true));
+        assert_eq!(
+            s.schema_version,
+            SCHEMA_VERSION_ADD_CODEX_GATEWAY_LAYERED_POLICIES
+        );
+        assert_eq!(
+            s.codex_gateway_capacity_error_action,
+            CodexGatewayPolicyAction::RetryThenPassThrough
+        );
+        assert_eq!(
+            s.codex_gateway_http_429_action,
+            CodexGatewayPolicyAction::PassThrough
+        );
+        assert!(!s.codex_gateway_latency_guard_enabled);
+        assert_eq!(s.codex_gateway_first_progress_timeout_ms, 0);
+        assert_eq!(
+            s.codex_gateway_first_progress_action,
+            CodexGatewayFirstProgressAction::Return502
+        );
+        assert_eq!(s.codex_gateway_total_timeout_ms, 0);
+    }
+
+    #[test]
+    fn codex_gateway_policy_enums_use_snake_case_serde_values() {
+        assert_eq!(
+            serde_json::to_string(&CodexGatewayPolicyAction::RetryThenPassThrough).unwrap(),
+            "\"retry_then_pass_through\""
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexGatewayPolicyAction>("\"retry_then_502\"").unwrap(),
+            CodexGatewayPolicyAction::RetryThen502
+        );
+        assert_eq!(
+            serde_json::to_string(&CodexGatewayFirstProgressAction::Return502).unwrap(),
+            "\"return_502\""
+        );
     }
 
     #[test]

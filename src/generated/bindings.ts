@@ -2741,6 +2741,24 @@ export type CodexReasoningAnalyticsSample = {
   blocked_by_gateway: boolean;
   internal_retry_attempt_index: number | null;
   internal_retry_remaining: number | null;
+  policy_trigger: string | null;
+  policy_action: string | null;
+  retry_trigger: string | null;
+  retry_delay_ms: number | null;
+  retry_after_raw: string | null;
+  retry_after_ms: number | null;
+  retry_budget_used: number | null;
+  retry_budget_remaining: number | null;
+  upstream_fetch_started_at_ms: number | null;
+  first_progress_at_ms: number | null;
+  time_to_first_progress_ms: number | null;
+  client_headers_sent_at_ms: number | null;
+  client_first_write_at_ms: number | null;
+  time_to_client_first_write_ms: number | null;
+  timeout_phase: string | null;
+  timeout_limit_ms: number | null;
+  timeout_response_control_lost: boolean | null;
+  response_forwarding_started: boolean | null;
   continuation_recovery_count: number;
   continuation_recovery_success_count: number;
   final_action: string;
@@ -2864,6 +2882,12 @@ export type CodexReasoningGuardModelStat = {
   hit_rate: number;
 };
 export type CodexReasoningGuardRuleMode = "reasoning_tokens" | "final_answer_only_high_xhigh";
+export type CodexGatewayFirstProgressAction = "return_502" | "retry_then_502";
+export type CodexGatewayPolicyAction =
+  | "pass_through"
+  | "return_502"
+  | "retry_then_pass_through"
+  | "retry_then_502";
 export type CodexReasoningGuardStats = {
   checked_request_count: number;
   checked_response_count: number;
@@ -4171,6 +4195,12 @@ export type SettingsUpdate = {
   codexReasoningGuardDelayedRetryBudget: number | null;
   codexReasoningGuardDelayedRetryMs: number | null;
   codexReasoningGuardExhaustedAction: CodexReasoningGuardExhaustedAction | null;
+  codexGatewayCapacityErrorAction: CodexGatewayPolicyAction | null;
+  codexGatewayHttp429Action: CodexGatewayPolicyAction | null;
+  codexGatewayLatencyGuardEnabled: boolean | null;
+  codexGatewayFirstProgressTimeoutMs: number | null;
+  codexGatewayFirstProgressAction: CodexGatewayFirstProgressAction | null;
+  codexGatewayTotalTimeoutMs: number | null;
   codexReasoningGuardBackoffAfterHits: number | null;
   codexReasoningGuardBackoffMs: number | null;
   cx2CcFallbackModelOpus: string | null;
@@ -4218,6 +4248,12 @@ export type SettingsView = {
   codex_reasoning_guard_delayed_retry_budget: number;
   codex_reasoning_guard_delayed_retry_ms: number;
   codex_reasoning_guard_exhausted_action: CodexReasoningGuardExhaustedAction;
+  codex_gateway_capacity_error_action: CodexGatewayPolicyAction;
+  codex_gateway_http_429_action: CodexGatewayPolicyAction;
+  codex_gateway_latency_guard_enabled: boolean;
+  codex_gateway_first_progress_timeout_ms: number;
+  codex_gateway_first_progress_action: CodexGatewayFirstProgressAction;
+  codex_gateway_total_timeout_ms: number;
   codex_reasoning_guard_backoff_after_hits: number;
   codex_reasoning_guard_backoff_ms: number;
   auto_start: boolean;

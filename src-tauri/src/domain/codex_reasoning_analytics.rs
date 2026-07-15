@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const DEFAULT_BACKFILL_LIMIT: u32 = 1000;
 const MAX_BACKFILL_LIMIT: u32 = 10_000;
 const DEFAULT_RECENT_LIMIT: u32 = 50;
@@ -187,6 +187,42 @@ pub struct CodexReasoningAnalyticsSample {
     pub blocked_by_gateway: bool,
     pub internal_retry_attempt_index: Option<i64>,
     pub internal_retry_remaining: Option<i64>,
+    #[serde(default)]
+    pub policy_trigger: Option<String>,
+    #[serde(default)]
+    pub policy_action: Option<String>,
+    #[serde(default)]
+    pub retry_trigger: Option<String>,
+    #[serde(default)]
+    pub retry_delay_ms: Option<i64>,
+    #[serde(default)]
+    pub retry_after_raw: Option<String>,
+    #[serde(default)]
+    pub retry_after_ms: Option<i64>,
+    #[serde(default)]
+    pub retry_budget_used: Option<i64>,
+    #[serde(default)]
+    pub retry_budget_remaining: Option<i64>,
+    #[serde(default)]
+    pub upstream_fetch_started_at_ms: Option<i64>,
+    #[serde(default)]
+    pub first_progress_at_ms: Option<i64>,
+    #[serde(default)]
+    pub time_to_first_progress_ms: Option<i64>,
+    #[serde(default)]
+    pub client_headers_sent_at_ms: Option<i64>,
+    #[serde(default)]
+    pub client_first_write_at_ms: Option<i64>,
+    #[serde(default)]
+    pub time_to_client_first_write_ms: Option<i64>,
+    #[serde(default)]
+    pub timeout_phase: Option<String>,
+    #[serde(default)]
+    pub timeout_limit_ms: Option<i64>,
+    #[serde(default)]
+    pub timeout_response_control_lost: Option<bool>,
+    #[serde(default)]
+    pub response_forwarding_started: Option<bool>,
     pub continuation_recovery_count: i64,
     pub continuation_recovery_success_count: i64,
     pub final_action: String,
@@ -374,8 +410,21 @@ fn normalize_model_family(model: Option<&str>) -> String {
     if model.is_empty() {
         return "unknown".to_string();
     }
+
+    for family in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+        if model == family
+            || model
+                .strip_prefix(family)
+                .is_some_and(|suffix| suffix.starts_with('-'))
+        {
+            return family.to_string();
+        }
+    }
+
     for suffix in [
+        "-ultra",
         "-xhigh",
+        "-max",
         "-high",
         "-medium",
         "-low",
@@ -404,7 +453,7 @@ fn known_model_default_effort(model: Option<&str>) -> Option<String> {
 fn normalize_effort(value: Option<&str>) -> Option<String> {
     let raw = value?.trim().to_lowercase();
     match raw.as_str() {
-        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" => Some(raw),
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" => Some(raw),
         _ => None,
     }
 }
@@ -478,7 +527,14 @@ fn count_guard_settings(settings: &[Value]) -> i64 {
         .count() as i64
 }
 
-fn derive_final_action(row: &RequestLogAnalyticsRow, guard: Option<&Value>) -> String {
+fn derive_final_action(
+    row: &RequestLogAnalyticsRow,
+    guard: Option<&Value>,
+    policy_attempt: Option<&Value>,
+) -> String {
+    if let Some(action) = read_string(policy_attempt.and_then(|value| value.get("finalAction"))) {
+        return action;
+    }
     if let Some(action) = read_string(guard.and_then(|value| value.get("actionTaken")))
         .or_else(|| read_string(guard.and_then(|value| value.get("action"))))
     {
@@ -522,6 +578,7 @@ fn build_request_log_sample(row: RequestLogAnalyticsRow) -> CodexReasoningAnalyt
     let guard_check = latest_setting(&settings, "codex_reasoning_guard_check");
     let observation = guard_check.or(guard);
     let continuation_recovery = latest_setting(&settings, "codex_continuation_recovery");
+    let policy_attempt = latest_setting(&settings, "codex_gateway_policy_attempt");
     let effort_setting = latest_setting(&settings, "codex_reasoning_effort");
     let reasoning_effort = read_string(observation.and_then(|value| value.get("reasoningEffort")))
         .and_then(|effort| normalize_effort(Some(effort.as_str())))
@@ -565,7 +622,7 @@ fn build_request_log_sample(row: RequestLogAnalyticsRow) -> CodexReasoningAnalyt
         None
     };
     let model_family = normalize_model_family(row.requested_model.as_deref());
-    let final_action = derive_final_action(&row, guard);
+    let final_action = derive_final_action(&row, guard, policy_attempt);
     let continuation_recovery_count =
         read_i64(continuation_recovery.and_then(|value| value.get("continuationRecoveryCount")))
             .unwrap_or(0);
@@ -605,14 +662,56 @@ fn build_request_log_sample(row: RequestLogAnalyticsRow) -> CodexReasoningAnalyt
         has_reasoning_item: has_reasoning_item.unwrap_or(false),
         matched_current_rule,
         blocked_by_gateway,
-        internal_retry_attempt_index: None,
+        internal_retry_attempt_index: read_i64(
+            policy_attempt.and_then(|value| value.get("retryBudgetUsed")),
+        ),
         internal_retry_remaining: read_i64(
-            guard.and_then(|value| value.get("guardBudgetRemaining")),
+            policy_attempt.and_then(|value| value.get("retryBudgetRemaining")),
+        )
+        .or_else(|| read_i64(guard.and_then(|value| value.get("guardBudgetRemaining")))),
+        policy_trigger: read_string(policy_attempt.and_then(|value| value.get("policyTrigger"))),
+        policy_action: read_string(policy_attempt.and_then(|value| value.get("policyAction"))),
+        retry_trigger: read_string(policy_attempt.and_then(|value| value.get("retryTrigger"))),
+        retry_delay_ms: read_i64(policy_attempt.and_then(|value| value.get("retryDelayMs"))),
+        retry_after_raw: read_string(policy_attempt.and_then(|value| value.get("retryAfterRaw"))),
+        retry_after_ms: read_i64(policy_attempt.and_then(|value| value.get("retryAfterMs"))),
+        retry_budget_used: read_i64(policy_attempt.and_then(|value| value.get("retryBudgetUsed"))),
+        retry_budget_remaining: read_i64(
+            policy_attempt.and_then(|value| value.get("retryBudgetRemaining")),
+        ),
+        upstream_fetch_started_at_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("upstreamFetchStartedAtMs")),
+        ),
+        first_progress_at_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("firstProgressAtMs")),
+        ),
+        time_to_first_progress_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("timeToFirstProgressMs")),
+        ),
+        client_headers_sent_at_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("clientHeadersSentAtMs")),
+        ),
+        client_first_write_at_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("clientFirstWriteAtMs")),
+        ),
+        time_to_client_first_write_ms: read_i64(
+            policy_attempt.and_then(|value| value.get("timeToClientFirstWriteMs")),
+        ),
+        timeout_phase: read_string(policy_attempt.and_then(|value| value.get("timeoutPhase"))),
+        timeout_limit_ms: read_i64(policy_attempt.and_then(|value| value.get("timeoutLimitMs"))),
+        timeout_response_control_lost: read_bool(
+            policy_attempt.and_then(|value| value.get("timeoutResponseControlLost")),
+        ),
+        response_forwarding_started: read_bool(
+            policy_attempt.and_then(|value| value.get("responseForwardingStarted")),
         ),
         continuation_recovery_count,
         continuation_recovery_success_count,
         final_action,
-        upstream_http_status: row.status,
+        upstream_http_status: read_i64(
+            policy_attempt.and_then(|value| value.get("upstreamHttpStatus")),
+        )
+        .or(row.status),
         client_http_status: row.status,
         source_kind: "request_log".to_string(),
         source_name: Some("AIO request_logs".to_string()),
@@ -682,6 +781,42 @@ fn sample_from_value(
         blocked_by_gateway: read_bool(obj.get("blocked_by_gateway")).unwrap_or(false),
         internal_retry_attempt_index: read_i64(obj.get("internal_retry_attempt_index")),
         internal_retry_remaining: read_i64(obj.get("internal_retry_remaining")),
+        policy_trigger: read_string(obj.get("policy_trigger"))
+            .or_else(|| read_string(obj.get("policyTrigger"))),
+        policy_action: read_string(obj.get("policy_action"))
+            .or_else(|| read_string(obj.get("policyAction"))),
+        retry_trigger: read_string(obj.get("retry_trigger"))
+            .or_else(|| read_string(obj.get("retryTrigger"))),
+        retry_delay_ms: read_i64(obj.get("retry_delay_ms"))
+            .or_else(|| read_i64(obj.get("retryDelayMs"))),
+        retry_after_raw: read_string(obj.get("retry_after_raw"))
+            .or_else(|| read_string(obj.get("retryAfterRaw"))),
+        retry_after_ms: read_i64(obj.get("retry_after_ms"))
+            .or_else(|| read_i64(obj.get("retryAfterMs"))),
+        retry_budget_used: read_i64(obj.get("retry_budget_used"))
+            .or_else(|| read_i64(obj.get("retryBudgetUsed"))),
+        retry_budget_remaining: read_i64(obj.get("retry_budget_remaining"))
+            .or_else(|| read_i64(obj.get("retryBudgetRemaining"))),
+        upstream_fetch_started_at_ms: read_i64(obj.get("upstream_fetch_started_at_ms"))
+            .or_else(|| read_i64(obj.get("upstreamFetchStartedAtMs"))),
+        first_progress_at_ms: read_i64(obj.get("first_progress_at_ms"))
+            .or_else(|| read_i64(obj.get("firstProgressAtMs"))),
+        time_to_first_progress_ms: read_i64(obj.get("time_to_first_progress_ms"))
+            .or_else(|| read_i64(obj.get("timeToFirstProgressMs"))),
+        client_headers_sent_at_ms: read_i64(obj.get("client_headers_sent_at_ms"))
+            .or_else(|| read_i64(obj.get("clientHeadersSentAtMs"))),
+        client_first_write_at_ms: read_i64(obj.get("client_first_write_at_ms"))
+            .or_else(|| read_i64(obj.get("clientFirstWriteAtMs"))),
+        time_to_client_first_write_ms: read_i64(obj.get("time_to_client_first_write_ms"))
+            .or_else(|| read_i64(obj.get("timeToClientFirstWriteMs"))),
+        timeout_phase: read_string(obj.get("timeout_phase"))
+            .or_else(|| read_string(obj.get("timeoutPhase"))),
+        timeout_limit_ms: read_i64(obj.get("timeout_limit_ms"))
+            .or_else(|| read_i64(obj.get("timeoutLimitMs"))),
+        timeout_response_control_lost: read_bool(obj.get("timeout_response_control_lost"))
+            .or_else(|| read_bool(obj.get("timeoutResponseControlLost"))),
+        response_forwarding_started: read_bool(obj.get("response_forwarding_started"))
+            .or_else(|| read_bool(obj.get("responseForwardingStarted"))),
         continuation_recovery_count: read_i64(obj.get("continuation_recovery_count")).unwrap_or(0),
         continuation_recovery_success_count: read_i64(
             obj.get("continuation_recovery_success_count"),
@@ -1394,6 +1529,24 @@ fn export_csv(samples: &[CodexReasoningAnalyticsSample]) -> String {
         "blocked_by_gateway",
         "internal_retry_attempt_index",
         "internal_retry_remaining",
+        "policy_trigger",
+        "policy_action",
+        "retry_trigger",
+        "retry_delay_ms",
+        "retry_after_raw",
+        "retry_after_ms",
+        "retry_budget_used",
+        "retry_budget_remaining",
+        "upstream_fetch_started_at_ms",
+        "first_progress_at_ms",
+        "time_to_first_progress_ms",
+        "client_headers_sent_at_ms",
+        "client_first_write_at_ms",
+        "time_to_client_first_write_ms",
+        "timeout_phase",
+        "timeout_limit_ms",
+        "timeout_response_control_lost",
+        "response_forwarding_started",
         "final_action",
         "upstream_http_status",
         "client_http_status",
@@ -1468,6 +1621,89 @@ fn export_csv(samples: &[CodexReasoningAnalyticsSample]) -> String {
                 csv_escape(
                     sample
                         .internal_retry_remaining
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(sample.policy_trigger.clone().unwrap_or_default()),
+                csv_escape(sample.policy_action.clone().unwrap_or_default()),
+                csv_escape(sample.retry_trigger.clone().unwrap_or_default()),
+                csv_escape(
+                    sample
+                        .retry_delay_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(sample.retry_after_raw.clone().unwrap_or_default()),
+                csv_escape(
+                    sample
+                        .retry_after_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .retry_budget_used
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .retry_budget_remaining
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .upstream_fetch_started_at_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .first_progress_at_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .time_to_first_progress_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .client_headers_sent_at_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .client_first_write_at_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .time_to_client_first_write_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(sample.timeout_phase.clone().unwrap_or_default()),
+                csv_escape(
+                    sample
+                        .timeout_limit_ms
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .timeout_response_control_lost
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                csv_escape(
+                    sample
+                        .response_forwarding_started
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
                 ),
@@ -1772,4 +2008,229 @@ pub fn analyze(
             candidate_samples.into_iter().take(20).collect()
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn normalizes_gpt56_variants_into_distinct_families() {
+        for (model, expected) in [
+            ("gpt-5.6-sol", "gpt-5.6-sol"),
+            ("GPT-5.6-SOL-ULTRA", "gpt-5.6-sol"),
+            ("gpt-5.6-terra-preview", "gpt-5.6-terra"),
+            ("gpt-5.6-luna-max", "gpt-5.6-luna"),
+        ] {
+            assert_eq!(normalize_model_family(Some(model)), expected);
+        }
+    }
+
+    #[test]
+    fn gpt56_family_matching_requires_a_suffix_boundary() {
+        for model in ["gpt-5.6-solar", "gpt-5.6-terrain", "gpt-5.6-lunatic"] {
+            assert_eq!(normalize_model_family(Some(model)), model);
+        }
+        assert_eq!(
+            normalize_model_family(Some("vendor-model-ultra")),
+            "vendor-model"
+        );
+    }
+
+    #[test]
+    fn normalizes_max_and_ultra_efforts_for_analytics() {
+        assert_eq!(normalize_effort(Some(" MAX ")).as_deref(), Some("max"));
+        assert_eq!(normalize_effort(Some("Ultra")).as_deref(), Some("ultra"));
+        assert_eq!(normalize_effort(Some("turbo")), None);
+    }
+
+    #[test]
+    fn request_log_sample_captures_latest_layered_policy_telemetry() {
+        let row = RequestLogAnalyticsRow {
+            id: 42,
+            trace_id: "trace-policy".to_string(),
+            method: "POST".to_string(),
+            path: "/v1/responses".to_string(),
+            special_settings_json: Some(
+                json!([
+                    {
+                        "type": "codex_gateway_policy_attempt",
+                        "attemptSequence": 1,
+                        "policyTrigger": "capacity",
+                        "policyAction": "retry_then_pass_through",
+                        "retryBudgetUsed": 1,
+                        "retryBudgetRemaining": 4,
+                        "finalAction": "capacity_internal_retry"
+                    },
+                    {
+                        "type": "codex_gateway_policy_attempt",
+                        "attemptSequence": 2,
+                        "policyTrigger": "total_timeout",
+                        "policyAction": "disconnect_after_forward",
+                        "retryTrigger": "first_progress_timeout",
+                        "retryDelayMs": 1000,
+                        "retryAfterRaw": "1",
+                        "retryAfterMs": 1000,
+                        "retryBudgetUsed": 2,
+                        "retryBudgetRemaining": 3,
+                        "upstreamFetchStartedAtMs": 10000,
+                        "firstProgressAtMs": 10120,
+                        "timeToFirstProgressMs": 120,
+                        "clientHeadersSentAtMs": 10130,
+                        "clientFirstWriteAtMs": 10140,
+                        "timeToClientFirstWriteMs": 140,
+                        "timeoutPhase": "total",
+                        "timeoutLimitMs": 30000,
+                        "timeoutResponseControlLost": true,
+                        "responseForwardingStarted": true,
+                        "finalAction": "timeout_disconnected_after_forward"
+                    }
+                ])
+                .to_string(),
+            ),
+            requested_model: Some("gpt-5.6-sol".to_string()),
+            status: Some(502),
+            error_code: Some("GW_CODEX_UPSTREAM_TOTAL_TIMEOUT".to_string()),
+            duration_ms: 30_000,
+            input_tokens: Some(100),
+            output_tokens: Some(10),
+            total_tokens: Some(110),
+            created_at_ms: 1_700_000_000_000,
+        };
+
+        let sample = build_request_log_sample(row);
+        assert_eq!(sample.policy_trigger.as_deref(), Some("total_timeout"));
+        assert_eq!(
+            sample.policy_action.as_deref(),
+            Some("disconnect_after_forward")
+        );
+        assert_eq!(
+            sample.retry_trigger.as_deref(),
+            Some("first_progress_timeout")
+        );
+        assert_eq!(sample.retry_delay_ms, Some(1000));
+        assert_eq!(sample.retry_after_raw.as_deref(), Some("1"));
+        assert_eq!(sample.retry_after_ms, Some(1000));
+        assert_eq!(sample.retry_budget_used, Some(2));
+        assert_eq!(sample.retry_budget_remaining, Some(3));
+        assert_eq!(sample.time_to_first_progress_ms, Some(120));
+        assert_eq!(sample.time_to_client_first_write_ms, Some(140));
+        assert_eq!(sample.timeout_phase.as_deref(), Some("total"));
+        assert_eq!(sample.timeout_limit_ms, Some(30_000));
+        assert_eq!(sample.timeout_response_control_lost, Some(true));
+        assert_eq!(sample.response_forwarding_started, Some(true));
+        assert_eq!(sample.final_action, "timeout_disconnected_after_forward");
+    }
+
+    #[test]
+    fn analytics_import_accepts_camel_and_snake_policy_fields() {
+        let sample = sample_from_value(
+            &json!({
+                "sample_id": "import-policy",
+                "gateway_request_id": "gateway-policy",
+                "policyTrigger": "http_429",
+                "policy_action": "retry_then_502",
+                "retryTrigger": "http_429",
+                "retry_delay_ms": 750,
+                "retryAfterRaw": "0.75",
+                "retry_after_ms": 750,
+                "retryBudgetUsed": 1,
+                "retry_budget_remaining": 2,
+                "timeToFirstProgressMs": 123,
+                "time_to_client_first_write_ms": 140,
+                "timeoutPhase": "first_progress",
+                "timeout_limit_ms": 5000,
+                "timeoutResponseControlLost": false,
+                "response_forwarding_started": false
+            }),
+            "test-import",
+            0,
+        )
+        .expect("sample");
+
+        assert_eq!(sample.policy_trigger.as_deref(), Some("http_429"));
+        assert_eq!(sample.policy_action.as_deref(), Some("retry_then_502"));
+        assert_eq!(sample.retry_delay_ms, Some(750));
+        assert_eq!(sample.retry_after_ms, Some(750));
+        assert_eq!(sample.retry_budget_used, Some(1));
+        assert_eq!(sample.retry_budget_remaining, Some(2));
+        assert_eq!(sample.time_to_first_progress_ms, Some(123));
+        assert_eq!(sample.time_to_client_first_write_ms, Some(140));
+        assert_eq!(sample.timeout_phase.as_deref(), Some("first_progress"));
+        assert_eq!(sample.timeout_limit_ms, Some(5000));
+        assert_eq!(sample.timeout_response_control_lost, Some(false));
+        assert_eq!(sample.response_forwarding_started, Some(false));
+    }
+
+    #[test]
+    fn schema_two_samples_default_new_policy_fields() {
+        let sample = sample_from_value(
+            &json!({
+                "sample_id": "legacy",
+                "gateway_request_id": "legacy-request"
+            }),
+            "legacy-import",
+            0,
+        )
+        .expect("sample");
+        let mut value = serde_json::to_value(sample).expect("serialize");
+        let object = value.as_object_mut().expect("object");
+        for key in [
+            "policy_trigger",
+            "policy_action",
+            "retry_trigger",
+            "retry_delay_ms",
+            "retry_after_raw",
+            "retry_after_ms",
+            "retry_budget_used",
+            "retry_budget_remaining",
+            "upstream_fetch_started_at_ms",
+            "first_progress_at_ms",
+            "time_to_first_progress_ms",
+            "client_headers_sent_at_ms",
+            "client_first_write_at_ms",
+            "time_to_client_first_write_ms",
+            "timeout_phase",
+            "timeout_limit_ms",
+            "timeout_response_control_lost",
+            "response_forwarding_started",
+        ] {
+            object.remove(key);
+        }
+
+        let decoded: CodexReasoningAnalyticsSample =
+            serde_json::from_value(value).expect("legacy sample");
+        assert_eq!(decoded.policy_trigger, None);
+        assert_eq!(decoded.retry_budget_remaining, None);
+        assert_eq!(decoded.timeout_phase, None);
+        assert_eq!(decoded.response_forwarding_started, None);
+    }
+
+    #[test]
+    fn policy_csv_header_and_rows_have_the_same_column_count() {
+        let sample = sample_from_value(
+            &json!({
+                "sample_id": "csv-policy",
+                "gateway_request_id": "csv-policy-request",
+                "policy_trigger": "capacity",
+                "policy_action": "retry_then_pass_through",
+                "retry_budget_used": 1,
+                "retry_budget_remaining": 4,
+                "timeout_phase": "total",
+                "timeout_limit_ms": 30000
+            }),
+            "csv-test",
+            0,
+        )
+        .expect("sample");
+        let csv = export_csv(&[sample]);
+        let mut lines = csv.lines();
+        let header = lines.next().expect("header");
+        let row = lines.next().expect("row");
+
+        assert!(header.contains("policy_trigger"));
+        assert!(header.contains("time_to_client_first_write_ms"));
+        assert_eq!(header.split(',').count(), row.split(',').count());
+    }
 }

@@ -188,6 +188,17 @@ describe("components/cli-manager/tabs/CodexTab", () => {
     fireEvent.click(screen.getByRole("radio", { name: "禁用 (disabled)" }));
     expect(persistCodexConfig).toHaveBeenCalledWith({ web_search: "disabled" });
 
+    const planReasoningItem = screen.getByText(
+      "计划模式推理强度 (plan_mode_reasoning_effort)"
+    ).parentElement?.parentElement;
+    expect(planReasoningItem).toBeTruthy();
+    fireEvent.click(
+      within(planReasoningItem as HTMLElement).getByRole("radio", { name: "超高 (ultra)" })
+    );
+    expect(persistCodexConfig).toHaveBeenCalledWith({
+      plan_mode_reasoning_effort: "ultra",
+    });
+
     const personalityItem = screen.getByText("输出风格 (personality)").parentElement?.parentElement;
     expect(personalityItem).toBeTruthy();
     fireEvent.click(

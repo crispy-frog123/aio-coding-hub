@@ -24,7 +24,7 @@ const DEFAULT_CLI_PROXY_STATUS: CliProxyStatus[] = [
 // schema_version and the historically drift-prone fields below are guarded by
 // src/constants/__tests__/crossLayerContracts.test.ts.
 const DEFAULT_SETTINGS: AppSettings = {
-  schema_version: 40,
+  schema_version: 41,
   preferred_port: 37123,
   show_home_heatmap: true,
   show_home_usage: true,
@@ -52,6 +52,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   codex_reasoning_guard_delayed_retry_budget: 5,
   codex_reasoning_guard_delayed_retry_ms: 1000,
   codex_reasoning_guard_exhausted_action: "return_error",
+  codex_gateway_capacity_error_action: "retry_then_pass_through",
+  codex_gateway_http_429_action: "pass_through",
+  codex_gateway_latency_guard_enabled: false,
+  codex_gateway_first_progress_timeout_ms: 0,
+  codex_gateway_first_progress_action: "return_502",
+  codex_gateway_total_timeout_ms: 0,
   codex_reasoning_guard_backoff_after_hits: 5,
   codex_reasoning_guard_backoff_ms: 1000,
   auto_start: false,

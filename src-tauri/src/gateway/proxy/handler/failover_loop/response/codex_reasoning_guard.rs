@@ -11,7 +11,6 @@ use crate::settings::{
 };
 use axum::http::StatusCode;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 pub(super) const CODEX_REASONING_GUARD_ERROR_CODE: &str = "GW_CODEX_REASONING_GUARD";
 pub(super) const CODEX_REASONING_GUARD_REASON_CODE: &str = "codex_reasoning_guard";
@@ -958,6 +957,7 @@ pub(super) struct CodexReasoningGuardBudgetDecision {
     pub(super) action_taken: &'static str,
 }
 
+#[cfg(test)]
 pub(super) fn budget_decision(
     current_hits: u32,
     immediate_budget: u32,
@@ -1030,11 +1030,64 @@ pub(super) fn budget_decision(
     }
 }
 
-pub(super) async fn apply_delay_if_needed(decision: CodexReasoningGuardBudgetDecision) {
-    if decision.delay_ms == 0 {
-        return;
+pub(super) fn shared_budget_decision(
+    state: &Arc<Mutex<super::layered_policy::LayeredPolicyState>>,
+    immediate_budget: u32,
+    delayed_budget: u32,
+    exhausted_action: CodexReasoningGuardExhaustedAction,
+) -> CodexReasoningGuardBudgetDecision {
+    let total_budget = immediate_budget.saturating_add(delayed_budget);
+    let exhausted_action_label = match exhausted_action {
+        CodexReasoningGuardExhaustedAction::ReturnError => "return_error",
+        CodexReasoningGuardExhaustedAction::SwitchProvider => "switch_provider",
+    };
+    if let Some(reservation) = super::layered_policy::reserve_shared_retry(state) {
+        return CodexReasoningGuardBudgetDecision {
+            action: CodexReasoningGuardBudgetAction::RetrySameProvider,
+            hit_number: reservation.used,
+            phase: reservation.phase,
+            delay_ms: reservation.budget_delay_ms,
+            immediate_budget,
+            delayed_budget,
+            total_budget,
+            remaining_budget: reservation.remaining,
+            exhausted_action: exhausted_action_label,
+            action_taken: if reservation.budget_delay_ms == 0 {
+                "retry_same_provider_no_circuit"
+            } else {
+                "retry_same_provider_delayed_no_circuit"
+            },
+        };
     }
-    tokio::time::sleep(Duration::from_millis(decision.delay_ms as u64)).await;
+
+    let (used, _) = super::layered_policy::budget_snapshot(state);
+    let hit_number = used.saturating_add(1);
+    match exhausted_action {
+        CodexReasoningGuardExhaustedAction::ReturnError => CodexReasoningGuardBudgetDecision {
+            action: CodexReasoningGuardBudgetAction::ReturnError,
+            hit_number,
+            phase: "exhausted",
+            delay_ms: 0,
+            immediate_budget,
+            delayed_budget,
+            total_budget,
+            remaining_budget: 0,
+            exhausted_action: exhausted_action_label,
+            action_taken: "return_guard_error_no_circuit",
+        },
+        CodexReasoningGuardExhaustedAction::SwitchProvider => CodexReasoningGuardBudgetDecision {
+            action: CodexReasoningGuardBudgetAction::SwitchProvider,
+            hit_number,
+            phase: "exhausted",
+            delay_ms: 0,
+            immediate_budget,
+            delayed_budget,
+            total_budget,
+            remaining_budget: 0,
+            exhausted_action: exhausted_action_label,
+            action_taken: "switch_provider_no_circuit",
+        },
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1530,7 +1583,7 @@ mod tests {
     }
 
     #[test]
-    fn final_answer_only_mode_ignores_medium_low_and_missing_effort() {
+    fn final_answer_only_mode_ignores_efforts_other_than_high_xhigh() {
         let value = serde_json::json!({
             "output": [{
                 "type": "message",
@@ -1539,7 +1592,14 @@ mod tests {
             }]
         });
 
-        for effort in [Some("medium"), Some("low"), None] {
+        for effort in [
+            Some("minimal"),
+            Some("low"),
+            Some("medium"),
+            Some("max"),
+            Some("ultra"),
+            None,
+        ] {
             let matched = detect_from_json(
                 "codex",
                 Some("gpt-5.5"),

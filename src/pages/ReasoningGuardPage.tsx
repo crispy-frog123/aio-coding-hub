@@ -26,8 +26,11 @@ import {
   useSettingsPatchMutation,
   useSettingsQuery,
 } from "../query/settings";
+import type { CodexReasoningAnalyticsSample } from "../services/gateway/codexReasoningAnalytics";
 import type {
   AppSettings,
+  CodexGatewayFirstProgressAction,
+  CodexGatewayPolicyAction,
   CodexReasoningGuardCompareMode,
   CodexReasoningGuardExhaustedAction,
   CodexReasoningGuardMatchMode,
@@ -47,6 +50,7 @@ import {
   MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
   MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
   MAX_CODEX_REASONING_GUARD_REASONING_TOKEN_VALUE,
+  MAX_CODEX_GATEWAY_TIMEOUT_MS,
 } from "../services/settings/settingsValidation";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -85,6 +89,12 @@ type DraftState = {
   exhaustedAction: CodexReasoningGuardExhaustedAction;
   backoffAfterHitsText: string;
   backoffMsText: string;
+  capacityErrorAction: CodexGatewayPolicyAction;
+  http429Action: CodexGatewayPolicyAction;
+  latencyGuardEnabled: boolean;
+  firstProgressTimeoutText: string;
+  firstProgressAction: CodexGatewayFirstProgressAction;
+  totalTimeoutText: string;
 };
 
 const PERCENT_FORMATTER = new Intl.NumberFormat("zh-CN", {
@@ -121,6 +131,38 @@ function formatStreamAction(value: CodexReasoningGuardStreamAction) {
 
 function formatExhaustedAction(value: CodexReasoningGuardExhaustedAction) {
   return value === "switch_provider" ? "切换 provider" : "返回错误";
+}
+
+function formatGatewayPolicyAction(value: CodexGatewayPolicyAction) {
+  if (value === "return_502") return "直接返回 502";
+  if (value === "retry_then_pass_through") return "重试后原样透传";
+  if (value === "retry_then_502") return "重试后返回 502";
+  return "原样透传";
+}
+
+function formatPolicySampleHint(sample: CodexReasoningAnalyticsSample) {
+  const parts = [
+    `reasoning=${sample.reasoning_tokens ?? "unknown"}`,
+    `effort=${sample.request_reasoning_effort ?? "unknown"}`,
+    `final-only=${sample.final_answer_only ? "yes" : "no"}`,
+    `kind=${sample.request_kind}`,
+  ];
+  if (sample.policy_trigger) parts.push(`policy=${sample.policy_trigger}`);
+  if (sample.policy_action) parts.push(`action=${sample.policy_action}`);
+  if (sample.retry_trigger) {
+    parts.push(`retry=${sample.retry_trigger}`);
+    if (sample.retry_delay_ms != null) parts.push(`delay=${sample.retry_delay_ms}ms`);
+  }
+  if (sample.retry_budget_used != null || sample.retry_budget_remaining != null) {
+    parts.push(
+      `budget=${sample.retry_budget_used ?? "?"} used/${sample.retry_budget_remaining ?? "?"} left`
+    );
+  }
+  if (sample.timeout_phase) {
+    parts.push(`timeout=${sample.timeout_phase}/${sample.timeout_limit_ms ?? "?"}ms`);
+  }
+  if (sample.timeout_response_control_lost) parts.push("control=lost-after-forward");
+  return parts.join(" | ");
 }
 
 function formatRate(value: number | null | undefined) {
@@ -169,6 +211,12 @@ function createDraft(settings: AppSettings | null | undefined): DraftState {
       DEFAULT_CODEX_REASONING_GUARD_EXHAUSTED_ACTION,
     backoffAfterHitsText: String(settings?.codex_reasoning_guard_backoff_after_hits ?? 5),
     backoffMsText: String(settings?.codex_reasoning_guard_backoff_ms ?? 1000),
+    capacityErrorAction: settings?.codex_gateway_capacity_error_action ?? "retry_then_pass_through",
+    http429Action: settings?.codex_gateway_http_429_action ?? "pass_through",
+    latencyGuardEnabled: settings?.codex_gateway_latency_guard_enabled ?? false,
+    firstProgressTimeoutText: String(settings?.codex_gateway_first_progress_timeout_ms ?? 0),
+    firstProgressAction: settings?.codex_gateway_first_progress_action ?? "return_502",
+    totalTimeoutText: String(settings?.codex_gateway_total_timeout_ms ?? 0),
   };
 }
 
@@ -468,6 +516,28 @@ export function ReasoningGuardPage() {
       setFormError(backoffMs.message);
       return;
     }
+    const firstProgressTimeout = parseInteger(
+      "首个有效输出超时",
+      draft.firstProgressTimeoutText,
+      MAX_CODEX_GATEWAY_TIMEOUT_MS
+    );
+    if (!firstProgressTimeout.ok) {
+      setFormError(firstProgressTimeout.message);
+      return;
+    }
+    const totalTimeout = parseInteger(
+      "请求总 deadline",
+      draft.totalTimeoutText,
+      MAX_CODEX_GATEWAY_TIMEOUT_MS
+    );
+    if (!totalTimeout.ok) {
+      setFormError(totalTimeout.message);
+      return;
+    }
+    if (draft.latencyGuardEnabled && firstProgressTimeout.value === 0 && totalTimeout.value === 0) {
+      setFormError("启用响应超时保护时，首个有效输出或请求总 deadline 至少填写一个非零值");
+      return;
+    }
     const continuationMarkerText =
       draft.continuationMarkerText.trim() || DEFAULT_CODEX_REASONING_GUARD_CONTINUATION_MARKER_TEXT;
 
@@ -487,6 +557,12 @@ export function ReasoningGuardPage() {
         codex_reasoning_guard_exhausted_action: draft.exhaustedAction,
         codex_reasoning_guard_backoff_after_hits: backoffAfterHits.value,
         codex_reasoning_guard_backoff_ms: backoffMs.value,
+        codex_gateway_capacity_error_action: draft.capacityErrorAction,
+        codex_gateway_http_429_action: draft.http429Action,
+        codex_gateway_latency_guard_enabled: draft.latencyGuardEnabled,
+        codex_gateway_first_progress_timeout_ms: firstProgressTimeout.value,
+        codex_gateway_first_progress_action: draft.firstProgressAction,
+        codex_gateway_total_timeout_ms: totalTimeout.value,
       });
       toast("降智拦截设置已保存");
     } catch (err) {
@@ -867,6 +943,150 @@ export function ReasoningGuardPage() {
                   </span>
                 </div>
               </Card>
+
+              <Card className="space-y-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-primary" />
+                      <h2 className="text-base font-semibold text-foreground">
+                        分层重试与延迟保护
+                      </h2>
+                    </div>
+                    <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
+                      Capacity、普通 HTTP 429、reasoning
+                      命中、续写恢复和首有效输出超时共用上面的立即/等待预算；总 deadline 跨全部内部
+                      attempt，不会因重试而重置。
+                    </p>
+                  </div>
+                  <Badge variant="secondary">共享预算</Badge>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <FieldLabel
+                      label="Capacity 错误动作"
+                      hint="精确匹配 selected model is at capacity；优先于同一响应上的普通 429。"
+                    />
+                    <Select
+                      value={draft.capacityErrorAction}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value as CodexGatewayPolicyAction;
+                        setDraft((prev) => ({ ...prev, capacityErrorAction: value }));
+                      }}
+                    >
+                      <option value="pass_through">原样透传</option>
+                      <option value="return_502">直接返回 502</option>
+                      <option value="retry_then_pass_through">重试后原样透传</option>
+                      <option value="retry_then_502">重试后返回 502</option>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <FieldLabel
+                      label="普通 HTTP 429 动作"
+                      hint="重试会遵守 Retry-After；缺失时使用 full-jitter 退避。"
+                    />
+                    <Select
+                      value={draft.http429Action}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value as CodexGatewayPolicyAction;
+                        setDraft((prev) => ({ ...prev, http429Action: value }));
+                      }}
+                    >
+                      <option value="pass_through">原样透传</option>
+                      <option value="return_502">直接返回 502</option>
+                      <option value="retry_then_pass_through">重试后原样透传</option>
+                      <option value="retry_then_502">重试后返回 502</option>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="border-t border-line-subtle pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">响应超时保护</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        首有效输出按每次真实上游 attempt 计时；总 deadline 从首次上游派发开始。
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg border border-line-subtle bg-surface-inset px-3 py-2">
+                      <span className="text-xs font-medium text-muted-foreground">启用</span>
+                      <Switch
+                        checked={draft.latencyGuardEnabled}
+                        onCheckedChange={(latencyGuardEnabled) => {
+                          setDraft((prev) => ({ ...prev, latencyGuardEnabled }));
+                          setFormError(null);
+                        }}
+                        disabled={!settings}
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "mt-4 grid grid-cols-1 gap-3 md:grid-cols-3",
+                      draft.latencyGuardEnabled ? null : "opacity-60"
+                    )}
+                    aria-disabled={!draft.latencyGuardEnabled}
+                  >
+                    <div className="space-y-1.5">
+                      <FieldLabel label="首个有效输出 ms" hint="0 表示单独关闭该阈值。" />
+                      <Input
+                        value={draft.firstProgressTimeoutText}
+                        disabled={!draft.latencyGuardEnabled}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setDraft((prev) => ({ ...prev, firstProgressTimeoutText: value }));
+                          setFormError(null);
+                        }}
+                        mono
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <FieldLabel label="首输出超时动作" />
+                      <Select
+                        value={draft.firstProgressAction}
+                        disabled={!draft.latencyGuardEnabled}
+                        onChange={(event) => {
+                          const value = event.currentTarget
+                            .value as CodexGatewayFirstProgressAction;
+                          setDraft((prev) => ({ ...prev, firstProgressAction: value }));
+                        }}
+                      >
+                        <option value="return_502">直接返回 502</option>
+                        <option value="retry_then_502">共用预算重试后返回 502</option>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <FieldLabel label="请求总 deadline ms" hint="0 表示单独关闭；跨 attempt。" />
+                      <Input
+                        value={draft.totalTimeoutText}
+                        disabled={!draft.latencyGuardEnabled}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setDraft((prev) => ({ ...prev, totalTimeoutText: value }));
+                          setFormError(null);
+                        }}
+                        mono
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 border-t border-line-subtle pt-4">
+                  <Badge variant="outline">
+                    Capacity：{formatGatewayPolicyAction(draft.capacityErrorAction)}
+                  </Badge>
+                  <Badge variant="outline">
+                    429：{formatGatewayPolicyAction(draft.http429Action)}
+                  </Badge>
+                  <Badge variant={draft.latencyGuardEnabled ? "default" : "outline"}>
+                    延迟保护{draft.latencyGuardEnabled ? "已开启" : "已关闭"}
+                  </Badge>
+                </div>
+              </Card>
             </div>
 
             <Card
@@ -1083,7 +1303,7 @@ export function ReasoningGuardPage() {
                         sample.client_http_status == null
                           ? "进行中"
                           : String(sample.client_http_status),
-                      hint: `reasoning=${sample.reasoning_tokens ?? "unknown"} | effort=${sample.request_reasoning_effort ?? "unknown"} | final-only=${sample.final_answer_only ? "yes" : "no"} | kind=${sample.request_kind}`,
+                      hint: formatPolicySampleHint(sample),
                     }))}
                     emptyText="后端样本表里还没有 Codex 请求。"
                   />

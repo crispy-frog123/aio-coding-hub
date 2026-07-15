@@ -12,6 +12,7 @@
 // --- shared (stay in root) ---
 mod context;
 mod event_helpers;
+mod layered_policy;
 mod loop_helpers;
 mod request_end_helpers;
 
@@ -172,6 +173,16 @@ where
 
     let introspection_body =
         body_for_introspection(&input.base_headers, input.body_bytes.as_ref()).into_owned();
+    let layered_policy_state = Arc::new(Mutex::new(layered_policy::LayeredPolicyState::new(
+        input.cli_key.as_str(),
+        input.forwarded_path.as_str(),
+        input.codex_gateway_latency_guard_enabled,
+        input.codex_gateway_first_progress_timeout_ms,
+        input.codex_gateway_total_timeout_ms,
+        input.codex_reasoning_guard_immediate_retry_budget,
+        input.codex_reasoning_guard_delayed_retry_budget,
+        input.codex_reasoning_guard_delayed_retry_ms,
+    )));
     let ctx = CommonCtx::from(CommonCtxArgs {
         state: &input.state,
         cli_key: &input.cli_key,
@@ -213,8 +224,13 @@ where
             .codex_reasoning_guard_immediate_retry_budget,
         codex_reasoning_guard_delayed_retry_budget: input
             .codex_reasoning_guard_delayed_retry_budget,
-        codex_reasoning_guard_delayed_retry_ms: input.codex_reasoning_guard_delayed_retry_ms,
         codex_reasoning_guard_exhausted_action: input.codex_reasoning_guard_exhausted_action,
+        codex_gateway_capacity_error_action: input.codex_gateway_capacity_error_action,
+        codex_gateway_http_429_action: input.codex_gateway_http_429_action,
+        codex_gateway_first_progress_timeout_ms: input.codex_gateway_first_progress_timeout_ms,
+        codex_gateway_first_progress_action: input.codex_gateway_first_progress_action,
+        codex_gateway_total_timeout_ms: input.codex_gateway_total_timeout_ms,
+        layered_policy_state: &layered_policy_state,
         max_attempts_per_provider: input.max_attempts_per_provider,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,

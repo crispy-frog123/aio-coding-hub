@@ -280,7 +280,7 @@ fn extract_codex_reasoning_effort(
 fn normalize_codex_reasoning_effort(value: &str) -> Option<String> {
     let effort = value.trim().to_ascii_lowercase();
     match effort.as_str() {
-        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" => Some(effort),
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" => Some(effort),
         _ => None,
     }
 }
@@ -288,6 +288,18 @@ fn normalize_codex_reasoning_effort(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_max_and_ultra_reasoning_efforts() {
+        assert_eq!(
+            normalize_codex_reasoning_effort(" MAX ").as_deref(),
+            Some("max")
+        );
+        assert_eq!(
+            normalize_codex_reasoning_effort("Ultra").as_deref(),
+            Some("ultra")
+        );
+    }
 
     #[test]
     fn heuristic_triggers_when_body_large_and_model_missing() {

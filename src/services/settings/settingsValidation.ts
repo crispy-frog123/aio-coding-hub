@@ -1,4 +1,6 @@
 import type {
+  CodexGatewayFirstProgressAction,
+  CodexGatewayPolicyAction,
   CodexReasoningGuardCompareMode,
   CodexReasoningGuardExhaustedAction,
   CodexReasoningGuardMatchMode,
@@ -35,6 +37,7 @@ export const MAX_CODEX_REASONING_GUARD_BACKOFF_MS = 60_000;
 export const MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET = 100;
 export const MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET = 100;
 export const MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS = 60_000;
+export const MAX_CODEX_GATEWAY_TIMEOUT_MS = 2_147_483_647;
 const MIN_PREFERRED_PORT = 1024;
 const MAX_PREFERRED_PORT = 65535;
 const MIN_LOG_RETENTION_DAYS = 1;
@@ -85,6 +88,7 @@ export const SETTINGS_VALIDATION_LIMITS = {
   MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET,
   MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
   MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
+  MAX_CODEX_GATEWAY_TIMEOUT_MS,
   MIN_PREFERRED_PORT,
   MAX_PREFERRED_PORT,
   MIN_LOG_RETENTION_DAYS,
@@ -417,6 +421,12 @@ export type SettingsSetValidationInput = {
   codexReasoningGuardDelayedRetryBudget?: number | null;
   codexReasoningGuardDelayedRetryMs?: number | null;
   codexReasoningGuardExhaustedAction?: CodexReasoningGuardExhaustedAction | null;
+  codexGatewayCapacityErrorAction?: CodexGatewayPolicyAction | null;
+  codexGatewayHttp429Action?: CodexGatewayPolicyAction | null;
+  codexGatewayLatencyGuardEnabled?: boolean | null;
+  codexGatewayFirstProgressTimeoutMs?: number | null;
+  codexGatewayFirstProgressAction?: CodexGatewayFirstProgressAction | null;
+  codexGatewayTotalTimeoutMs?: number | null;
   codexReasoningGuardBackoffAfterHits?: number | null;
   codexReasoningGuardBackoffMs?: number | null;
 };
@@ -612,6 +622,48 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
     ) {
       return "Codex 降智拦截预算耗尽动作仅支持 return_error 或 switch_provider";
     }
+  }
+
+  for (const [fieldLabel, value] of [
+    ["Capacity 策略", input.codexGatewayCapacityErrorAction],
+    ["HTTP 429 策略", input.codexGatewayHttp429Action],
+  ] as const) {
+    if (value == null) continue;
+    if (
+      value !== "pass_through" &&
+      value !== "return_502" &&
+      value !== "retry_then_pass_through" &&
+      value !== "retry_then_502"
+    ) {
+      return `${fieldLabel}不受支持`;
+    }
+  }
+
+  if (
+    input.codexGatewayFirstProgressAction != null &&
+    input.codexGatewayFirstProgressAction !== "return_502" &&
+    input.codexGatewayFirstProgressAction !== "retry_then_502"
+  ) {
+    return "首个有效输出超时动作仅支持 return_502 或 retry_then_502";
+  }
+
+  for (const [fieldLabel, value] of [
+    ["首个有效输出超时", input.codexGatewayFirstProgressTimeoutMs],
+    ["请求总 deadline", input.codexGatewayTotalTimeoutMs],
+  ] as const) {
+    if (value == null) continue;
+    const message = validateIntegerRange(fieldLabel, value, 0, MAX_CODEX_GATEWAY_TIMEOUT_MS);
+    if (message) return message;
+  }
+
+  if (
+    input.codexGatewayLatencyGuardEnabled === true &&
+    input.codexGatewayFirstProgressTimeoutMs != null &&
+    input.codexGatewayTotalTimeoutMs != null &&
+    input.codexGatewayFirstProgressTimeoutMs === 0 &&
+    input.codexGatewayTotalTimeoutMs === 0
+  ) {
+    return "启用响应超时保护时，首个有效输出或请求总 deadline 至少填写一个非零值";
   }
 
   for (const [fieldLabel, value, max] of [

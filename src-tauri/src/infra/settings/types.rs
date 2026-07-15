@@ -114,6 +114,40 @@ pub enum CodexReasoningGuardExhaustedAction {
     SwitchProvider,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexGatewayPolicyAction {
+    #[default]
+    PassThrough,
+    Return502,
+    RetryThenPassThrough,
+    RetryThen502,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexGatewayFirstProgressAction {
+    #[default]
+    Return502,
+    RetryThen502,
+}
+
+fn default_codex_gateway_capacity_error_action() -> CodexGatewayPolicyAction {
+    CodexGatewayPolicyAction::RetryThenPassThrough
+}
+
+fn default_codex_gateway_latency_guard_enabled() -> bool {
+    DEFAULT_CODEX_GATEWAY_LATENCY_GUARD_ENABLED
+}
+
+fn default_codex_gateway_first_progress_timeout_ms() -> u32 {
+    DEFAULT_CODEX_GATEWAY_FIRST_PROGRESS_TIMEOUT_MS
+}
+
+fn default_codex_gateway_total_timeout_ms() -> u32 {
+    DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct CodexReasoningGuardModelRule {
@@ -206,6 +240,18 @@ pub struct AppSettings {
     pub codex_reasoning_guard_delayed_retry_ms: u32,
     #[serde(default)]
     pub codex_reasoning_guard_exhausted_action: CodexReasoningGuardExhaustedAction,
+    #[serde(default = "default_codex_gateway_capacity_error_action")]
+    pub codex_gateway_capacity_error_action: CodexGatewayPolicyAction,
+    #[serde(default)]
+    pub codex_gateway_http_429_action: CodexGatewayPolicyAction,
+    #[serde(default = "default_codex_gateway_latency_guard_enabled")]
+    pub codex_gateway_latency_guard_enabled: bool,
+    #[serde(default = "default_codex_gateway_first_progress_timeout_ms")]
+    pub codex_gateway_first_progress_timeout_ms: u32,
+    #[serde(default)]
+    pub codex_gateway_first_progress_action: CodexGatewayFirstProgressAction,
+    #[serde(default = "default_codex_gateway_total_timeout_ms")]
+    pub codex_gateway_total_timeout_ms: u32,
     // Deprecated compatibility fields. Runtime budget decisions use the
     // explicit budget fields above as the single source of truth.
     pub codex_reasoning_guard_backoff_after_hits: u32,
@@ -311,6 +357,13 @@ impl Default for AppSettings {
                 DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET,
             codex_reasoning_guard_delayed_retry_ms: DEFAULT_CODEX_REASONING_GUARD_DELAYED_RETRY_MS,
             codex_reasoning_guard_exhausted_action: CodexReasoningGuardExhaustedAction::default(),
+            codex_gateway_capacity_error_action: default_codex_gateway_capacity_error_action(),
+            codex_gateway_http_429_action: CodexGatewayPolicyAction::PassThrough,
+            codex_gateway_latency_guard_enabled: DEFAULT_CODEX_GATEWAY_LATENCY_GUARD_ENABLED,
+            codex_gateway_first_progress_timeout_ms:
+                DEFAULT_CODEX_GATEWAY_FIRST_PROGRESS_TIMEOUT_MS,
+            codex_gateway_first_progress_action: CodexGatewayFirstProgressAction::Return502,
+            codex_gateway_total_timeout_ms: DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS,
             codex_reasoning_guard_backoff_after_hits:
                 DEFAULT_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS,
             codex_reasoning_guard_backoff_ms: DEFAULT_CODEX_REASONING_GUARD_BACKOFF_MS,

@@ -36,6 +36,7 @@ use crate::gateway::util::{now_unix_seconds, strip_hop_headers};
 use crate::shared::mutex_ext::MutexExt;
 use axum::body::{Body, Bytes};
 use axum::http::{header, HeaderValue};
+use std::time::Instant;
 
 fn upstream_error_decision(
     is_count_tokens: bool,
@@ -155,6 +156,7 @@ pub(super) struct UpstreamRequestState<'a> {
     pub(super) codex_previous_response_id_rectifier_retried: &'a mut bool,
     pub(super) thinking_signature_rectifier_retried: &'a mut bool,
     pub(super) thinking_budget_rectifier_retried: &'a mut bool,
+    pub(super) allow_next_retry_beyond_max_attempts: &'a mut bool,
 }
 
 fn codex_request_has_previous_response_id(body: &[u8]) -> bool {
@@ -303,6 +305,7 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
         provider_max_attempts,
         attempt_started_ms,
         attempt_started,
+        policy_timing,
         circuit_before,
         cx2cc_active,
         ..
@@ -331,6 +334,9 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
     let mut matched_429_concurrency_limit = false;
     // Body preview for errors where preserving the upstream diagnostic text matters.
     let mut upstream_body_preview: Option<String> = None;
+    let need_gateway_policy_scan = !is_count_tokens
+        && status.as_u16() >= 400
+        && ctx.layered_policy_state.lock_or_recover().applies();
     let need_client_error_scan = !is_count_tokens
         && (upstream_client_error_rules::should_attempt_non_retryable_match(
             status,
@@ -345,9 +351,63 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
             *upstream.codex_previous_response_id_rectifier_retried,
             upstream.upstream_body_bytes,
         );
-    if need_client_error_scan || need_5xx_body_preview || need_codex_previous_response_id_scan {
+    if need_gateway_policy_scan
+        || need_client_error_scan
+        || need_5xx_body_preview
+        || need_codex_previous_response_id_scan
+    {
         if let Some(r) = resp.take() {
-            let read_result = read_response_body_for_error_scan(r).await;
+            let read_result = if let Some((deadline, phase)) =
+                policy_timing.and_then(|timing| timing.next_deadline(false))
+            {
+                if deadline <= Instant::now() {
+                    let control = super::layered_policy::handle_timeout_before_forward(
+                        ctx,
+                        provider_ctx,
+                        attempt_ctx,
+                        LoopState {
+                            attempts: &mut *attempts,
+                            failed_provider_ids: &mut *failed_provider_ids,
+                            last_outcome: &mut *last_outcome,
+                            circuit_snapshot: &mut *circuit_snapshot,
+                            abort_guard: &mut *abort_guard,
+                        },
+                        phase,
+                    )
+                    .await;
+                    if matches!(control, LoopControl::ContinueRetry) {
+                        *upstream.allow_next_retry_beyond_max_attempts = true;
+                    }
+                    return control;
+                }
+                match tokio::time::timeout_at(deadline.into(), read_response_body_for_error_scan(r))
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        let control = super::layered_policy::handle_timeout_before_forward(
+                            ctx,
+                            provider_ctx,
+                            attempt_ctx,
+                            LoopState {
+                                attempts: &mut *attempts,
+                                failed_provider_ids: &mut *failed_provider_ids,
+                                last_outcome: &mut *last_outcome,
+                                circuit_snapshot: &mut *circuit_snapshot,
+                                abort_guard: &mut *abort_guard,
+                            },
+                            phase,
+                        )
+                        .await;
+                        if matches!(control, LoopControl::ContinueRetry) {
+                            *upstream.allow_next_retry_beyond_max_attempts = true;
+                        }
+                        return control;
+                    }
+                }
+            } else {
+                read_response_body_for_error_scan(r).await
+            };
             if let Ok(bytes) = read_result {
                 let mut headers_for_scan = response_headers.clone();
                 strip_hop_headers(&mut headers_for_scan);
@@ -416,6 +476,54 @@ pub(super) async fn handle_non_success_response<R: tauri::Runtime>(
                     abort_body_bytes = Some(body_for_scan);
                     abort_response_headers = Some(headers_for_scan);
                 }
+            }
+        }
+    }
+
+    if let Some(phase) = policy_timing.and_then(|timing| timing.expired_phase(false)) {
+        let control = super::layered_policy::handle_timeout_before_forward(
+            ctx,
+            provider_ctx,
+            attempt_ctx,
+            LoopState {
+                attempts: &mut *attempts,
+                failed_provider_ids: &mut *failed_provider_ids,
+                last_outcome: &mut *last_outcome,
+                circuit_snapshot: &mut *circuit_snapshot,
+                abort_guard: &mut *abort_guard,
+            },
+            phase,
+        )
+        .await;
+        if matches!(control, LoopControl::ContinueRetry) {
+            *upstream.allow_next_retry_beyond_max_attempts = true;
+        }
+        return control;
+    }
+
+    if need_gateway_policy_scan {
+        if let (Some(body), Some(headers)) =
+            (abort_body_bytes.as_ref(), abort_response_headers.as_ref())
+        {
+            if let Some(control) = super::layered_policy::handle_upstream_policy(
+                ctx,
+                provider_ctx,
+                attempt_ctx,
+                LoopState {
+                    attempts: &mut *attempts,
+                    failed_provider_ids: &mut *failed_provider_ids,
+                    last_outcome: &mut *last_outcome,
+                    circuit_snapshot: &mut *circuit_snapshot,
+                    abort_guard: &mut *abort_guard,
+                },
+                status,
+                headers.clone(),
+                body.clone(),
+                upstream.allow_next_retry_beyond_max_attempts,
+            )
+            .await
+            {
+                return control;
             }
         }
     }

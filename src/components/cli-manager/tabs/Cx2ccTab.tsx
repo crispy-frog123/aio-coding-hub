@@ -296,6 +296,8 @@ export function CliManagerCx2ccTab({
                 { value: "medium", label: "medium" },
                 { value: "high", label: "high" },
                 { value: "xhigh", label: "xhigh" },
+                { value: "max", label: "max" },
+                { value: "ultra", label: "ultra" },
               ]}
               disabled={controlsDisabled}
             />
