@@ -51,6 +51,7 @@ macro_rules! generated_command_registry {
             cli_manager_claude_info_get => crate::commands::cli_manager::cli_manager_claude_info_get,
             cli_manager_codex_info_get => crate::commands::cli_manager::cli_manager_codex_info_get,
             cli_manager_codex_app_restart => crate::commands::cli_manager::cli_manager_codex_app_restart,
+            cli_manager_codex_model_catalog_get => crate::commands::cli_manager::cli_manager_codex_model_catalog_get,
             cli_manager_codex_config_get => crate::commands::cli_manager::cli_manager_codex_config_get,
             cli_manager_codex_config_set => crate::commands::cli_manager::cli_manager_codex_config_set,
             cli_manager_codex_config_toml_get => crate::commands::cli_manager::cli_manager_codex_config_toml_get,
@@ -233,14 +234,6 @@ macro_rules! generated_command_registry {
             codex_reasoning_analytics_import_json => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_import_json,
             codex_reasoning_analytics_export => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_export,
             codex_reasoning_analytics_analyze => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_analyze,
-            // ── cost ──
-            cost_summary_v1 => crate::commands::cost::cost_summary_v1,
-            cost_trend_v1 => crate::commands::cost::cost_trend_v1,
-            cost_breakdown_provider_v1 => crate::commands::cost::cost_breakdown_provider_v1,
-            cost_breakdown_model_v1 => crate::commands::cost::cost_breakdown_model_v1,
-            cost_scatter_cli_provider_model_v1 => crate::commands::cost::cost_scatter_cli_provider_model_v1,
-            cost_top_requests_v1 => crate::commands::cost::cost_top_requests_v1,
-            cost_backfill_missing_v1 => crate::commands::cost::cost_backfill_missing_v1,
             // ── env_conflicts ──
             env_conflicts_check => crate::commands::env_conflicts::env_conflicts_check,
             // ── cli_proxy ──
@@ -300,7 +293,7 @@ pub(crate) fn export_typescript_bindings(output_path: &str) -> Result<(), String
         .export(
             specta_typescript::Typescript::default()
                 .header(
-                    "/* eslint-disable */\n// @ts-nocheck\n// NOTE: Generated IPC contract for settings, config migration, desktop, app management, gateway, request-log, CLI update, CLI proxy, provider, WSL, sort-mode, provider-limit, usage, cost, model-price, prompt, workspace, skills, MCP, CLI manager, CLI sessions, Claude validation, notice, and env-conflict command families.",
+                    "/* eslint-disable */\n// @ts-nocheck\n// NOTE: Generated IPC contract for settings, config migration, desktop, app management, gateway, request-log, CLI update, CLI proxy, provider, WSL, sort-mode, provider-limit, usage, model-price, prompt, workspace, skills, MCP, CLI manager, CLI sessions, Claude validation, notice, and env-conflict command families.",
                 )
                 .bigint(specta_typescript::BigIntExportBehavior::Number),
             output_path,

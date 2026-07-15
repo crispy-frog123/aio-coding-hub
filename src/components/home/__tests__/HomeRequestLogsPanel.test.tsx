@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -55,6 +55,64 @@ describe("components/home/HomeRequestLogsPanel", () => {
     useCliSessionsFolderLookupByIdsQueryMock.mockReset();
     useCliSessionsFolderLookupByIdsQueryMock.mockReturnValue({ data: [], isLoading: false });
   });
+
+  it("shows the Codex system request badge only for a valid structured marker", () => {
+    render(
+      <MemoryRouter>
+        <HomeRequestLogsPanel
+          traces={[]}
+          requestLogs={makeRequestLogs([
+            {
+              id: 1,
+              trace_id: "codex-system",
+              cli_key: "codex",
+              path: "/v1/responses",
+              requested_model: "gpt-5.4-mini",
+              special_settings_json: JSON.stringify([
+                { type: "codex_system_request", threadSource: "system" },
+              ]),
+            },
+            {
+              id: 2,
+              trace_id: "codex-user",
+              cli_key: "codex",
+              path: "/v1/responses",
+              requested_model: "gpt-5.4-mini",
+              special_settings_json: null,
+            },
+            {
+              id: 3,
+              trace_id: "codex-malformed",
+              cli_key: "codex",
+              path: "/v1/responses",
+              requested_model: "gpt-5.4-mini",
+              special_settings_json: "bad-json",
+            },
+            {
+              id: 4,
+              trace_id: "claude-spoofed-marker",
+              cli_key: "claude",
+              special_settings_json: JSON.stringify([
+                { type: "codex_system_request", threadSource: "system" },
+              ]),
+            },
+          ])}
+          requestLogsLoading={false}
+          requestLogsRefreshing={false}
+          requestLogsAvailable={true}
+          onRefreshRequestLogs={vi.fn()}
+          selectedLogId={null}
+          onSelectLogId={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getAllByText("Codex 系统请求")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("switch", { name: "最近使用记录简洁模式" }));
+    expect(screen.getAllByText("Codex 系统请求")).toHaveLength(1);
+  });
+
   it("renders traces + logs and supports refresh/select", () => {
     useCliSessionsFolderLookupByIdsQueryMock.mockReturnValue({
       data: [
@@ -200,6 +258,103 @@ describe("components/home/HomeRequestLogsPanel", () => {
     expect(historicalLogButton).not.toBeNull();
     fireEvent.click(historicalLogButton!);
     expect(onSelectLogId).toHaveBeenCalledWith(1);
+  });
+
+  it("shows canonical cache buckets, preserves zero, and hides missing cache creation", () => {
+    const renderPanel = (requestLog: RequestLogSummary) => (
+      <MemoryRouter>
+        <HomeRequestLogsPanel
+          displayOptions={{ customTooltip: false }}
+          compactModeOverride={false}
+          traces={[]}
+          requestLogs={[requestLog]}
+          requestLogsLoading={false}
+          requestLogsRefreshing={false}
+          requestLogsAvailable={true}
+          onRefreshRequestLogs={vi.fn()}
+          selectedLogId={null}
+          onSelectLogId={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+    const baseLog = createRequestLogSummary({
+      id: 51,
+      trace_id: "trace-cache-creation",
+      cli_key: "codex",
+      path: "/v1/responses",
+      requested_model: "gpt-5.6-sol",
+      input_tokens: 1000,
+      effective_input_tokens: 700,
+      output_tokens: 50,
+      total_tokens: 1050,
+      cache_read_input_tokens: 100,
+      cache_creation_input_tokens: 200,
+    });
+    const view = render(renderPanel(baseLog));
+
+    const expectMetric = (label: string, value: string) => {
+      const card = screen.getByRole("button", { name: /gpt-5\.6-sol/ });
+      const metric = within(card).getByText(label).parentElement;
+      expect(metric).not.toBeNull();
+      expect(within(metric as HTMLElement).getByText(value)).toBeInTheDocument();
+      return metric as HTMLElement;
+    };
+
+    expectMetric("输入", "700");
+    expectMetric("缓存创建", "200");
+    expectMetric("缓存读取", "100");
+
+    view.rerender(
+      renderPanel(
+        createRequestLogSummary({
+          ...baseLog,
+          cache_creation_5m_input_tokens: 25,
+          cache_creation_1h_input_tokens: 50,
+        })
+      )
+    );
+    expect(within(expectMetric("缓存创建", "25")).getByText("(5m)")).toBeInTheDocument();
+
+    view.rerender(
+      renderPanel(
+        createRequestLogSummary({
+          ...baseLog,
+          cache_creation_input_tokens: 0,
+          cache_creation_5m_input_tokens: null,
+          cache_creation_1h_input_tokens: null,
+        })
+      )
+    );
+    expectMetric("缓存创建", "0");
+
+    view.rerender(
+      renderPanel(
+        createRequestLogSummary({
+          ...baseLog,
+          cache_creation_input_tokens: null,
+          cache_creation_5m_input_tokens: 0,
+          cache_creation_1h_input_tokens: null,
+        })
+      )
+    );
+    expect(within(expectMetric("缓存创建", "0")).queryByText("(5m)")).not.toBeInTheDocument();
+
+    view.rerender(
+      renderPanel(
+        createRequestLogSummary({
+          ...baseLog,
+          output_tokens: null,
+          cache_creation_input_tokens: null,
+          cache_creation_5m_input_tokens: null,
+          cache_creation_1h_input_tokens: null,
+        })
+      )
+    );
+    expect(
+      within(screen.getByRole("button", { name: /gpt-5\.6-sol/ })).queryByText("缓存创建")
+    ).not.toBeInTheDocument();
+    const outputMetric = expectMetric("输出", "—");
+    expect(outputMetric).toHaveClass("col-start-1", "row-start-2");
   });
 
   it("renders Claude model mapping from historical request logs", () => {

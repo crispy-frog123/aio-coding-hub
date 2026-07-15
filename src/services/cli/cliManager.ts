@@ -13,6 +13,9 @@ import {
   type CodexConfigTomlValidationError as GeneratedCodexConfigTomlValidationError,
   type CodexConfigTomlValidationResult as GeneratedCodexConfigTomlValidationResult,
   type CodexAppRestartResult as GeneratedCodexAppRestartResult,
+  type CodexModelCatalogState as GeneratedCodexModelCatalogState,
+  type CodexModelCapability as GeneratedCodexModelCapability,
+  type CodexReasoningEffortOption as GeneratedCodexReasoningEffortOption,
   type GeminiConfigPatch as GeneratedGeminiConfigPatch,
   type GeminiConfigState as GeneratedGeminiConfigState,
   type SimpleCliInfo as GeneratedSimpleCliInfo,
@@ -33,6 +36,9 @@ export type CodexConfigTomlState = GeneratedCodexConfigTomlState;
 export type CodexConfigTomlValidationError = GeneratedCodexConfigTomlValidationError;
 export type CodexConfigTomlValidationResult = GeneratedCodexConfigTomlValidationResult;
 export type CodexAppRestartResult = GeneratedCodexAppRestartResult;
+export type CodexModelCatalogState = GeneratedCodexModelCatalogState;
+export type CodexModelCapability = GeneratedCodexModelCapability;
+export type CodexReasoningEffortOption = GeneratedCodexReasoningEffortOption;
 export type GeminiConfigState = GeneratedGeminiConfigState;
 export type GeminiConfigPatch = Partial<GeneratedGeminiConfigPatch>;
 export type ClaudeEnvSetInput = {
@@ -48,8 +54,6 @@ const DEFAULT_CODEX_CONFIG_PATCH = {
   plan_mode_reasoning_effort: null,
   web_search: null,
   personality: null,
-  model_context_window: null,
-  model_auto_compact_token_limit: null,
   service_tier: null,
   sandbox_workspace_write_network_access: null,
   features_unified_exec: null,
@@ -128,7 +132,10 @@ function withGeneratedPatchDefaults<TPatch extends object>(
 }
 
 function toCodexConfigPatch(patch: CodexConfigPatch): GeneratedCodexConfigPatch {
-  return withGeneratedPatchDefaults(DEFAULT_CODEX_CONFIG_PATCH, patch);
+  return {
+    ...DEFAULT_CODEX_CONFIG_PATCH,
+    ...patch,
+  };
 }
 
 function toGeminiConfigPatch(patch: GeminiConfigPatch): GeneratedGeminiConfigPatch {
@@ -164,6 +171,17 @@ export async function cliManagerCodexAppRestart() {
     invoke: () =>
       commands.cliManagerCodexAppRestart() as Promise<
         GeneratedCommandResult<CodexAppRestartResult>
+      >,
+  });
+}
+
+export async function cliManagerCodexModelCatalogGet() {
+  return invokeGeneratedIpc<CodexModelCatalogState>({
+    title: "读取 Codex 模型能力失败",
+    cmd: "cli_manager_codex_model_catalog_get",
+    invoke: () =>
+      commands.cliManagerCodexModelCatalogGet() as Promise<
+        GeneratedCommandResult<CodexModelCatalogState>
       >,
   });
 }

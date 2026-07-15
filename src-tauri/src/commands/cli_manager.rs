@@ -1,6 +1,9 @@
 //! Usage: CLI environment / integration related Tauri commands.
 
-use crate::{blocking, claude_hooks, claude_settings, cli_manager, codex_config, gemini_config};
+use crate::{
+    blocking, claude_hooks, claude_settings, cli_manager, codex_config, codex_model_catalog,
+    gemini_config,
+};
 
 #[tauri::command]
 #[specta::specta]
@@ -33,6 +36,18 @@ pub(crate) async fn cli_manager_codex_app_restart(
 ) -> Result<cli_manager::CodexAppRestartResult, String> {
     blocking::run("cli_manager_codex_app_restart", move || {
         cli_manager::codex_app_restart(&app)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cli_manager_codex_model_catalog_get(
+    app: tauri::AppHandle,
+) -> Result<codex_model_catalog::CodexModelCatalogState, String> {
+    blocking::run("cli_manager_codex_model_catalog_get", move || {
+        codex_model_catalog::codex_model_catalog_get(&app)
     })
     .await
     .map_err(Into::into)
