@@ -1323,12 +1323,32 @@ mod tests {
             "\"retry_then_pass_through\""
         );
         assert_eq!(
+            serde_json::to_string(&CodexGatewayPolicyAction::Return502).unwrap(),
+            "\"return_502\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CodexGatewayPolicyAction::RetryThen502).unwrap(),
+            "\"retry_then_502\""
+        );
+        assert_eq!(
             serde_json::from_str::<CodexGatewayPolicyAction>("\"retry_then_502\"").unwrap(),
+            CodexGatewayPolicyAction::RetryThen502
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexGatewayPolicyAction>("\"retry_then502\"").unwrap(),
             CodexGatewayPolicyAction::RetryThen502
         );
         assert_eq!(
             serde_json::to_string(&CodexGatewayFirstProgressAction::Return502).unwrap(),
             "\"return_502\""
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexGatewayFirstProgressAction>("\"return502\"").unwrap(),
+            CodexGatewayFirstProgressAction::Return502
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexGatewayFirstProgressAction>("\"retry_then502\"").unwrap(),
+            CodexGatewayFirstProgressAction::RetryThen502
         );
     }
 

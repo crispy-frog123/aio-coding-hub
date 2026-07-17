@@ -119,8 +119,10 @@ pub enum CodexReasoningGuardExhaustedAction {
 pub enum CodexGatewayPolicyAction {
     #[default]
     PassThrough,
+    #[serde(rename = "return_502", alias = "return502")]
     Return502,
     RetryThenPassThrough,
+    #[serde(rename = "retry_then_502", alias = "retry_then502")]
     RetryThen502,
 }
 
@@ -128,7 +130,9 @@ pub enum CodexGatewayPolicyAction {
 #[serde(rename_all = "snake_case")]
 pub enum CodexGatewayFirstProgressAction {
     #[default]
+    #[serde(rename = "return_502", alias = "return502")]
     Return502,
+    #[serde(rename = "retry_then_502", alias = "retry_then502")]
     RetryThen502,
 }
 
