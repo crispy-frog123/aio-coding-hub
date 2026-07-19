@@ -90,7 +90,7 @@ async fn record_failure_and_decide_impl<R: tauri::Runtime>(
         error_code,
         mut decision,
         mut outcome,
-        reason,
+        mut reason,
         timeout_secs,
     } = args;
     let ProviderCtx {
@@ -157,6 +157,11 @@ async fn record_failure_and_decide_impl<R: tauri::Runtime>(
             system_failure_decision_after_circuit_record(decision, false, Some(change.after.state));
         outcome =
             system_failure_outcome_after_decision_override(outcome, recorded_decision, decision);
+        if matches!(recorded_decision, FailoverDecision::RetrySameProvider)
+            && matches!(decision, FailoverDecision::SwitchProvider)
+        {
+            reason.push_str("; switching provider because the circuit breaker opened");
+        }
     }
 
     attempts.push(FailoverAttempt {

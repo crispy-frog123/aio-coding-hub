@@ -75,6 +75,7 @@ const SETTINGS_VIEW_TO_UPDATE_FIELD_MAP = {
   upstreamFirstByteTimeoutSeconds: "upstream_first_byte_timeout_seconds",
   upstreamStreamIdleTimeoutSeconds: "upstream_stream_idle_timeout_seconds",
   upstreamRequestTimeoutNonStreamingSeconds: "upstream_request_timeout_non_streaming_seconds",
+  sseErrorRetryCount: "sse_error_retry_count",
   verboseProviderError: "verbose_provider_error",
   interceptAnthropicWarmupRequests: "intercept_anthropic_warmup_requests",
   enableThinkingSignatureRectifier: "enable_thinking_signature_rectifier",
@@ -221,6 +222,7 @@ function toGeneratedSettingsUpdate(input: SettingsSetInput): GeneratedSettingsUp
     upstreamStreamIdleTimeoutSeconds: input.upstreamStreamIdleTimeoutSeconds ?? null,
     upstreamRequestTimeoutNonStreamingSeconds:
       input.upstreamRequestTimeoutNonStreamingSeconds ?? null,
+    sseErrorRetryCount: input.sseErrorRetryCount ?? null,
     interceptAnthropicWarmupRequests: input.interceptAnthropicWarmupRequests ?? null,
     enableThinkingSignatureRectifier: input.enableThinkingSignatureRectifier ?? null,
     enableThinkingBudgetRectifier: input.enableThinkingBudgetRectifier ?? null,

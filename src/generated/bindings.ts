@@ -4155,6 +4155,7 @@ export type SettingsUpdate = {
   upstreamFirstByteTimeoutSeconds: number | null;
   upstreamStreamIdleTimeoutSeconds: number | null;
   upstreamRequestTimeoutNonStreamingSeconds: number | null;
+  sseErrorRetryCount: number | null;
   interceptAnthropicWarmupRequests: boolean | null;
   enableThinkingSignatureRectifier: boolean | null;
   enableThinkingBudgetRectifier: boolean | null;
@@ -4267,6 +4268,7 @@ export type SettingsView = {
   upstream_first_byte_timeout_seconds: number;
   upstream_stream_idle_timeout_seconds: number;
   upstream_request_timeout_non_streaming_seconds: number;
+  sse_error_retry_count: number;
   update_releases_url: string;
   failover_max_attempts_per_provider: number;
   failover_max_providers_to_try: number;

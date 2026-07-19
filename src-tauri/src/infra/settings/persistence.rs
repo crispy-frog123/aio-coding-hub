@@ -583,6 +583,12 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
     if settings.failover_max_attempts_per_provider == 0 {
         return Err("SEC_INVALID_INPUT: failover_max_attempts_per_provider must be >= 1".into());
     }
+    if settings.sse_error_retry_count > MAX_SSE_ERROR_RETRY_COUNT {
+        return Err(format!(
+            "SEC_INVALID_INPUT: sse_error_retry_count must be <= {MAX_SSE_ERROR_RETRY_COUNT}"
+        )
+        .into());
+    }
     if settings.failover_max_providers_to_try == 0 {
         return Err("SEC_INVALID_INPUT: failover_max_providers_to_try must be >= 1".into());
     }

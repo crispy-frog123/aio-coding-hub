@@ -29,6 +29,7 @@ describe("services/settings/settings", () => {
       upstreamFirstByteTimeoutSeconds: 0,
       upstreamStreamIdleTimeoutSeconds: 0,
       upstreamRequestTimeoutNonStreamingSeconds: 0,
+      sseErrorRetryCount: 3,
       failoverMaxAttemptsPerProvider: 5,
       failoverMaxProvidersToTry: 5,
       circuitBreakerFailureThreshold: 5,
@@ -45,6 +46,7 @@ describe("services/settings/settings", () => {
           homeUsagePeriod: "last7",
           cliPriorityOrder: ["codex", "claude", "gemini"],
           autoStart: false,
+          sseErrorRetryCount: 3,
         }),
       })
     );

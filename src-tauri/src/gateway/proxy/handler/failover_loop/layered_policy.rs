@@ -1541,7 +1541,7 @@ mod tests {
     #[test]
     fn expired_total_deadline_cannot_consume_retry_budget() {
         let mut state = LayeredPolicyState::new("codex", "/v1/responses", true, 0, 1, 1, 1, 0);
-        state.total_deadline = Some(Instant::now() - Duration::from_millis(1));
+        state.total_deadline = Instant::now().checked_sub(Duration::from_millis(1));
         assert!(state.reserve_retry().is_none());
         assert_eq!(state.budget_snapshot(), (0, 2));
     }

@@ -73,6 +73,7 @@ type GeneralSettingsDraft = {
   upstreamFirstByteTimeoutSeconds: number;
   upstreamStreamIdleTimeoutSeconds: number;
   upstreamRequestTimeoutNonStreamingSeconds: number;
+  sseErrorRetryCount: number;
   providerCooldownSeconds: number;
   providerBaseUrlPingCacheTtlSeconds: number;
   circuitBreakerFailureThreshold: number;
@@ -86,6 +87,7 @@ const DEFAULT_GENERAL_SETTINGS_DRAFT: GeneralSettingsDraft = {
   upstreamFirstByteTimeoutSeconds: 0,
   upstreamStreamIdleTimeoutSeconds: 0,
   upstreamRequestTimeoutNonStreamingSeconds: 0,
+  sseErrorRetryCount: 2,
   providerCooldownSeconds: 30,
   providerBaseUrlPingCacheTtlSeconds: 60,
   circuitBreakerFailureThreshold: 5,
@@ -115,6 +117,7 @@ function appSettingsToGeneralSettingsDraft(appSettings: AppSettings): GeneralSet
     upstreamStreamIdleTimeoutSeconds: appSettings.upstream_stream_idle_timeout_seconds,
     upstreamRequestTimeoutNonStreamingSeconds:
       appSettings.upstream_request_timeout_non_streaming_seconds,
+    sseErrorRetryCount: appSettings.sse_error_retry_count,
     providerCooldownSeconds: appSettings.provider_cooldown_seconds,
     providerBaseUrlPingCacheTtlSeconds: appSettings.provider_base_url_ping_cache_ttl_seconds,
     circuitBreakerFailureThreshold: appSettings.circuit_breaker_failure_threshold,
@@ -129,6 +132,7 @@ function generalSettingsDraftPatchFromAppSettings(
   | "upstreamFirstByteTimeoutSeconds"
   | "upstreamStreamIdleTimeoutSeconds"
   | "upstreamRequestTimeoutNonStreamingSeconds"
+  | "sseErrorRetryCount"
   | "providerCooldownSeconds"
   | "providerBaseUrlPingCacheTtlSeconds"
   | "circuitBreakerFailureThreshold"
@@ -139,6 +143,7 @@ function generalSettingsDraftPatchFromAppSettings(
     upstreamStreamIdleTimeoutSeconds: appSettings.upstream_stream_idle_timeout_seconds,
     upstreamRequestTimeoutNonStreamingSeconds:
       appSettings.upstream_request_timeout_non_streaming_seconds,
+    sseErrorRetryCount: appSettings.sse_error_retry_count,
     providerCooldownSeconds: appSettings.provider_cooldown_seconds,
     providerBaseUrlPingCacheTtlSeconds: appSettings.provider_base_url_ping_cache_ttl_seconds,
     circuitBreakerFailureThreshold: appSettings.circuit_breaker_failure_threshold,
@@ -184,6 +189,7 @@ export function useCliManagerPageDataModel() {
     upstreamFirstByteTimeoutSeconds,
     upstreamStreamIdleTimeoutSeconds,
     upstreamRequestTimeoutNonStreamingSeconds,
+    sseErrorRetryCount,
     providerCooldownSeconds,
     providerBaseUrlPingCacheTtlSeconds,
     circuitBreakerFailureThreshold,
@@ -711,6 +717,8 @@ export function useCliManagerPageDataModel() {
       upstreamRequestTimeoutNonStreamingSeconds,
       setUpstreamRequestTimeoutNonStreamingSeconds: (value: number) =>
         setDraftNumber("upstreamRequestTimeoutNonStreamingSeconds", value),
+      sseErrorRetryCount,
+      setSseErrorRetryCount: (value: number) => setDraftNumber("sseErrorRetryCount", value),
       providerCooldownSeconds,
       setProviderCooldownSeconds: (value: number) =>
         setDraftNumber("providerCooldownSeconds", value),

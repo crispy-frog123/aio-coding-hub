@@ -152,6 +152,10 @@ fn default_codex_gateway_total_timeout_ms() -> u32 {
     DEFAULT_CODEX_GATEWAY_TOTAL_TIMEOUT_MS
 }
 
+fn default_sse_error_retry_count() -> u32 {
+    DEFAULT_SSE_ERROR_RETRY_COUNT
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct CodexReasoningGuardModelRule {
@@ -275,6 +279,8 @@ pub struct AppSettings {
     pub upstream_stream_idle_timeout_seconds: u32,
     pub upstream_request_timeout_non_streaming_seconds: u32,
     pub update_releases_url: String,
+    #[serde(default = "default_sse_error_retry_count")]
+    pub sse_error_retry_count: u32,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
     pub circuit_breaker_failure_threshold: u32,
@@ -385,6 +391,7 @@ impl Default for AppSettings {
             upstream_request_timeout_non_streaming_seconds:
                 DEFAULT_UPSTREAM_REQUEST_TIMEOUT_NON_STREAMING_SECONDS,
             update_releases_url: DEFAULT_UPDATE_RELEASES_URL.to_string(),
+            sse_error_retry_count: DEFAULT_SSE_ERROR_RETRY_COUNT,
             failover_max_attempts_per_provider: DEFAULT_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER,
             failover_max_providers_to_try: DEFAULT_FAILOVER_MAX_PROVIDERS_TO_TRY,
             circuit_breaker_failure_threshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,

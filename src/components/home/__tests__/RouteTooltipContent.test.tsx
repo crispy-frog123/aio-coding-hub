@@ -33,6 +33,24 @@ describe("RouteTooltipContent", () => {
     expect(screen.getByText("失败")).toBeInTheDocument();
   });
 
+  it("labels the reason when a provider switch is recorded", () => {
+    render(
+      <RouteTooltipContent
+        hops={[
+          makeHop({
+            ok: false,
+            decision: "switch",
+            reason: "SSE retry limit exhausted (2/2), switching provider",
+          }),
+        ]}
+        finalStatus={502}
+      />
+    );
+    expect(
+      screen.getByText("切换原因：SSE retry limit exhausted (2/2), switching provider")
+    ).toBeInTheDocument();
+  });
+
   it("renders a skipped hop", () => {
     render(
       <RouteTooltipContent hops={[makeHop({ ok: false, skipped: true })]} finalStatus={null} />

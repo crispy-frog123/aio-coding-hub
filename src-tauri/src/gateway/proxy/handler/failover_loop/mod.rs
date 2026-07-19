@@ -232,6 +232,7 @@ where
         codex_gateway_total_timeout_ms: input.codex_gateway_total_timeout_ms,
         layered_policy_state: &layered_policy_state,
         max_attempts_per_provider: input.max_attempts_per_provider,
+        sse_error_retry_count: input.sse_error_retry_count,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,
         response_fixer_non_stream_config: input.response_fixer_non_stream_config,

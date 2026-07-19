@@ -177,6 +177,7 @@ impl<R: tauri::Runtime> ProxyContext<R> {
             codex_gateway_total_timeout_ms: rs.codex_gateway_total_timeout_ms,
             max_attempts_per_provider: rs.max_attempts_per_provider,
             max_providers_to_try: rs.max_providers_to_try,
+            sse_error_retry_count: rs.sse_error_retry_count,
             provider_cooldown_secs: rs.provider_cooldown_secs,
             // Compact requests get a widened first-byte timeout: the whole
             // prompt cache is invalidated upstream, so the first byte can

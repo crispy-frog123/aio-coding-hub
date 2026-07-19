@@ -152,7 +152,13 @@ function RouteHopRow({ hop, index, isLast, finalStatus, totalHops }: RouteHopRow
             )}
             {errorLabel && <span className="text-amber-400">{errorLabel}</span>}
             {hop.decision && <span className="text-muted-foreground">{hop.decision}</span>}
-            {hop.reason && <span className="text-muted-foreground">{hop.reason}</span>}
+            {hop.reason && (
+              <span className="text-muted-foreground break-words">
+                {hop.decision === "switch" || hop.decision === "failover"
+                  ? `切换原因：${hop.reason}`
+                  : hop.reason}
+              </span>
+            )}
             {skipped && <span className="text-muted-foreground">本次未实际发出请求</span>}
           </div>
         )}

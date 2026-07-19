@@ -413,7 +413,7 @@ where
             }
         })
         .or(common.upstream_stream_idle_timeout);
-    let max_attempts_per_provider = common.max_attempts_per_provider;
+    let sse_error_retry_count = ctx.sse_error_retry_count;
     let enable_response_fixer = common.enable_response_fixer;
     let response_fixer_stream_config = common.response_fixer_stream_config;
 
@@ -525,18 +525,18 @@ where
             }
             FirstChunkProbe::ReadError(err) => {
                 let error_code = GatewayErrorCode::StreamError.as_str();
-                let decision = if retry_index < max_attempts_per_provider {
-                    FailoverDecision::RetrySameProvider
-                } else {
-                    FailoverDecision::SwitchProvider
-                };
+                let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                let decision = retry.decision;
 
-                let outcome = format!(
-                    "stream_first_chunk_error: category={} code={} decision={} timeout_secs={}",
-                    ErrorCategory::SystemError.as_str(),
-                    error_code,
-                    decision.as_str(),
-                    upstream_first_byte_timeout_secs,
+                let outcome = sse_retry_outcome(
+                    format!(
+                        "stream_first_chunk_error: category={} code={} decision={} timeout_secs={}",
+                        ErrorCategory::SystemError.as_str(),
+                        error_code,
+                        decision.as_str(),
+                        upstream_first_byte_timeout_secs,
+                    ),
+                    retry,
                 );
 
                 return record_system_failure_and_decide(RecordSystemFailureArgs {
@@ -554,21 +554,28 @@ where
                     error_code,
                     decision,
                     outcome,
-                    reason: format!("first chunk read error (event-stream): {err}"),
+                    reason: sse_retry_reason(
+                        format!("first chunk read error (event-stream): {err}"),
+                        retry,
+                    ),
                     timeout_secs: Some(upstream_first_byte_timeout_secs),
                 })
                 .await;
             }
             FirstChunkProbe::Timeout => {
                 let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
-                let decision = FailoverDecision::SwitchProvider;
+                let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                let decision = retry.decision;
 
-                let outcome = format!(
+                let outcome = sse_retry_outcome(
+                    format!(
                     "stream_first_byte_timeout: category={} code={} decision={} timeout_secs={}",
                     ErrorCategory::SystemError.as_str(),
                     error_code,
                     decision.as_str(),
                     upstream_first_byte_timeout_secs,
+                ),
+                    retry,
                 );
 
                 return record_system_failure_and_decide(RecordSystemFailureArgs {
@@ -586,7 +593,7 @@ where
                     error_code,
                     decision,
                     outcome,
-                    reason: "first byte timeout (event-stream)".to_string(),
+                    reason: sse_retry_reason("first byte timeout (event-stream)", retry),
                     timeout_secs: Some(upstream_first_byte_timeout_secs),
                 })
                 .await;
@@ -616,18 +623,18 @@ where
             && probe_is_empty_event_stream
         {
             let error_code = GatewayErrorCode::StreamError.as_str();
-            let decision = if retry_index < max_attempts_per_provider {
-                FailoverDecision::RetrySameProvider
-            } else {
-                FailoverDecision::SwitchProvider
-            };
+            let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+            let decision = retry.decision;
 
-            let outcome = format!(
-                "stream_first_chunk_eof: category={} code={} decision={} timeout_secs={}",
-                ErrorCategory::SystemError.as_str(),
-                error_code,
-                decision.as_str(),
-                upstream_first_byte_timeout_secs,
+            let outcome = sse_retry_outcome(
+                format!(
+                    "stream_first_chunk_eof: category={} code={} decision={} timeout_secs={}",
+                    ErrorCategory::SystemError.as_str(),
+                    error_code,
+                    decision.as_str(),
+                    upstream_first_byte_timeout_secs,
+                ),
+                retry,
             );
 
             return record_system_failure_and_decide(RecordSystemFailureArgs {
@@ -645,7 +652,7 @@ where
                 error_code,
                 decision,
                 outcome,
-                reason: "upstream returned empty event-stream".to_string(),
+                reason: sse_retry_reason("upstream returned empty event-stream", retry),
                 timeout_secs: Some(upstream_first_byte_timeout_secs),
             })
             .await;
@@ -701,16 +708,16 @@ where
                 }
                 FirstProgressBufferOutcome::ReadError(err) => {
                     let error_code = GatewayErrorCode::StreamError.as_str();
-                    let decision = if retry_index < max_attempts_per_provider {
-                        FailoverDecision::RetrySameProvider
-                    } else {
-                        FailoverDecision::SwitchProvider
-                    };
-                    let outcome = format!(
-                        "stream_pre_progress_read_error: category={} code={} decision={}",
-                        ErrorCategory::SystemError.as_str(),
-                        error_code,
-                        decision.as_str(),
+                    let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                    let decision = retry.decision;
+                    let outcome = sse_retry_outcome(
+                        format!(
+                            "stream_pre_progress_read_error: category={} code={} decision={}",
+                            ErrorCategory::SystemError.as_str(),
+                            error_code,
+                            decision.as_str(),
+                        ),
+                        retry,
                     );
                     return record_system_failure_and_decide(RecordSystemFailureArgs {
                         ctx,
@@ -727,7 +734,10 @@ where
                         error_code,
                         decision,
                         outcome,
-                        reason: format!("failed while awaiting first meaningful output: {err}"),
+                        reason: sse_retry_reason(
+                            format!("failed while awaiting first meaningful output: {err}"),
+                            retry,
+                        ),
                         timeout_secs: None,
                     })
                     .await;
@@ -750,12 +760,16 @@ where
                 }
                 FirstProgressBufferOutcome::Timeout(ChunkWaitTimeout::Idle) => {
                     let error_code = GatewayErrorCode::StreamIdleTimeout.as_str();
-                    let decision = FailoverDecision::SwitchProvider;
-                    let outcome = format!(
-                        "stream_pre_progress_idle_timeout: category={} code={} decision={}",
-                        ErrorCategory::SystemError.as_str(),
-                        error_code,
-                        decision.as_str(),
+                    let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                    let decision = retry.decision;
+                    let outcome = sse_retry_outcome(
+                        format!(
+                            "stream_pre_progress_idle_timeout: category={} code={} decision={}",
+                            ErrorCategory::SystemError.as_str(),
+                            error_code,
+                            decision.as_str(),
+                        ),
+                        retry,
                     );
                     return record_system_failure_and_decide(RecordSystemFailureArgs {
                         ctx,
@@ -772,8 +786,10 @@ where
                         error_code,
                         decision,
                         outcome,
-                        reason: "event-stream idle timeout before first meaningful output"
-                            .to_string(),
+                        reason: sse_retry_reason(
+                            "event-stream idle timeout before first meaningful output",
+                            retry,
+                        ),
                         timeout_secs: upstream_stream_idle_timeout
                             .and_then(|value| u32::try_from(value.as_secs()).ok()),
                     })
@@ -858,13 +874,17 @@ where
                 raw.extend_from_slice(chunk.as_ref());
                 if raw.len() > MAX_NON_SSE_BODY_BYTES {
                     let error_code = GatewayErrorCode::UpstreamBodyReadError.as_str();
-                    let decision = FailoverDecision::SwitchProvider;
-                    let outcome = format!(
+                    let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                    let decision = retry.decision;
+                    let outcome = sse_retry_outcome(
+                        format!(
                         "stream_buffer_too_large: category={} code={} decision={} limit_bytes={}",
                         ErrorCategory::SystemError.as_str(),
                         error_code,
                         decision.as_str(),
                         MAX_NON_SSE_BODY_BYTES,
+                    ),
+                        retry,
                     );
 
                     return record_system_failure_and_decide(RecordSystemFailureArgs {
@@ -882,9 +902,12 @@ where
                         error_code,
                         decision,
                         outcome,
-                        reason: format!(
-                            "event-stream body exceeded gateway buffer limit ({} bytes)",
-                            MAX_NON_SSE_BODY_BYTES
+                        reason: sse_retry_reason(
+                            format!(
+                                "event-stream body exceeded gateway buffer limit ({} bytes)",
+                                MAX_NON_SSE_BODY_BYTES
+                            ),
+                            retry,
                         ),
                         timeout_secs: None,
                     })
@@ -904,16 +927,16 @@ where
                     Ok(Ok(chunk)) => chunk,
                     Ok(Err(err)) => {
                         let error_code = GatewayErrorCode::StreamError.as_str();
-                        let decision = if retry_index < max_attempts_per_provider {
-                            FailoverDecision::RetrySameProvider
-                        } else {
-                            FailoverDecision::SwitchProvider
-                        };
-                        let outcome = format!(
-                            "stream_buffer_read_error: category={} code={} decision={}",
-                            ErrorCategory::SystemError.as_str(),
-                            error_code,
-                            decision.as_str(),
+                        let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                        let decision = retry.decision;
+                        let outcome = sse_retry_outcome(
+                            format!(
+                                "stream_buffer_read_error: category={} code={} decision={}",
+                                ErrorCategory::SystemError.as_str(),
+                                error_code,
+                                decision.as_str(),
+                            ),
+                            retry,
                         );
                         return record_system_failure_and_decide(RecordSystemFailureArgs {
                             ctx,
@@ -930,15 +953,19 @@ where
                             error_code,
                             decision,
                             outcome,
-                            reason: format!("failed to buffer event-stream body: {err}"),
+                            reason: sse_retry_reason(
+                                format!("failed to buffer event-stream body: {err}"),
+                                retry,
+                            ),
                             timeout_secs: None,
                         })
                         .await;
                     }
                     Err(ChunkWaitTimeout::Idle) => {
                         let error_code = GatewayErrorCode::UpstreamTimeout.as_str();
-                        let decision = FailoverDecision::SwitchProvider;
-                        let outcome = format!(
+                        let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                        let decision = retry.decision;
+                        let outcome = sse_retry_outcome(format!(
                             "stream_buffer_idle_timeout: category={} code={} decision={} timeout_secs={}",
                             ErrorCategory::SystemError.as_str(),
                             error_code,
@@ -946,7 +973,7 @@ where
                             upstream_stream_idle_timeout
                                 .map(|value| value.as_secs())
                                 .unwrap_or_default(),
-                        );
+                        ), retry);
                         return record_system_failure_and_decide(RecordSystemFailureArgs {
                             ctx,
                             provider_ctx,
@@ -962,7 +989,10 @@ where
                             error_code,
                             decision,
                             outcome,
-                            reason: "event-stream idle timeout while buffering".to_string(),
+                            reason: sse_retry_reason(
+                                "event-stream idle timeout while buffering",
+                                retry,
+                            ),
                             timeout_secs: upstream_stream_idle_timeout
                                 .and_then(|value| u32::try_from(value.as_secs()).ok()),
                         })
@@ -1058,13 +1088,17 @@ where
                 raw.extend_from_slice(chunk.as_ref());
                 if raw.len() > MAX_NON_SSE_BODY_BYTES {
                     let error_code = GatewayErrorCode::UpstreamBodyReadError.as_str();
-                    let decision = FailoverDecision::SwitchProvider;
-                    let outcome = format!(
+                    let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                    let decision = retry.decision;
+                    let outcome = sse_retry_outcome(
+                        format!(
                         "stream_buffer_too_large: category={} code={} decision={} limit_bytes={}",
                         ErrorCategory::SystemError.as_str(),
                         error_code,
                         decision.as_str(),
                         MAX_NON_SSE_BODY_BYTES,
+                    ),
+                        retry,
                     );
 
                     return record_system_failure_and_decide(RecordSystemFailureArgs {
@@ -1082,9 +1116,12 @@ where
                         error_code,
                         decision,
                         outcome,
-                        reason: format!(
-                            "event-stream body exceeded gateway buffer limit ({} bytes)",
-                            MAX_NON_SSE_BODY_BYTES
+                        reason: sse_retry_reason(
+                            format!(
+                                "event-stream body exceeded gateway buffer limit ({} bytes)",
+                                MAX_NON_SSE_BODY_BYTES
+                            ),
+                            retry,
                         ),
                         timeout_secs: None,
                     })
@@ -1197,17 +1234,17 @@ where
                     } else {
                         ErrorCategory::SystemError
                     };
-                    let decision = if overloaded && retry_index < max_attempts_per_provider {
-                        FailoverDecision::RetrySameProvider
-                    } else {
-                        FailoverDecision::SwitchProvider
-                    };
-                    let outcome = format!(
+                    let retry = decide_sse_error_retry(retry_state, sse_error_retry_count);
+                    let decision = retry.decision;
+                    let outcome = sse_retry_outcome(
+                        format!(
                             "codex_event_stream_aggregate_error: category={} code={} decision={} err={err}",
                             category.as_str(),
                             error_code,
                             decision.as_str(),
-                        );
+                        ),
+                        retry,
+                    );
 
                     let args = RecordSystemFailureArgs {
                         ctx,
@@ -1228,7 +1265,10 @@ where
                         error_code,
                         decision,
                         outcome,
-                        reason: format!("failed to aggregate Codex responses event-stream: {err}"),
+                        reason: sse_retry_reason(
+                            format!("failed to aggregate Codex responses event-stream: {err}"),
+                            retry,
+                        ),
                         timeout_secs: None,
                     };
                     let control = if overloaded {
@@ -1991,6 +2031,60 @@ where
 fn is_retryable_upstream_overload(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("code=server_is_overloaded") || error.contains("type=service_unavailable_error")
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SseErrorRetryDecision {
+    decision: FailoverDecision,
+    retries_used: u32,
+    retry_limit: u32,
+}
+
+fn decide_sse_error_retry(
+    retry_state: &mut attempt_executor::RetryLoopState,
+    retry_limit: u32,
+) -> SseErrorRetryDecision {
+    if retry_state.sse_error_retries_used < retry_limit {
+        retry_state.sse_error_retries_used = retry_state.sse_error_retries_used.saturating_add(1);
+        retry_state.allow_next_retry_beyond_max_attempts = true;
+        return SseErrorRetryDecision {
+            decision: FailoverDecision::RetrySameProvider,
+            retries_used: retry_state.sse_error_retries_used,
+            retry_limit,
+        };
+    }
+
+    SseErrorRetryDecision {
+        decision: FailoverDecision::SwitchProvider,
+        retries_used: retry_state.sse_error_retries_used,
+        retry_limit,
+    }
+}
+
+fn sse_retry_outcome(base: impl AsRef<str>, retry: SseErrorRetryDecision) -> String {
+    format!(
+        "{} sse_retry_used={} sse_retry_limit={}",
+        base.as_ref(),
+        retry.retries_used,
+        retry.retry_limit,
+    )
+}
+
+fn sse_retry_reason(detail: impl AsRef<str>, retry: SseErrorRetryDecision) -> String {
+    let detail = detail.as_ref();
+    if matches!(retry.decision, FailoverDecision::RetrySameProvider) {
+        return format!(
+            "{detail}; retrying current provider after SSE failure ({}/{})",
+            retry.retries_used, retry.retry_limit
+        );
+    }
+    if retry.retry_limit == 0 {
+        return format!("{detail}; SSE retries disabled, switching provider");
+    }
+    format!(
+        "{detail}; SSE retry limit exhausted ({}/{}), switching provider",
+        retry.retries_used, retry.retry_limit
+    )
 }
 
 #[cfg(test)]

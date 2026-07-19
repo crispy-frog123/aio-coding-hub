@@ -56,6 +56,7 @@ pub(crate) struct SettingsUpdate {
     pub upstream_first_byte_timeout_seconds: Option<u32>,
     pub upstream_stream_idle_timeout_seconds: Option<u32>,
     pub upstream_request_timeout_non_streaming_seconds: Option<u32>,
+    pub sse_error_retry_count: Option<u32>,
     pub intercept_anthropic_warmup_requests: Option<bool>,
     pub enable_thinking_signature_rectifier: Option<bool>,
     pub enable_thinking_budget_rectifier: Option<bool>,
@@ -201,6 +202,7 @@ pub(crate) struct SettingsView {
     pub upstream_first_byte_timeout_seconds: u32,
     pub upstream_stream_idle_timeout_seconds: u32,
     pub upstream_request_timeout_non_streaming_seconds: u32,
+    pub sse_error_retry_count: u32,
     pub update_releases_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
@@ -351,6 +353,7 @@ impl From<&settings::AppSettings> for SettingsView {
             upstream_stream_idle_timeout_seconds: value.upstream_stream_idle_timeout_seconds,
             upstream_request_timeout_non_streaming_seconds: value
                 .upstream_request_timeout_non_streaming_seconds,
+            sse_error_retry_count: value.sse_error_retry_count,
             update_releases_url: value.update_releases_url.clone(),
             failover_max_attempts_per_provider: value.failover_max_attempts_per_provider,
             failover_max_providers_to_try: value.failover_max_providers_to_try,
@@ -626,6 +629,7 @@ pub(crate) async fn settings_set_impl(
         upstream_first_byte_timeout_seconds,
         upstream_stream_idle_timeout_seconds,
         upstream_request_timeout_non_streaming_seconds,
+        sse_error_retry_count,
         intercept_anthropic_warmup_requests,
         enable_thinking_signature_rectifier,
         enable_thinking_budget_rectifier,
@@ -787,6 +791,8 @@ pub(crate) async fn settings_set_impl(
                 .unwrap_or(previous.codex_gateway_first_progress_action);
             let codex_gateway_total_timeout_ms = codex_gateway_total_timeout_ms
                 .unwrap_or(previous.codex_gateway_total_timeout_ms);
+            let sse_error_retry_count =
+                sse_error_retry_count.unwrap_or(previous.sse_error_retry_count);
             let cx2cc_fallback_model_opus = cx2cc_fallback_model_opus
                 .unwrap_or(previous.cx2cc_fallback_model_opus.clone())
                 .trim()
@@ -941,6 +947,7 @@ pub(crate) async fn settings_set_impl(
                 upstream_first_byte_timeout_seconds,
                 upstream_stream_idle_timeout_seconds,
                 upstream_request_timeout_non_streaming_seconds,
+                sse_error_retry_count,
                 update_releases_url,
                 failover_max_attempts_per_provider,
                 failover_max_providers_to_try,

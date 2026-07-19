@@ -141,6 +141,11 @@ pub(super) fn sanitize_codex_reasoning_guard_model_rules(settings: &mut AppSetti
 pub(super) fn sanitize_failover_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
+    if settings.sse_error_retry_count > MAX_SSE_ERROR_RETRY_COUNT {
+        settings.sse_error_retry_count = MAX_SSE_ERROR_RETRY_COUNT;
+        changed = true;
+    }
+
     if settings.failover_max_attempts_per_provider == 0 {
         settings.failover_max_attempts_per_provider = DEFAULT_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER;
         changed = true;
@@ -831,9 +836,25 @@ fn migrate_add_codex_gateway_layered_policies(
     true
 }
 
+fn migrate_add_sse_error_retry_count(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    if !migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_SSE_ERROR_RETRY_COUNT,
+    ) {
+        return false;
+    }
+
+    settings.sse_error_retry_count = DEFAULT_SSE_ERROR_RETRY_COUNT;
+    true
+}
+
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 35] = [
+const SETTINGS_MIGRATIONS: [SettingsMigration; 36] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -869,6 +890,7 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 35] = [
     migrate_add_codex_reasoning_guard_budget,
     migrate_add_codex_reasoning_guard_rule_mode,
     migrate_add_codex_gateway_layered_policies,
+    migrate_add_sse_error_retry_count,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {

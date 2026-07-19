@@ -50,6 +50,8 @@ const MAX_UPSTREAM_FIRST_BYTE_TIMEOUT_SECONDS = 60 * 60;
 export const MIN_UPSTREAM_STREAM_IDLE_TIMEOUT_SECONDS = 60;
 export const MAX_UPSTREAM_STREAM_IDLE_TIMEOUT_SECONDS = 60 * 60;
 const MAX_UPSTREAM_REQUEST_TIMEOUT_NON_STREAMING_SECONDS = 24 * 60 * 60;
+const MIN_SSE_ERROR_RETRY_COUNT = 0;
+const MAX_SSE_ERROR_RETRY_COUNT = 20;
 const MIN_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER = 1;
 const MAX_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER = 20;
 const MIN_FAILOVER_MAX_PROVIDERS_TO_TRY = 1;
@@ -101,6 +103,8 @@ export const SETTINGS_VALIDATION_LIMITS = {
   MIN_UPSTREAM_STREAM_IDLE_TIMEOUT_SECONDS,
   MAX_UPSTREAM_STREAM_IDLE_TIMEOUT_SECONDS,
   MAX_UPSTREAM_REQUEST_TIMEOUT_NON_STREAMING_SECONDS,
+  MIN_SSE_ERROR_RETRY_COUNT,
+  MAX_SSE_ERROR_RETRY_COUNT,
   MIN_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER,
   MAX_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER,
   MIN_FAILOVER_MAX_PROVIDERS_TO_TRY,
@@ -390,6 +394,7 @@ export type SettingsSetValidationInput = {
   upstreamFirstByteTimeoutSeconds?: number | null;
   upstreamStreamIdleTimeoutSeconds?: number | null;
   upstreamRequestTimeoutNonStreamingSeconds?: number | null;
+  sseErrorRetryCount?: number | null;
   failoverMaxAttemptsPerProvider?: number | null;
   failoverMaxProvidersToTry?: number | null;
   circuitBreakerFailureThreshold?: number | null;
@@ -454,6 +459,12 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
       input.upstreamRequestTimeoutNonStreamingSeconds,
       0,
       MAX_UPSTREAM_REQUEST_TIMEOUT_NON_STREAMING_SECONDS,
+    ],
+    [
+      "SSE 错误重试次数",
+      input.sseErrorRetryCount,
+      MIN_SSE_ERROR_RETRY_COUNT,
+      MAX_SSE_ERROR_RETRY_COUNT,
     ],
     [
       "单 Provider 最大重试次数",

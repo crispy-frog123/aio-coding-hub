@@ -98,6 +98,8 @@ function createDefaultTabProps(overrides: DefaultPropsOverrides = {}) {
     setUpstreamStreamIdleTimeoutSeconds: vi.fn(),
     upstreamRequestTimeoutNonStreamingSeconds: 0,
     setUpstreamRequestTimeoutNonStreamingSeconds: vi.fn(),
+    sseErrorRetryCount: 2,
+    setSseErrorRetryCount: vi.fn(),
     providerCooldownSeconds: 30,
     setProviderCooldownSeconds: vi.fn(),
     providerBaseUrlPingCacheTtlSeconds: 60,
@@ -144,6 +146,8 @@ describe("cli-manager/GeneralTab", () => {
         setUpstreamStreamIdleTimeoutSeconds={vi.fn()}
         upstreamRequestTimeoutNonStreamingSeconds={0}
         setUpstreamRequestTimeoutNonStreamingSeconds={vi.fn()}
+        sseErrorRetryCount={2}
+        setSseErrorRetryCount={vi.fn()}
         providerCooldownSeconds={30}
         setProviderCooldownSeconds={vi.fn()}
         providerBaseUrlPingCacheTtlSeconds={60}
@@ -176,6 +180,7 @@ describe("cli-manager/GeneralTab", () => {
     const setUpstreamFirstByteTimeoutSeconds = vi.fn();
     const setUpstreamStreamIdleTimeoutSeconds = vi.fn();
     const setUpstreamRequestTimeoutNonStreamingSeconds = vi.fn();
+    const setSseErrorRetryCount = vi.fn();
     const setProviderCooldownSeconds = vi.fn();
     const setProviderBaseUrlPingCacheTtlSeconds = vi.fn();
     const setCircuitBreakerFailureThreshold = vi.fn();
@@ -216,6 +221,8 @@ describe("cli-manager/GeneralTab", () => {
         setUpstreamStreamIdleTimeoutSeconds={setUpstreamStreamIdleTimeoutSeconds}
         upstreamRequestTimeoutNonStreamingSeconds={0}
         setUpstreamRequestTimeoutNonStreamingSeconds={setUpstreamRequestTimeoutNonStreamingSeconds}
+        sseErrorRetryCount={2}
+        setSseErrorRetryCount={setSseErrorRetryCount}
         providerCooldownSeconds={30}
         setProviderCooldownSeconds={setProviderCooldownSeconds}
         providerBaseUrlPingCacheTtlSeconds={60}
@@ -289,6 +296,11 @@ describe("cli-manager/GeneralTab", () => {
     fireEvent.change(inputs[6], { target: { value: "31" } });
     fireEvent.blur(inputs[6], { target: { value: "31" } });
     expect(setCircuitBreakerOpenDurationMinutes).toHaveBeenCalled();
+
+    fireEvent.change(inputs[7], { target: { value: "3" } });
+    fireEvent.blur(inputs[7], { target: { value: "3" } });
+    expect(setSseErrorRetryCount).toHaveBeenCalled();
+    expect(onPersistCommonSettings).toHaveBeenCalledWith({ sse_error_retry_count: 3 });
   });
 
   it("shows readonly banner and disables settings controls", () => {
@@ -324,6 +336,8 @@ describe("cli-manager/GeneralTab", () => {
         setUpstreamStreamIdleTimeoutSeconds={vi.fn()}
         upstreamRequestTimeoutNonStreamingSeconds={0}
         setUpstreamRequestTimeoutNonStreamingSeconds={vi.fn()}
+        sseErrorRetryCount={2}
+        setSseErrorRetryCount={vi.fn()}
         providerCooldownSeconds={30}
         setProviderCooldownSeconds={vi.fn()}
         providerBaseUrlPingCacheTtlSeconds={60}

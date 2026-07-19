@@ -62,6 +62,8 @@ export type CliManagerGeneralTabProps = {
   setUpstreamStreamIdleTimeoutSeconds: (value: number) => void;
   upstreamRequestTimeoutNonStreamingSeconds: number;
   setUpstreamRequestTimeoutNonStreamingSeconds: (value: number) => void;
+  sseErrorRetryCount: number;
+  setSseErrorRetryCount: (value: number) => void;
 
   providerCooldownSeconds: number;
   setProviderCooldownSeconds: (value: number) => void;
@@ -537,6 +539,8 @@ function CircuitBreakerSettingsSection({
   setCircuitBreakerFailureThreshold,
   circuitBreakerOpenDurationMinutes,
   setCircuitBreakerOpenDurationMinutes,
+  sseErrorRetryCount,
+  setSseErrorRetryCount,
   blurOnEnter,
   onPersistSettings,
 }: {
@@ -550,6 +554,8 @@ function CircuitBreakerSettingsSection({
   setCircuitBreakerFailureThreshold: (value: number) => void;
   circuitBreakerOpenDurationMinutes: number;
   setCircuitBreakerOpenDurationMinutes: (value: number) => void;
+  sseErrorRetryCount: number;
+  setSseErrorRetryCount: (value: number) => void;
   blurOnEnter: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
   onPersistSettings: PersistCommonSettings;
 }) {
@@ -650,6 +656,30 @@ function CircuitBreakerSettingsSection({
             }}
           />
         </SettingsRow>
+
+        <SettingsRow
+          label="SSE 错误重试次数（0=禁用）"
+          subtitle="首次 SSE 失败后，在当前 Provider 上最多重试几次；耗尽后才切换 Provider。"
+        >
+          <NumberSettingInput
+            value={sseErrorRetryCount}
+            min={0}
+            max={20}
+            unit="次"
+            disabled={disabled}
+            onValueChange={setSseErrorRetryCount}
+            onKeyDown={blurOnEnter}
+            onBlur={(next) => {
+              if (!settings) return;
+              if (!Number.isFinite(next) || next < 0 || next > 20) {
+                toast("SSE 错误重试次数必须为 0-20");
+                setSseErrorRetryCount(settings.sse_error_retry_count);
+                return;
+              }
+              void onPersistSettings({ sse_error_retry_count: next });
+            }}
+          />
+        </SettingsRow>
       </div>
     </div>
   );
@@ -686,6 +716,8 @@ export function CliManagerGeneralTab({
   setUpstreamStreamIdleTimeoutSeconds,
   upstreamRequestTimeoutNonStreamingSeconds,
   setUpstreamRequestTimeoutNonStreamingSeconds,
+  sseErrorRetryCount,
+  setSseErrorRetryCount,
   providerCooldownSeconds,
   setProviderCooldownSeconds,
   providerBaseUrlPingCacheTtlSeconds,
@@ -804,6 +836,8 @@ export function CliManagerGeneralTab({
             <CircuitBreakerSettingsSection
               disabled={commonSettingsDisabled}
               settings={appSettings}
+              sseErrorRetryCount={sseErrorRetryCount}
+              setSseErrorRetryCount={setSseErrorRetryCount}
               providerCooldownSeconds={providerCooldownSeconds}
               setProviderCooldownSeconds={setProviderCooldownSeconds}
               providerBaseUrlPingCacheTtlSeconds={providerBaseUrlPingCacheTtlSeconds}

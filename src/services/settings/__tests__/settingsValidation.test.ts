@@ -28,6 +28,7 @@ describe("services/settings/settingsValidation", () => {
         upstreamFirstByteTimeoutSeconds: 3600,
         upstreamStreamIdleTimeoutSeconds: 0,
         upstreamRequestTimeoutNonStreamingSeconds: 86400,
+        sseErrorRetryCount: 20,
         failoverMaxAttemptsPerProvider: 20,
         failoverMaxProvidersToTry: 5,
         circuitBreakerFailureThreshold: 50,
@@ -55,6 +56,9 @@ describe("services/settings/settingsValidation", () => {
     expect(
       validateSettingsSetInput({ upstreamRequestTimeoutNonStreamingSeconds: 86401 })
     ).toContain("非流式请求超时必须 <= 86400");
+    expect(validateSettingsSetInput({ sseErrorRetryCount: 21 })).toContain(
+      "SSE 错误重试次数必须 <= 20"
+    );
     expect(validateSettingsSetInput({ circuitBreakerFailureThreshold: 0 })).toContain(
       "熔断失败阈值必须 >= 1"
     );

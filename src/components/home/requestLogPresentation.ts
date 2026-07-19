@@ -353,13 +353,13 @@ export function buildRequestRouteMeta(input: {
   }
 
   const skippedCount = hops.filter((h) => h.skipped).reduce((sum, h) => sum + (h.attempts ?? 1), 0);
-  const activeAttemptCount = hops
-    .filter((h) => !h.skipped)
-    .reduce((sum, h) => sum + (h.attempts ?? 1), 0);
-  const hasRetry = hops.some((h) => !h.skipped && (h.attempts ?? 1) > 1);
+  const activeHops = hops.filter((h) => !h.skipped);
+  const activeAttemptCount = activeHops.reduce((sum, h) => sum + (h.attempts ?? 1), 0);
+  const hasRetry = activeHops.some((h) => (h.attempts ?? 1) > 1);
+  const switchCount = Math.max(activeHops.length - 1, 0);
 
   const summary = input.hasFailover
-    ? `切换 ${input.attemptCount} 次后${input.status != null && input.status < 400 ? "成功" : "结束"}`
+    ? `切换 ${switchCount} 次后${input.status != null && input.status < 400 ? "成功" : "结束"}`
     : skippedCount > 0 && hasRetry
       ? `跳过 ${skippedCount} 个候选，并重试 ${activeAttemptCount} 次`
       : skippedCount > 0
@@ -377,17 +377,21 @@ export function buildRequestRouteMeta(input: {
       const status = hop.status ?? (idx === hops.length - 1 ? input.status : null) ?? null;
       const statusText = status == null ? "状态未知" : String(status);
       const attemptsSuffix = hop.attempts && hop.attempts > 1 ? `，尝试 ${hop.attempts} 次` : "";
+      const switchReasonSuffix =
+        (hop.decision === "switch" || hop.decision === "failover") && hop.reason
+          ? `，切换原因：${hop.reason}`
+          : "";
       if (hop.ok) return `${providerName}（${statusText}，成功${attemptsSuffix}）`;
       if (hop.skipped) return `${providerName}（已跳过${attemptsSuffix}）`;
       const errorCode = hop.error_code ?? null;
       const errorLabel = errorCode ? getErrorCodeLabel(errorCode) : "失败";
-      return `${providerName}（${statusText}，${errorLabel}${attemptsSuffix}）`;
+      return `${providerName}（${statusText}，${errorLabel}${attemptsSuffix}${switchReasonSuffix}）`;
     })
     .join(" → ");
 
   let label = summary;
   if (input.hasFailover) {
-    label = `切换 ${input.attemptCount} 次`;
+    label = `切换 ${switchCount} 次`;
   } else if (skippedCount > 0 && hasRetry) {
     label = `跳过 ${skippedCount} 个 + 重试`;
   } else if (skippedCount > 0) {

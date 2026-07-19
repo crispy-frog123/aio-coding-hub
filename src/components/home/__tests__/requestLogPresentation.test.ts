@@ -342,15 +342,24 @@ describe("components/home/requestLogPresentation", () => {
 
     const failover = buildRequestRouteMeta({
       route: [
-        createRequestLogRouteHop({ provider_name: "Provider A", ok: false, status: 500 }),
+        createRequestLogRouteHop({
+          provider_name: "Provider A",
+          ok: false,
+          status: 500,
+          decision: "switch",
+          reason: "SSE retry limit exhausted (2/2), switching provider",
+        }),
         createRequestLogRouteHop({ provider_name: "Provider B", ok: true, status: 200 }),
       ],
       status: 200,
       hasFailover: true,
       attemptCount: 2,
     });
-    expect(failover.label).toBe("切换 2 次");
-    expect(failover.summary).toBe("切换 2 次后成功");
+    expect(failover.label).toBe("切换 1 次");
+    expect(failover.summary).toBe("切换 1 次后成功");
+    expect(failover.tooltipText).toContain(
+      "切换原因：SSE retry limit exhausted (2/2), switching provider"
+    );
 
     const failedFailover = buildRequestRouteMeta({
       route: [
@@ -361,7 +370,7 @@ describe("components/home/requestLogPresentation", () => {
       hasFailover: true,
       attemptCount: 2,
     });
-    expect(failedFailover.summary).toBe("切换 2 次后结束");
+    expect(failedFailover.summary).toBe("切换 1 次后结束");
 
     const skippedOnly = buildRequestRouteMeta({
       route: [
