@@ -218,7 +218,7 @@ where
         .finalize_for_upstream(&mut headers, crate::gateway::util::max_request_body_bytes());
     if retry_state.codex_continuation_base_request_body.is_none()
         && input.codex_reasoning_guard_enabled
-        && super::codex_reasoning_guard::should_strip_encrypted_content_from_continuation_response(
+        && super::codex_reasoning_guard::should_capture_continuation_recovery_base(
             input.cli_key.as_str(),
             input.forwarded_path.as_str(),
             input.codex_reasoning_guard_stream_action,
@@ -226,7 +226,6 @@ where
         )
     {
         retry_state.codex_continuation_base_request_body = Some(upstream_body.clone());
-        retry_state.codex_strip_encrypted_reasoning_response = true;
     }
 
     emit_upstream_attempt_fingerprint(

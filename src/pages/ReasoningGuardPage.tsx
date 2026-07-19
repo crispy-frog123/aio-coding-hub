@@ -68,6 +68,9 @@ type ReasoningGuardPageTab = "rules" | "analytics";
 
 const ANALYTICS_REFETCH_INTERVAL_MS = 10_000;
 const ANALYTICS_RECENT_LIMIT = 50;
+const DEFAULT_ENABLED_FIRST_PROGRESS_TIMEOUT_MS = 300_000;
+const LATENCY_GUARD_THRESHOLD_REQUIRED_MESSAGE =
+  "启用响应超时保护时，首个有效输出或请求总 deadline 至少填写一个非零值";
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   month: "2-digit",
   day: "2-digit",
@@ -256,6 +259,19 @@ function parseInteger(
     return { ok: false, message: `${label}必须是 0-${max} 的整数` };
   }
   return { ok: true, value };
+}
+
+function showFormError(message: string) {
+  toast(message);
+  return message;
+}
+
+function isLatencyGuardFormError(message: string | null) {
+  return (
+    message === LATENCY_GUARD_THRESHOLD_REQUIRED_MESSAGE ||
+    message?.startsWith("首个有效输出超时") ||
+    message?.startsWith("请求总 deadline")
+  );
 }
 
 function MetricTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -468,7 +484,7 @@ export function ReasoningGuardPage() {
 
     const values = parseValues(draft.valuesText);
     if (!values.ok) {
-      setFormError(values.message);
+      setFormError(showFormError(values.message));
       return;
     }
     const immediateBudget = parseInteger(
@@ -477,7 +493,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_REASONING_GUARD_IMMEDIATE_RETRY_BUDGET
     );
     if (!immediateBudget.ok) {
-      setFormError(immediateBudget.message);
+      setFormError(showFormError(immediateBudget.message));
       return;
     }
     const delayedBudget = parseInteger(
@@ -486,7 +502,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_BUDGET
     );
     if (!delayedBudget.ok) {
-      setFormError(delayedBudget.message);
+      setFormError(showFormError(delayedBudget.message));
       return;
     }
     const delayedMs = parseInteger(
@@ -495,7 +511,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_REASONING_GUARD_DELAYED_RETRY_MS
     );
     if (!delayedMs.ok) {
-      setFormError(delayedMs.message);
+      setFormError(showFormError(delayedMs.message));
       return;
     }
     const backoffAfterHits = parseInteger(
@@ -504,7 +520,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS
     );
     if (!backoffAfterHits.ok) {
-      setFormError(backoffAfterHits.message);
+      setFormError(showFormError(backoffAfterHits.message));
       return;
     }
     const backoffMs = parseInteger(
@@ -513,7 +529,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_REASONING_GUARD_BACKOFF_MS
     );
     if (!backoffMs.ok) {
-      setFormError(backoffMs.message);
+      setFormError(showFormError(backoffMs.message));
       return;
     }
     const firstProgressTimeout = parseInteger(
@@ -522,7 +538,7 @@ export function ReasoningGuardPage() {
       MAX_CODEX_GATEWAY_TIMEOUT_MS
     );
     if (!firstProgressTimeout.ok) {
-      setFormError(firstProgressTimeout.message);
+      setFormError(showFormError(firstProgressTimeout.message));
       return;
     }
     const totalTimeout = parseInteger(
@@ -531,11 +547,11 @@ export function ReasoningGuardPage() {
       MAX_CODEX_GATEWAY_TIMEOUT_MS
     );
     if (!totalTimeout.ok) {
-      setFormError(totalTimeout.message);
+      setFormError(showFormError(totalTimeout.message));
       return;
     }
     if (draft.latencyGuardEnabled && firstProgressTimeout.value === 0 && totalTimeout.value === 0) {
-      setFormError("启用响应超时保护时，首个有效输出或请求总 deadline 至少填写一个非零值");
+      setFormError(showFormError(LATENCY_GUARD_THRESHOLD_REQUIRED_MESSAGE));
       return;
     }
     const continuationMarkerText =
@@ -1015,7 +1031,22 @@ export function ReasoningGuardPage() {
                       <Switch
                         checked={draft.latencyGuardEnabled}
                         onCheckedChange={(latencyGuardEnabled) => {
-                          setDraft((prev) => ({ ...prev, latencyGuardEnabled }));
+                          setDraft((prev) => {
+                            if (
+                              latencyGuardEnabled &&
+                              Number(prev.firstProgressTimeoutText.trim()) === 0 &&
+                              Number(prev.totalTimeoutText.trim()) === 0
+                            ) {
+                              return {
+                                ...prev,
+                                latencyGuardEnabled,
+                                firstProgressTimeoutText: String(
+                                  DEFAULT_ENABLED_FIRST_PROGRESS_TIMEOUT_MS
+                                ),
+                              };
+                            }
+                            return { ...prev, latencyGuardEnabled };
+                          });
                           setFormError(null);
                         }}
                         disabled={!settings}
@@ -1073,6 +1104,15 @@ export function ReasoningGuardPage() {
                       />
                     </div>
                   </div>
+
+                  {isLatencyGuardFormError(formError) ? (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive"
+                    >
+                      {formError}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-t border-line-subtle pt-4">

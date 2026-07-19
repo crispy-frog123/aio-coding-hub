@@ -147,7 +147,7 @@ pub(super) fn evaluate_from_json(
         };
     }
 
-    if is_context_compaction_exempt(options.request_kind, observation.reasoning_tokens) {
+    if is_context_compaction_exempt(options.request_kind) {
         return CodexReasoningGuardEvaluation {
             checked: true,
             rule_mode: options.rule_mode,
@@ -379,7 +379,13 @@ fn observe_structure_value(
                 .unwrap_or("")
                 .trim()
                 .to_ascii_lowercase();
-            if channel == "commentary" {
+            let phase = object
+                .get("phase")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            if channel == "commentary" || phase == "commentary" {
                 structure.has_commentary = true;
             }
             if is_tool_call_type(&type_name)
@@ -468,11 +474,8 @@ fn is_final_answer_only_intercept_effort(effort: Option<&str>) -> bool {
     matches!(effort, Some("high" | "xhigh"))
 }
 
-fn is_context_compaction_exempt(
-    request_kind: CodexRequestKind,
-    reasoning_tokens: Option<i64>,
-) -> bool {
-    request_kind == CodexRequestKind::ContextCompaction && reasoning_tokens == Some(0)
+fn is_context_compaction_exempt(request_kind: CodexRequestKind) -> bool {
+    request_kind == CodexRequestKind::ContextCompaction
 }
 
 fn should_intercept_final_answer_only_reasoning(reasoning_tokens: Option<i64>) -> bool {
@@ -583,7 +586,7 @@ pub(super) fn is_responses_path(path: &str) -> bool {
     matches!(path.trim_end_matches('/'), "/responses" | "/v1/responses")
 }
 
-pub(super) fn should_strip_encrypted_content_from_continuation_response(
+pub(super) fn should_capture_continuation_recovery_base(
     cli_key: &str,
     path: &str,
     stream_action: CodexReasoningGuardStreamAction,
@@ -623,20 +626,58 @@ pub(super) fn build_continuation_recovery_body(
     serde_json::to_vec(&next_body).ok()
 }
 
-pub(super) fn strip_encrypted_content_from_json(value: &mut serde_json::Value) {
+fn sanitize_encrypted_content_value(value: serde_json::Value) -> Option<serde_json::Value> {
     match value {
-        serde_json::Value::Array(items) => {
-            for item in items {
-                strip_encrypted_content_from_json(item);
-            }
-        }
+        serde_json::Value::Array(items) => Some(serde_json::Value::Array(
+            items
+                .into_iter()
+                .filter_map(sanitize_encrypted_content_value)
+                .collect(),
+        )),
         serde_json::Value::Object(object) => {
-            object.remove("encrypted_content");
-            for item in object.values_mut() {
-                strip_encrypted_content_from_json(item);
+            let type_name = object
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            if matches!(
+                type_name.as_str(),
+                "reasoning" | "reasoning_item" | "encrypted_content"
+            ) {
+                return None;
             }
+
+            let mut sanitized = serde_json::Map::new();
+            for (key, child) in object {
+                if key == "encrypted_content" {
+                    continue;
+                }
+                match sanitize_encrypted_content_value(child) {
+                    Some(child) => {
+                        sanitized.insert(key, child);
+                    }
+                    None if matches!(key.as_str(), "item" | "part")
+                        && type_name.starts_with("response.") =>
+                    {
+                        return None;
+                    }
+                    None => {}
+                }
+            }
+
+            if matches!(type_name.as_str(), "message" | "agent_message")
+                && sanitized
+                    .get("content")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(Vec::is_empty)
+            {
+                return None;
+            }
+
+            Some(serde_json::Value::Object(sanitized))
         }
-        _ => {}
+        value => Some(value),
     }
 }
 
@@ -750,8 +791,10 @@ pub(super) fn strip_encrypted_content_from_sse(raw: &[u8]) -> Vec<u8> {
             continue;
         }
         match serde_json::from_str::<serde_json::Value>(&data_text) {
-            Ok(mut value) => {
-                strip_encrypted_content_from_json(&mut value);
+            Ok(value) => {
+                let Some(value) = sanitize_encrypted_content_value(value) else {
+                    continue;
+                };
                 if let Some(event) = event_line {
                     output.push_str(&event);
                     output.push('\n');
@@ -829,12 +872,7 @@ fn normalize_responses_input_item_for_continuation(
             "content": text,
         }));
     }
-    if value.get("type").and_then(serde_json::Value::as_str) == Some("reasoning") {
-        return None;
-    }
-    let mut value = value.clone();
-    strip_encrypted_content_from_json(&mut value);
-    Some(value)
+    sanitize_encrypted_content_value(value.clone())
 }
 
 fn build_continuation_marker_item(marker_text: &str) -> serde_json::Value {
@@ -847,10 +885,10 @@ fn build_continuation_marker_item(marker_text: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "message",
         "role": "assistant",
+        "phase": "commentary",
         "content": [{
             "type": "output_text",
             "text": text,
-            "channel": "commentary",
         }],
     })
 }
@@ -1627,6 +1665,7 @@ mod tests {
         });
         let cases = [
             serde_json::json!({ "output": [base_message.clone(), { "type": "message", "channel": "commentary", "content": [{ "type": "output_text", "text": "note" }] }] }),
+            serde_json::json!({ "output": [base_message.clone(), { "type": "message", "phase": "commentary", "content": [{ "type": "output_text", "text": "note" }] }] }),
             serde_json::json!({ "output": [base_message.clone(), { "type": "function_call", "name": "do_work" }] }),
             serde_json::json!({ "output": [base_message, { "type": "reasoning", "summary": [] }] }),
         ];
@@ -1651,42 +1690,48 @@ mod tests {
     }
 
     #[test]
-    fn context_compaction_with_zero_reasoning_is_exempt_in_both_rule_modes() {
-        let value = serde_json::json!({
-            "usage": { "output_tokens_details": { "reasoning_tokens": 0 } },
-            "output": [{
-                "type": "message",
-                "role": "assistant",
-                "content": [{ "type": "output_text", "text": "final answer" }]
-            }]
-        });
-
+    fn context_compaction_is_exempt_in_both_rule_modes_regardless_of_tokens() {
         for rule_mode in [
             CodexReasoningGuardRuleMode::ReasoningTokens,
             CodexReasoningGuardRuleMode::FinalAnswerOnlyHighXhigh,
         ] {
-            let matched = detect_from_json(
-                "codex",
-                Some("gpt-5.5"),
-                &value,
-                detection_options(
-                    rule_mode,
-                    CodexReasoningGuardMatchMode::Manual,
-                    CodexRequestKind::ContextCompaction,
-                    Some("high"),
-                    CodexReasoningGuardCompareMode::Equals,
-                    &[516],
-                    &[],
-                ),
-            );
-            assert!(matched.is_none());
+            for reasoning_tokens in [None, Some(0), Some(516)] {
+                let mut value = serde_json::json!({
+                    "output": [{
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": "final answer" }]
+                    }]
+                });
+                if let Some(reasoning_tokens) = reasoning_tokens {
+                    value["usage"] = serde_json::json!({
+                        "output_tokens_details": { "reasoning_tokens": reasoning_tokens }
+                    });
+                }
+
+                let matched = detect_from_json(
+                    "codex",
+                    Some("gpt-5.5"),
+                    &value,
+                    detection_options(
+                        rule_mode,
+                        CodexReasoningGuardMatchMode::Manual,
+                        CodexRequestKind::ContextCompaction,
+                        Some("high"),
+                        CodexReasoningGuardCompareMode::Equals,
+                        &[516],
+                        &[],
+                    ),
+                );
+                assert!(matched.is_none());
+            }
         }
     }
 
     #[test]
     fn evaluate_from_json_records_context_compaction_exemption() {
         let value = serde_json::json!({
-            "usage": { "output_tokens_details": { "reasoning_tokens": 0 } }
+            "usage": { "output_tokens_details": { "reasoning_tokens": 516 } }
         });
         let evaluation = evaluate_from_json(
             "codex",
@@ -1705,6 +1750,7 @@ mod tests {
 
         assert!(evaluation.checked);
         assert!(evaluation.matched.is_none());
+        assert_eq!(evaluation.observation.reasoning_tokens, Some(516));
         assert_eq!(evaluation.miss_reason, Some("context_compaction_exempt"));
         assert_eq!(
             evaluation.intercept_exempt_reason,
@@ -1713,7 +1759,7 @@ mod tests {
     }
 
     #[test]
-    fn context_compaction_with_nonzero_reasoning_still_matches_token_mode() {
+    fn context_compaction_with_nonzero_reasoning_does_not_match_token_mode() {
         let value = serde_json::json!({
             "usage": { "output_tokens_details": { "reasoning_tokens": 516 } },
             "output": [{
@@ -1723,7 +1769,7 @@ mod tests {
             }]
         });
 
-        let matched = detect_from_json(
+        let evaluation = evaluate_from_json(
             "codex",
             Some("gpt-5.5"),
             &value,
@@ -1736,11 +1782,14 @@ mod tests {
                 &[516],
                 &[],
             ),
-        )
-        .expect("nonzero compaction reasoning should still match token mode");
+        );
 
-        assert_eq!(matched.reasoning_tokens, Some(516));
-        assert_eq!(matched.request_kind, CodexRequestKind::ContextCompaction);
+        assert!(evaluation.matched.is_none());
+        assert_eq!(evaluation.miss_reason, Some("context_compaction_exempt"));
+        assert_eq!(
+            evaluation.intercept_exempt_reason,
+            Some("context_compaction")
+        );
     }
 
     #[test]
@@ -1821,7 +1870,7 @@ mod tests {
     }
 
     #[test]
-    fn continuation_recovery_body_replays_original_input_without_encrypted_reasoning() {
+    fn continuation_recovery_body_drops_invalid_encrypted_items_and_uses_commentary_phase() {
         let base = serde_json::json!({
             "model": "gpt-5.4",
             "stream": true,
@@ -1833,6 +1882,23 @@ mod tests {
                     "role": "user",
                     "content": "hello",
                     "encrypted_content": "secret"
+                },
+                {
+                    "type": "agent_message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "input_text", "text": "visible context" },
+                        { "type": "encrypted_content", "encrypted_content": "nested-secret" },
+                        { "type": "encrypted_content" },
+                        { "type": "encrypted_content", "encrypted_content": null }
+                    ]
+                },
+                {
+                    "type": "agent_message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "encrypted_content", "encrypted_content": "only-secret" }
+                    ]
                 },
                 {
                     "type": "reasoning",
@@ -1856,7 +1922,7 @@ mod tests {
             .get("input")
             .and_then(serde_json::Value::as_array)
             .unwrap();
-        assert_eq!(input.len(), 2);
+        assert_eq!(input.len(), 3);
         assert_eq!(
             input[0].get("type").and_then(serde_json::Value::as_str),
             Some("message")
@@ -1864,10 +1930,48 @@ mod tests {
         assert!(input[0].get("encrypted_content").is_none());
         assert_eq!(
             input[1]
-                .pointer("/content/0/channel")
+                .pointer("/content/0/type")
                 .and_then(serde_json::Value::as_str),
+            Some("input_text")
+        );
+        assert_eq!(
+            input[1]
+                .get("content")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            input[2].get("phase").and_then(serde_json::Value::as_str),
             Some("commentary")
         );
+        assert!(input[2].pointer("/content/0/channel").is_none());
+        assert!(!String::from_utf8(body)
+            .expect("continuation body utf-8")
+            .contains("encrypted_content"));
+    }
+
+    #[test]
+    fn strip_encrypted_content_from_sse_drops_reasoning_and_nested_encrypted_items() {
+        let raw = br#"event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"reasoning-secret"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"output":[{"type":"agent_message","content":[{"type":"input_text","text":"visible"},{"type":"encrypted_content","encrypted_content":"nested-secret"}]},{"type":"reasoning","encrypted_content":"other-secret"}]}}
+
+data: [DONE]
+
+"#;
+
+        let stripped = String::from_utf8(strip_encrypted_content_from_sse(raw)).unwrap();
+
+        assert!(!stripped.contains("encrypted_content"));
+        assert!(!stripped.contains("reasoning-secret"));
+        assert!(!stripped.contains("nested-secret"));
+        assert!(!stripped.contains("other-secret"));
+        assert!(!stripped.contains("response.output_item.done"));
+        assert!(stripped.contains("visible"));
+        assert!(stripped.contains("data: [DONE]"));
     }
 
     #[test]
@@ -1884,16 +1988,16 @@ data: [DONE]\n\n";
     }
 
     #[test]
-    fn continuation_response_stripping_is_enabled_for_streaming_responses() {
+    fn continuation_base_capture_is_enabled_for_streaming_responses() {
         let body = br#"{"stream":true,"include":["reasoning.encrypted_content"]}"#;
 
-        assert!(should_strip_encrypted_content_from_continuation_response(
+        assert!(should_capture_continuation_recovery_base(
             "codex",
             "/v1/responses",
             CodexReasoningGuardStreamAction::ContinuationRecovery,
             body,
         ));
-        assert!(!should_strip_encrypted_content_from_continuation_response(
+        assert!(!should_capture_continuation_recovery_base(
             "codex",
             "/v1/responses",
             CodexReasoningGuardStreamAction::Strict502,
