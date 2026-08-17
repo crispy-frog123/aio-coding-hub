@@ -26,7 +26,7 @@ pub use persistence::{
 };
 pub use types::{
     AppSettings, CodexGatewayFirstProgressAction, CodexGatewayPolicyAction, CodexHomeMode,
-    CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
+    CodexPriorityBillingSource, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
     CodexReasoningGuardMatchMode, CodexReasoningGuardModelRule, CodexReasoningGuardRuleMode,
     CodexReasoningGuardStreamAction, GatewayListenMode, HomeUsagePeriod, WslHostAddressMode,
     WslTargetCli,

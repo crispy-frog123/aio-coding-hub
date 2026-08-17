@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+use super::model_policy::{ProviderModelPolicyStatus, ProviderModelPolicyV1};
+
 pub(super) const DEFAULT_PRIORITY: i64 = 100;
 pub(super) const MAX_MODEL_NAME_LEN: usize = 200;
 pub(crate) const CX2CC_BRIDGE_TYPE: &str = "cx2cc";
@@ -71,6 +73,7 @@ pub struct ProviderUpsertParams {
     pub cost_multiplier: f64,
     pub priority: Option<i64>,
     pub claude_models: Option<ClaudeModels>,
+    pub model_policy: Option<ProviderModelPolicyV1>,
     pub limit_5h_usd: Option<f64>,
     pub limit_daily_usd: Option<f64>,
     pub daily_reset_mode: Option<DailyResetMode>,
@@ -222,6 +225,8 @@ pub struct ProviderSummary {
     pub base_urls: Vec<String>,
     pub base_url_mode: ProviderBaseUrlMode,
     pub claude_models: ClaudeModels,
+    pub model_policy: Option<ProviderModelPolicyV1>,
+    pub model_policy_status: ProviderModelPolicyStatus,
     pub enabled: bool,
     pub priority: i64,
     pub cost_multiplier: f64,
@@ -261,6 +266,8 @@ pub(crate) struct ProviderForGateway {
     pub base_url_mode: ProviderBaseUrlMode,
     pub api_key_plaintext: String,
     pub claude_models: ClaudeModels,
+    pub model_policy: Option<ProviderModelPolicyV1>,
+    pub model_policy_status: ProviderModelPolicyStatus,
     pub limit_5h_usd: Option<f64>,
     pub limit_daily_usd: Option<f64>,
     pub daily_reset_mode: DailyResetMode,
@@ -311,6 +318,8 @@ pub(super) struct DecodedProviderRow {
     pub base_urls: Vec<String>,
     pub base_url_mode: ProviderBaseUrlMode,
     pub claude_models: ClaudeModels,
+    pub model_policy: Option<ProviderModelPolicyV1>,
+    pub model_policy_status: ProviderModelPolicyStatus,
     pub limit_5h_usd: Option<f64>,
     pub limit_daily_usd: Option<f64>,
     pub daily_reset_mode: DailyResetMode,

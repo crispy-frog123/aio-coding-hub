@@ -60,6 +60,9 @@ macro_rules! generated_command_registry {
             cli_manager_gemini_info_get => crate::commands::cli_manager::cli_manager_gemini_info_get,
             cli_manager_gemini_config_get => crate::commands::cli_manager::cli_manager_gemini_config_get,
             cli_manager_gemini_config_set => crate::commands::cli_manager::cli_manager_gemini_config_set,
+            cli_manager_grok_info_get => crate::commands::cli_manager::cli_manager_grok_info_get,
+            cli_manager_grok_config_get => crate::commands::cli_manager::cli_manager_grok_config_get,
+            cli_manager_grok_config_set => crate::commands::cli_manager::cli_manager_grok_config_set,
             cli_manager_claude_env_set => crate::commands::cli_manager::cli_manager_claude_env_set,
             cli_manager_claude_settings_get => crate::commands::cli_manager::cli_manager_claude_settings_get,
             cli_manager_claude_settings_set => crate::commands::cli_manager::cli_manager_claude_settings_set,
@@ -104,6 +107,7 @@ macro_rules! generated_command_registry {
             provider_test_availability => crate::commands::provider_availability::provider_test_availability,
             provider_models_list => crate::commands::provider_models::provider_models_list,
             provider_model_probe => crate::commands::provider_models::provider_model_probe,
+            provider_models_discover => crate::commands::providers::provider_models_discover,
             provider_oauth_start_flow => crate::commands::providers::provider_oauth_start_flow,
             provider_oauth_start_device_flow => crate::commands::providers::provider_oauth_start_device_flow,
             provider_oauth_poll_device_flow => crate::commands::providers::provider_oauth_poll_device_flow,
@@ -128,9 +132,9 @@ macro_rules! generated_command_registry {
             sort_mode_providers_set_order => crate::commands::sort_modes::sort_mode_providers_set_order,
             sort_mode_provider_set_enabled => crate::commands::sort_modes::sort_mode_provider_set_enabled,
             // ── model_prices ──
-            model_prices_list => crate::commands::model_prices::model_prices_list,
+            model_prices_list_all => crate::commands::model_prices::model_prices_list_all,
             model_price_upsert => crate::commands::model_prices::model_price_upsert,
-            model_prices_sync_basellm => crate::commands::model_prices::model_prices_sync_basellm,
+            model_prices_sync => crate::commands::model_prices::model_prices_sync,
             model_price_aliases_get => crate::commands::model_prices::model_price_aliases_get,
             model_price_aliases_set => crate::commands::model_prices::model_price_aliases_set,
             // ── prompts ──
@@ -234,6 +238,22 @@ macro_rules! generated_command_registry {
             codex_reasoning_analytics_import_json => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_import_json,
             codex_reasoning_analytics_export => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_export,
             codex_reasoning_analytics_analyze => crate::commands::codex_reasoning_analytics::codex_reasoning_analytics_analyze,
+            usage_provider_metrics_trend_v1 => crate::commands::usage::usage_provider_metrics_trend_v1,
+            // ── image_gen ──
+            image_gen_config_get => crate::commands::image_gen::image_gen_config_get,
+            image_gen_config_set => crate::commands::image_gen::image_gen_config_set,
+            image_gen_post_json => crate::commands::image_gen::image_gen_post_json,
+            image_gen_post_multipart => crate::commands::image_gen::image_gen_post_multipart,
+            image_gen_fetch_image => crate::commands::image_gen::image_gen_fetch_image,
+            image_gen_save_image => crate::commands::image_gen::image_gen_save_image,
+            image_gen_task_persist => crate::commands::image_gen::image_gen_task_persist,
+            image_gen_tasks_list => crate::commands::image_gen::image_gen_tasks_list,
+            image_gen_task_delete => crate::commands::image_gen::image_gen_task_delete,
+            image_gen_tasks_clear => crate::commands::image_gen::image_gen_tasks_clear,
+            image_gen_read_image => crate::commands::image_gen::image_gen_read_image,
+            image_gen_storage_get => crate::commands::image_gen::image_gen_storage_get,
+            image_gen_storage_set_dir => crate::commands::image_gen::image_gen_storage_set_dir,
+            image_gen_storage_cleanup => crate::commands::image_gen::image_gen_storage_cleanup,
             // ── env_conflicts ──
             env_conflicts_check => crate::commands::env_conflicts::env_conflicts_check,
             // ── cli_proxy ──
@@ -287,7 +307,8 @@ pub(crate) fn export_typescript_bindings(output_path: &str) -> Result<(), String
         .typ::<crate::gateway::events::GatewayRequestSignalEvent>()
         .typ::<crate::gateway::events::GatewayAttemptEvent>()
         .typ::<crate::gateway::events::GatewayLogEvent>()
-        .typ::<crate::gateway::events::GatewayCircuitEvent>();
+        .typ::<crate::gateway::events::GatewayCircuitEvent>()
+        .typ::<crate::app::provider_service::CodexCatalogEventPayload>();
 
     builder
         .export(
@@ -350,6 +371,14 @@ mod tests {
         assert!(
             generated_command_names().contains(&"model_price_upsert"),
             "model_price_upsert should stay in the shared generated command registry"
+        );
+    }
+
+    #[test]
+    fn includes_provider_model_discovery_in_generated_command_registry() {
+        assert!(
+            generated_command_names().contains(&"provider_models_discover"),
+            "provider_models_discover should stay in the shared generated command registry"
         );
     }
 

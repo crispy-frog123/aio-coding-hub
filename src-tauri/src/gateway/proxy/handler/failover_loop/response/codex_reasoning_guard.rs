@@ -1181,6 +1181,10 @@ pub(super) fn record_guard_retry_attempt(
         circuit_trigger_error_code: None,
         provider_bridged: None,
         timeout_secs: None,
+        reasoning_effort: None,
+        upstream_sent: false,
+        claude_model_mapping: None,
+        model_redirect: None,
     });
 }
 

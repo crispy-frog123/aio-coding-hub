@@ -175,6 +175,23 @@ impl Default for CodexReasoningGuardModelRule {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexPriorityBillingSource {
+    #[default]
+    Requested,
+    Actual,
+}
+
+impl CodexPriorityBillingSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Requested => "requested",
+            Self::Actual => "actual",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type, PartialEq, Eq)]
 #[serde(default)]
 pub struct WslTargetCli {
@@ -264,6 +281,10 @@ pub struct AppSettings {
     // explicit budget fields above as the single source of truth.
     pub codex_reasoning_guard_backoff_after_hits: u32,
     pub codex_reasoning_guard_backoff_ms: u32,
+    pub grok_proxy_preferences: Option<crate::grok_config::GrokProxyPreferences>,
+    // Image generation storage directory override. None/empty = default
+    // `<app data dir>/image-gen`.
+    pub image_gen_storage_dir: Option<String>,
     pub auto_start: bool,
     // Start with window hidden when auto-starting (silent startup).
     pub start_minimized: bool,
@@ -290,8 +311,12 @@ pub struct AppSettings {
     // CCH-aligned gateway feature toggles.
     pub verbose_provider_error: bool,
     pub intercept_anthropic_warmup_requests: bool,
+    pub enable_thinking_effort_conflict_rectifier: bool,
     pub enable_thinking_signature_rectifier: bool,
     pub enable_thinking_budget_rectifier: bool,
+    pub enable_gemini_function_id_rectifier: bool,
+    pub enable_response_input_rectifier: bool,
+    pub codex_priority_billing_source: CodexPriorityBillingSource,
     // Billing header rectifier: strip x-anthropic-billing-header from system prompt (default enabled).
     pub enable_billing_header_rectifier: bool,
     // Codex Session ID completion (default enabled).
@@ -377,6 +402,8 @@ impl Default for AppSettings {
             codex_reasoning_guard_backoff_after_hits:
                 DEFAULT_CODEX_REASONING_GUARD_BACKOFF_AFTER_HITS,
             codex_reasoning_guard_backoff_ms: DEFAULT_CODEX_REASONING_GUARD_BACKOFF_MS,
+            grok_proxy_preferences: None,
+            image_gen_storage_dir: None,
             auto_start: false,
             start_minimized: false,
             tray_enabled: true,
@@ -399,8 +426,13 @@ impl Default for AppSettings {
             enable_circuit_breaker_notice: DEFAULT_ENABLE_CIRCUIT_BREAKER_NOTICE,
             verbose_provider_error: DEFAULT_VERBOSE_PROVIDER_ERROR,
             intercept_anthropic_warmup_requests: DEFAULT_INTERCEPT_ANTHROPIC_WARMUP_REQUESTS,
+            enable_thinking_effort_conflict_rectifier:
+                DEFAULT_ENABLE_THINKING_EFFORT_CONFLICT_RECTIFIER,
             enable_thinking_signature_rectifier: DEFAULT_ENABLE_THINKING_SIGNATURE_RECTIFIER,
             enable_thinking_budget_rectifier: DEFAULT_ENABLE_THINKING_BUDGET_RECTIFIER,
+            enable_gemini_function_id_rectifier: DEFAULT_ENABLE_GEMINI_FUNCTION_ID_RECTIFIER,
+            enable_response_input_rectifier: DEFAULT_ENABLE_RESPONSE_INPUT_RECTIFIER,
+            codex_priority_billing_source: CodexPriorityBillingSource::default(),
             enable_billing_header_rectifier: DEFAULT_ENABLE_BILLING_HEADER_RECTIFIER,
             enable_codex_session_id_completion: DEFAULT_ENABLE_CODEX_SESSION_ID_COMPLETION,
             enable_claude_metadata_user_id_injection:

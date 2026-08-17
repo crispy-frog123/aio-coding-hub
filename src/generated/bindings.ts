@@ -367,6 +367,35 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async cliManagerGrokInfoGet(): Promise<Result<SimpleCliInfo, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("cli_manager_grok_info_get") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async cliManagerGrokConfigGet(): Promise<Result<GrokConfigState, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("cli_manager_grok_config_get") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async cliManagerGrokConfigSet(
+    preferences: GrokProxyPreferences
+  ): Promise<Result<GrokConfigState, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("cli_manager_grok_config_set", { preferences }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async cliManagerClaudeEnvSet(
     mcpTimeoutMs: number | null,
     disableErrorReporting: boolean
@@ -750,12 +779,14 @@ export const commands = {
     }
   },
   async providerTestAvailability(
-    providerId: number
+    providerId: number,
+    model: string | null,
+    prompt: string | null
   ): Promise<Result<ProviderAvailabilityResult, string>> {
     try {
       return {
         status: "ok",
-        data: await TAURI_INVOKE("provider_test_availability", { providerId }),
+        data: await TAURI_INVOKE("provider_test_availability", { providerId, model, prompt }),
       };
     } catch (e) {
       if (e instanceof Error) throw e;
@@ -786,6 +817,16 @@ export const commands = {
         status: "ok",
         data: await TAURI_INVOKE("provider_model_probe", { providerId, model, baseUrl }),
       };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async providerModelsDiscover(
+    input: ProviderModelDiscoveryInput
+  ): Promise<Result<ProviderModelDiscoveryResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("provider_models_discover", { input }) };
     } catch (e) {
       if (e instanceof Error) throw e;
       else return { status: "error", error: e as any };
@@ -1053,9 +1094,9 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
-  async modelPricesList(cliKey: string): Promise<Result<ModelPriceSummary[], string>> {
+  async modelPricesListAll(): Promise<Result<ModelPriceSummary[], string>> {
     try {
-      return { status: "ok", data: await TAURI_INVOKE("model_prices_list", { cliKey }) };
+      return { status: "ok", data: await TAURI_INVOKE("model_prices_list_all") };
     } catch (e) {
       if (e instanceof Error) throw e;
       else return { status: "error", error: e as any };
@@ -1076,11 +1117,9 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
-  async modelPricesSyncBasellm(
-    force: boolean | null
-  ): Promise<Result<ModelPricesSyncReport, string>> {
+  async modelPricesSync(): Promise<Result<ModelPricesSyncReport, string>> {
     try {
-      return { status: "ok", data: await TAURI_INVOKE("model_prices_sync_basellm", { force }) };
+      return { status: "ok", data: await TAURI_INVOKE("model_prices_sync") };
     } catch (e) {
       if (e instanceof Error) throw e;
       else return { status: "error", error: e as any };
@@ -2081,6 +2120,177 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async usageProviderMetricsTrendV1(
+    params: UsageQueryParams,
+    limit: number | null
+  ): Promise<Result<UsageProviderMetricsTrendRowV1[], string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("usage_provider_metrics_trend_v1", { params, limit }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenConfigGet(adapterId: string): Promise<Result<ImageGenConfigView, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_config_get", { adapterId }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenConfigSet(
+    adapterId: string,
+    baseUrl: string,
+    model: string,
+    apiKey: string | null
+  ): Promise<Result<ImageGenConfigView, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("image_gen_config_set", { adapterId, baseUrl, model, apiKey }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenPostJson(
+    adapterId: string,
+    path: string,
+    body: JsonValue,
+    timeoutSecs: number | null
+  ): Promise<Result<ImageGenHttpResponse, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("image_gen_post_json", { adapterId, path, body, timeoutSecs }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenPostMultipart(
+    adapterId: string,
+    path: string,
+    fields: [string, string][],
+    files: ImageGenMultipartFile[],
+    timeoutSecs: number | null
+  ): Promise<Result<ImageGenHttpResponse, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("image_gen_post_multipart", {
+          adapterId,
+          path,
+          fields,
+          files,
+          timeoutSecs,
+        }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenFetchImage(
+    url: string,
+    timeoutSecs: number | null
+  ): Promise<Result<ImageGenFetchedImage, string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("image_gen_fetch_image", { url, timeoutSecs }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenSaveImage(path: string, dataB64: string): Promise<Result<boolean, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_save_image", { path, dataB64 }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenTaskPersist(
+    payload: ImageGenTaskPersistPayload
+  ): Promise<Result<ImageGenTaskRow, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_task_persist", { payload }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenTasksList(
+    beforeCreatedAt: number | null,
+    limit: number
+  ): Promise<Result<ImageGenTaskRow[], string>> {
+    try {
+      return {
+        status: "ok",
+        data: await TAURI_INVOKE("image_gen_tasks_list", { beforeCreatedAt, limit }),
+      };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenTaskDelete(id: string): Promise<Result<null, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_task_delete", { id }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenTasksClear(): Promise<Result<number, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_tasks_clear") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenReadImage(path: string): Promise<Result<ImageGenFetchedImage, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_read_image", { path }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenStorageGet(): Promise<Result<ImageGenStorageView, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_storage_get") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenStorageSetDir(dir: string): Promise<Result<ImageGenStorageView, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_storage_set_dir", { dir }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
+  async imageGenStorageCleanup(keepCount: number): Promise<Result<number, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("image_gen_storage_cleanup", { keepCount }) };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async envConflictsCheck(cliKey: string): Promise<Result<EnvConflict[], string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("env_conflicts_check", { cliKey }) };
@@ -2572,6 +2782,8 @@ export type CodexAppRestartResult = {
   source: string;
   message: string;
 };
+export type CodexCatalogEventPayload = { status: CodexCatalogEventStatus };
+export type CodexCatalogEventStatus = "updated" | "failed";
 export type CodexConfigPatch = {
   model: string | null;
   approval_policy: string | null;
@@ -2634,6 +2846,12 @@ export type CodexConfigTomlValidationResult = {
   ok: boolean;
   error: CodexConfigTomlValidationError | null;
 };
+export type CodexGatewayFirstProgressAction = "return_502" | "retry_then_502";
+export type CodexGatewayPolicyAction =
+  | "pass_through"
+  | "return_502"
+  | "retry_then_pass_through"
+  | "retry_then_502";
 export type CodexHomeMode = "user_home_default" | "follow_codex_home" | "custom";
 export type CodexModelCapability = {
   id: string;
@@ -2662,6 +2880,7 @@ export type CodexModelCatalogState = {
   models: CodexModelCapability[];
 };
 export type CodexModelCatalogStatus = "ready" | "degraded" | "unavailable";
+export type CodexPriorityBillingSource = "requested" | "actual";
 export type CodexReasoningAnalysisResult = {
   ok: boolean;
   analysis_profile: string;
@@ -2741,24 +2960,24 @@ export type CodexReasoningAnalyticsSample = {
   blocked_by_gateway: boolean;
   internal_retry_attempt_index: number | null;
   internal_retry_remaining: number | null;
-  policy_trigger: string | null;
-  policy_action: string | null;
-  retry_trigger: string | null;
-  retry_delay_ms: number | null;
-  retry_after_raw: string | null;
-  retry_after_ms: number | null;
-  retry_budget_used: number | null;
-  retry_budget_remaining: number | null;
-  upstream_fetch_started_at_ms: number | null;
-  first_progress_at_ms: number | null;
-  time_to_first_progress_ms: number | null;
-  client_headers_sent_at_ms: number | null;
-  client_first_write_at_ms: number | null;
-  time_to_client_first_write_ms: number | null;
-  timeout_phase: string | null;
-  timeout_limit_ms: number | null;
-  timeout_response_control_lost: boolean | null;
-  response_forwarding_started: boolean | null;
+  policy_trigger?: string | null;
+  policy_action?: string | null;
+  retry_trigger?: string | null;
+  retry_delay_ms?: number | null;
+  retry_after_raw?: string | null;
+  retry_after_ms?: number | null;
+  retry_budget_used?: number | null;
+  retry_budget_remaining?: number | null;
+  upstream_fetch_started_at_ms?: number | null;
+  first_progress_at_ms?: number | null;
+  time_to_first_progress_ms?: number | null;
+  client_headers_sent_at_ms?: number | null;
+  client_first_write_at_ms?: number | null;
+  time_to_client_first_write_ms?: number | null;
+  timeout_phase?: string | null;
+  timeout_limit_ms?: number | null;
+  timeout_response_control_lost?: boolean | null;
+  response_forwarding_started?: boolean | null;
   continuation_recovery_count: number;
   continuation_recovery_success_count: number;
   final_action: string;
@@ -2882,12 +3101,6 @@ export type CodexReasoningGuardModelStat = {
   hit_rate: number;
 };
 export type CodexReasoningGuardRuleMode = "reasoning_tokens" | "final_answer_only_high_xhigh";
-export type CodexGatewayFirstProgressAction = "return_502" | "retry_then_502";
-export type CodexGatewayPolicyAction =
-  | "pass_through"
-  | "return_502"
-  | "retry_then_pass_through"
-  | "retry_then_502";
 export type CodexReasoningGuardStats = {
   checked_request_count: number;
   checked_response_count: number;
@@ -3006,6 +3219,10 @@ export type FailoverAttempt = {
   circuit_trigger_error_code?: string | null;
   provider_bridged: boolean | null;
   timeout_secs: number | null;
+  reasoning_effort: string | null;
+  upstream_sent: boolean;
+  claude_model_mapping?: ClaudeModelMapping | null;
+  model_redirect?: ModelRedirect | null;
 };
 export type FrontendErrorReportInput = {
   source: string;
@@ -3050,6 +3267,7 @@ export type GatewayAttemptEvent = {
   circuit_failure_count: number | null;
   circuit_failure_threshold: number | null;
   claude_model_mapping: ClaudeModelMapping | null;
+  model_redirect: ModelRedirect | null;
 };
 export type GatewayCircuitEvent = {
   trace_id: string;
@@ -3088,8 +3306,12 @@ export type GatewayProviderCircuitStatus = {
 export type GatewayRectifierSettingsUpdate = {
   verboseProviderError: boolean;
   interceptAnthropicWarmupRequests: boolean;
+  enableThinkingEffortConflictRectifier: boolean;
   enableThinkingSignatureRectifier: boolean;
   enableThinkingBudgetRectifier: boolean;
+  enableGeminiFunctionIdRectifier: boolean;
+  enableResponseInputRectifier: boolean;
+  codexPriorityBillingSource: CodexPriorityBillingSource;
   enableBillingHeaderRectifier: boolean;
   enableClaudeMetadataUserIdInjection: boolean;
   enableResponseFixer: boolean;
@@ -3122,6 +3344,8 @@ export type GatewayRequestEvent = {
   cache_creation_1h_input_tokens: number | null;
   effective_input_tokens: number | null;
   claude_model_mapping: ClaudeModelMapping | null;
+  model_redirect: ModelRedirect | null;
+  reasoning_effort: string | null;
 };
 export type GatewayRequestSignalEvent = {
   trace_id: string;
@@ -3197,6 +3421,34 @@ export type GeminiConfigState = {
   planModelRouting: boolean | null;
   securityAuthSelectedType: string | null;
 };
+export type GrokApiBackend = "responses" | "chat_completions";
+export type GrokConfigState = {
+  config_path: string;
+  file_exists: boolean;
+  preferences: GrokProxyPreferences;
+  aio_preferences: GrokProxyPreferences | null;
+  effective_preferences: GrokProxyPreferences;
+  preference_source: GrokPreferenceSource;
+  default_profile: string | null;
+  session_summary_profile: string | null;
+  web_search_profile: string | null;
+  image_description_profile: string | null;
+  policy_files: GrokPolicyFileState[];
+};
+export type GrokPolicyFileState = { kind: GrokPolicyKind; path: string; exists: boolean };
+export type GrokPolicyKind =
+  | "managed_system"
+  | "managed_user"
+  | "requirements_user"
+  | "requirements_system";
+export type GrokPreferenceSource = "existing_config" | "fallback" | "aio_settings";
+export type GrokProxyPreferences = {
+  model_id: string;
+  api_backend: GrokApiBackend;
+  context_window?: number | null;
+  telemetry?: boolean | null;
+  supports_backend_search?: boolean | null;
+};
 export type HomeUsagePeriod = "last7" | "last15" | "last30" | "month";
 export type HostRenderedBadgeTone = "neutral" | "success" | "warning" | "danger";
 export type HostRenderedField =
@@ -3232,6 +3484,68 @@ export type HostRenderedSchema =
   | { type: "panel"; fields: HostRenderedField[] }
   | { type: "badge"; label: string; tone?: HostRenderedBadgeTone | null };
 export type HostRenderedSelectOption = { value: string; label: string };
+/**
+ * IPC-facing view: intentionally has no api_key field, only a configured flag.
+ */
+export type ImageGenConfigView = {
+  adapterId: string;
+  baseUrl: string;
+  model: string;
+  apiKeyConfigured: boolean;
+};
+export type ImageGenFetchedImage = { mime: string; dataB64: string };
+export type ImageGenHttpResponse = { status: number; bodyText: string };
+export type ImageGenMultipartFile = {
+  field: string;
+  filename: string;
+  mime: string;
+  dataB64: string;
+};
+export type ImageGenStorageView = { dir: string; totalBytes: number; taskCount: number };
+export type ImageGenTaskFilePayload = { mime: string; dataB64: string };
+export type ImageGenTaskFileRow = {
+  /**
+   * Absolute path of the stored file.
+   */
+  path: string;
+  /**
+   * Absolute path of the thumbnail (generated images only).
+   */
+  thumbPath: string | null;
+  mime: string;
+};
+export type ImageGenTaskPersistPayload = {
+  id: string;
+  adapterId: string | null;
+  prompt: string;
+  requestJson: string;
+  status: string;
+  error: string | null;
+  usageJson: string | null;
+  createdAt: number;
+  elapsedMs: number | null;
+  images: ImageGenTaskFilePayload[];
+  /**
+   * Frontend-generated thumbnails, paired with `images` by index. Fewer
+   * thumbs than images is tolerated (missing thumb -> no thumb path).
+   */
+  thumbs: ImageGenTaskFilePayload[];
+  refImages: ImageGenTaskFilePayload[];
+};
+export type ImageGenTaskRow = {
+  id: string;
+  adapterId: string;
+  prompt: string;
+  requestJson: string;
+  status: string;
+  error: string | null;
+  usageJson: string | null;
+  images: ImageGenTaskFileRow[];
+  refImages: ImageGenTaskFileRow[];
+  dir: string;
+  createdAt: number;
+  elapsedMs: number | null;
+};
 export type InstalledSkillSummary = {
   id: number;
   skill_key: string;
@@ -3332,17 +3646,31 @@ export type ModelPriceAliasesV1 = { version: number; rules: ModelPriceAliasRuleV
 export type ModelPriceSummary = {
   id: number;
   cli_key: string;
+  /**
+   * Upstream vendor key from the price source (e.g. "anthropic", "deepseek");
+   * empty for manually upserted rows.
+   */
+  vendor: string;
   model: string;
   currency: string;
   created_at: number;
   updated_at: number;
 };
 export type ModelPricesSyncReport = {
-  status: string;
+  status: ModelPricesSyncStatus;
   inserted: number;
   updated: number;
-  skipped: number;
+  unchanged: number;
   total: number;
+  error: string | null;
+};
+export type ModelPricesSyncStatus = "updated" | "not_modified" | "failed";
+export type ModelRedirect = {
+  stage: string;
+  providerId: number;
+  providerName: string;
+  sourceModel: string;
+  targetModel: string;
 };
 export type NoticeLevel = "info" | "success" | "warning" | "error";
 export type NoticeSendInput = { level: NoticeLevel; title: string | null; body: string };
@@ -3777,12 +4105,45 @@ export type ProviderLimitUsageRow = {
   window_weekly_start_ts: number;
   window_monthly_start_ts: number;
 };
+export type ProviderModelDiscoveryErrorCode =
+  | "invalid_config"
+  | "redirect"
+  | "unauthorized"
+  | "timeout"
+  | "network"
+  | "invalid_response"
+  | "too_large";
+export type ProviderModelDiscoveryInput = {
+  providerId: number | null;
+  cliKey: string;
+  authMode: ProviderAuthMode;
+  baseUrls: string[];
+  baseUrlMode: ProviderBaseUrlMode;
+  apiKey: string | null;
+  sourceProviderId: number | null;
+  bridgeType: string | null;
+};
+export type ProviderModelDiscoveryResult =
+  | { status: "ready"; models: string[]; origin: string; base_url_index: number | null }
+  | { status: "empty"; origin: string; base_url_index: number | null }
+  | { status: "unsupported"; reason: ProviderModelDiscoveryUnsupportedReason }
+  | { status: "error"; code: ProviderModelDiscoveryErrorCode; http_status: number | null };
+export type ProviderModelDiscoveryUnsupportedReason = "oauth" | "cx_2cc";
 export type ProviderModelInfo = {
   id: string;
   display_name: string | null;
   owned_by: string | null;
   model_type: string | null;
   supported_methods: string[];
+};
+export type ProviderModelMapping = { source: string; target: string };
+export type ProviderModelMode = "all" | "selected" | "excluded";
+export type ProviderModelPolicyStatus = "legacy" | "ready" | "invalid";
+export type ProviderModelPolicyV1 = {
+  version: number;
+  mode: ProviderModelMode;
+  modelPatterns: string[];
+  mappings: ProviderModelMapping[];
 };
 export type ProviderModelProbeResult = {
   ok: boolean;
@@ -3872,6 +4233,8 @@ export type ProviderSummary = {
   base_urls: string[];
   base_url_mode: ProviderBaseUrlMode;
   claude_models: ClaudeModels;
+  model_policy: ProviderModelPolicyV1 | null;
+  model_policy_status: ProviderModelPolicyStatus;
   enabled: boolean;
   priority: number;
   cost_multiplier: number;
@@ -3909,6 +4272,7 @@ export type ProviderUpsertInput = {
   costMultiplier: number;
   priority: number | null;
   claudeModels: ClaudeModels | null;
+  modelPolicy: ProviderModelPolicyV1 | null;
   limit5hUsd: number | null;
   limitDailyUsd: number | null;
   dailyResetMode: DailyResetMode | null;
@@ -4025,6 +4389,7 @@ export type RequestLogDetail = {
   effective_input_tokens: number | null;
   usage_json: string | null;
   requested_model: string | null;
+  reasoning_effort: string | null;
   final_provider_id: number;
   final_provider_name: string;
   final_provider_source_id: number | null;
@@ -4062,6 +4427,7 @@ export type RequestLogSummary = {
   excluded_from_stats: boolean;
   special_settings_json: string | null;
   requested_model: string | null;
+  reasoning_effort: string | null;
   status: number | null;
   error_code: string | null;
   is_interrupted: boolean;
@@ -4157,8 +4523,12 @@ export type SettingsUpdate = {
   upstreamRequestTimeoutNonStreamingSeconds: number | null;
   sseErrorRetryCount: number | null;
   interceptAnthropicWarmupRequests: boolean | null;
+  enableThinkingEffortConflictRectifier: boolean | null;
   enableThinkingSignatureRectifier: boolean | null;
   enableThinkingBudgetRectifier: boolean | null;
+  enableGeminiFunctionIdRectifier: boolean | null;
+  enableResponseInputRectifier: boolean | null;
+  codexPriorityBillingSource: CodexPriorityBillingSource | null;
   enableBillingHeaderRectifier: boolean | null;
   enableClaudeMetadataUserIdInjection: boolean | null;
   enableCacheAnomalyMonitor: boolean | null;
@@ -4196,14 +4566,14 @@ export type SettingsUpdate = {
   codexReasoningGuardDelayedRetryBudget: number | null;
   codexReasoningGuardDelayedRetryMs: number | null;
   codexReasoningGuardExhaustedAction: CodexReasoningGuardExhaustedAction | null;
+  codexReasoningGuardBackoffAfterHits: number | null;
+  codexReasoningGuardBackoffMs: number | null;
   codexGatewayCapacityErrorAction: CodexGatewayPolicyAction | null;
   codexGatewayHttp429Action: CodexGatewayPolicyAction | null;
   codexGatewayLatencyGuardEnabled: boolean | null;
   codexGatewayFirstProgressTimeoutMs: number | null;
   codexGatewayFirstProgressAction: CodexGatewayFirstProgressAction | null;
   codexGatewayTotalTimeoutMs: number | null;
-  codexReasoningGuardBackoffAfterHits: number | null;
-  codexReasoningGuardBackoffMs: number | null;
   cx2CcFallbackModelOpus: string | null;
   cx2CcFallbackModelSonnet: string | null;
   cx2CcFallbackModelHaiku: string | null;
@@ -4249,14 +4619,14 @@ export type SettingsView = {
   codex_reasoning_guard_delayed_retry_budget: number;
   codex_reasoning_guard_delayed_retry_ms: number;
   codex_reasoning_guard_exhausted_action: CodexReasoningGuardExhaustedAction;
+  codex_reasoning_guard_backoff_after_hits: number;
+  codex_reasoning_guard_backoff_ms: number;
   codex_gateway_capacity_error_action: CodexGatewayPolicyAction;
   codex_gateway_http_429_action: CodexGatewayPolicyAction;
   codex_gateway_latency_guard_enabled: boolean;
   codex_gateway_first_progress_timeout_ms: number;
   codex_gateway_first_progress_action: CodexGatewayFirstProgressAction;
   codex_gateway_total_timeout_ms: number;
-  codex_reasoning_guard_backoff_after_hits: number;
-  codex_reasoning_guard_backoff_ms: number;
   auto_start: boolean;
   start_minimized: boolean;
   tray_enabled: boolean;
@@ -4277,8 +4647,12 @@ export type SettingsView = {
   enable_circuit_breaker_notice: boolean;
   verbose_provider_error: boolean;
   intercept_anthropic_warmup_requests: boolean;
+  enable_thinking_effort_conflict_rectifier: boolean;
   enable_thinking_signature_rectifier: boolean;
   enable_thinking_budget_rectifier: boolean;
+  enable_gemini_function_id_rectifier: boolean;
+  enable_response_input_rectifier: boolean;
+  codex_priority_billing_source: CodexPriorityBillingSource;
   enable_billing_header_rectifier: boolean;
   enable_codex_session_id_completion: boolean;
   enable_claude_metadata_user_id_injection: boolean;
@@ -4416,12 +4790,16 @@ export type UsageHourlyRow = {
 export type UsageLeaderboardRow = {
   key: string;
   name: string;
+  folder_path: string | null;
   requests_total: number;
   requests_success: number;
   requests_failed: number;
   total_duration_ms: number;
   first_request_created_at_ms: number | null;
   last_request_created_at_ms: number | null;
+  last_request_completed_at_ms: number | null;
+  estimated_development_time_ms: number | null;
+  hourly_estimated_development_time_ms: number[] | null;
   total_tokens: number;
   io_total_tokens: number;
   input_tokens: number;
@@ -4440,6 +4818,16 @@ export type UsageProviderCacheRateTrendRowV1 = {
   name: string;
   denom_tokens: number;
   cache_read_input_tokens: number;
+  requests_success: number;
+};
+export type UsageProviderMetricsTrendRowV1 = {
+  day: string;
+  hour: number | null;
+  key: string;
+  name: string;
+  avg_duration_ms: number | null;
+  avg_ttfb_ms: number | null;
+  avg_output_tokens_per_second: number | null;
   requests_success: number;
 };
 export type UsageProviderRow = {
@@ -4468,6 +4856,8 @@ export type UsageQueryParams = {
   providerId: number | null;
   folderKeys: string[] | null;
   dayStartHour: number | null;
+  fullIdleGapMinutes: number | null;
+  sessionBreakGapMinutes: number | null;
   excludeCx2CcGatewayBridge: boolean | null;
 };
 export type UsageSummary = {

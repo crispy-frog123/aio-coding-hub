@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   countCodexReasoningGuardSpecialSettings,
   formatCodexReasoningEffortSource,
-  hasClaudeModelMappingSpecialSetting,
   parseRequestLogSpecialSettings,
   hasCodexSystemRequestSpecialSetting,
   resolveClaudeModelMappingFromSpecialSettings,
@@ -10,6 +9,7 @@ import {
   resolveCodexReasoningEffort,
   resolveCodexReasoningGuardCheckSummary,
   resolveCodexReasoningGuardSummary,
+  resolveModelRedirectFromSpecialSettings,
 } from "../requestLogSpecialSettings";
 
 describe("services/gateway/requestLogSpecialSettings", () => {
@@ -45,7 +45,42 @@ describe("services/gateway/requestLogSpecialSettings", () => {
       applied: true,
     });
     expect(resolveClaudeModelMappingFromSpecialSettings(settings, 99)?.providerId).toBe(2);
-    expect(hasClaudeModelMappingSpecialSetting(settings)).toBe(true);
+    expect(resolveModelRedirectFromSpecialSettings(settings, 2)).toEqual({
+      stage: "legacy",
+      providerId: 2,
+      providerName: "Provider B",
+      sourceModel: "claude-sonnet",
+      targetModel: "gpt-5.4",
+    });
+  });
+
+  it("resolves generic model redirect with final provider preference", () => {
+    const settings = JSON.stringify([
+      {
+        type: "model_redirect",
+        stage: "provider",
+        providerId: 1,
+        providerName: "Provider A",
+        sourceModel: "gpt-original",
+        targetModel: "model-a",
+      },
+      {
+        type: "model_redirect",
+        stage: "provider",
+        providerId: 2,
+        providerName: "Provider B",
+        sourceModel: "gpt-original",
+        targetModel: "model-b",
+      },
+    ]);
+
+    expect(resolveModelRedirectFromSpecialSettings(settings, 2)).toEqual({
+      stage: "provider",
+      providerId: 2,
+      providerName: "Provider B",
+      sourceModel: "gpt-original",
+      targetModel: "model-b",
+    });
   });
 
   it("ignores invalid, unapplied, and identity mappings", () => {
@@ -75,7 +110,6 @@ describe("services/gateway/requestLogSpecialSettings", () => {
         ])
       )
     ).toBeNull();
-    expect(hasClaudeModelMappingSpecialSetting("bad-json")).toBe(false);
   });
 
   it("parses object and array special settings safely", () => {

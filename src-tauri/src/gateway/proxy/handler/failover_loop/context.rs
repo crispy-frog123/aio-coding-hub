@@ -1,7 +1,7 @@
 //! Usage: Shared context types for `failover_loop` internal submodules.
 
 use crate::circuit_breaker;
-use crate::gateway::events::{ClaudeModelMapping, FailoverAttempt};
+use crate::gateway::events::{ClaudeModelMapping, FailoverAttempt, ModelRedirect};
 use crate::gateway::proxy::abort_guard::RequestAbortGuard;
 use crate::gateway::proxy::cx2cc::settings::Cx2ccSettings;
 use crate::gateway::proxy::gemini_oauth;
@@ -63,6 +63,7 @@ pub(super) struct CommonCtxArgs<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) layered_policy_state: &'a Arc<Mutex<super::layered_policy::LayeredPolicyState>>,
     pub(super) max_attempts_per_provider: u32,
     pub(super) sse_error_retry_count: u32,
+    pub(super) codex_priority_billing_source: crate::settings::CodexPriorityBillingSource,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -117,6 +118,7 @@ pub(super) struct CommonCtx<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) layered_policy_state: &'a Arc<Mutex<super::layered_policy::LayeredPolicyState>>,
     pub(super) max_attempts_per_provider: u32,
     pub(super) sse_error_retry_count: u32,
+    pub(super) codex_priority_billing_source: crate::settings::CodexPriorityBillingSource,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -180,6 +182,7 @@ impl<'a, R: tauri::Runtime> CommonCtx<'a, R> {
             layered_policy_state: args.layered_policy_state,
             max_attempts_per_provider: args.max_attempts_per_provider,
             sse_error_retry_count: args.sse_error_retry_count,
+            codex_priority_billing_source: args.codex_priority_billing_source,
             enable_response_fixer: args.enable_response_fixer,
             response_fixer_stream_config: args.response_fixer_stream_config,
             response_fixer_non_stream_config: args.response_fixer_non_stream_config,
@@ -236,6 +239,7 @@ pub(super) struct CommonCtxOwned<'a, R: tauri::Runtime = tauri::Wry> {
     pub(super) codex_gateway_first_progress_timeout_ms: u32,
     pub(super) codex_gateway_total_timeout_ms: u32,
     pub(super) layered_policy_state: Arc<Mutex<super::layered_policy::LayeredPolicyState>>,
+    pub(super) codex_priority_billing_source: crate::settings::CodexPriorityBillingSource,
     pub(super) enable_response_fixer: bool,
     pub(super) response_fixer_stream_config: response_fixer::ResponseFixerConfig,
     pub(super) response_fixer_non_stream_config: response_fixer::ResponseFixerConfig,
@@ -289,6 +293,7 @@ impl<'a, R: tauri::Runtime> From<CommonCtx<'a, R>> for CommonCtxOwned<'a, R> {
             codex_gateway_first_progress_timeout_ms: ctx.codex_gateway_first_progress_timeout_ms,
             codex_gateway_total_timeout_ms: ctx.codex_gateway_total_timeout_ms,
             layered_policy_state: Arc::clone(ctx.layered_policy_state),
+            codex_priority_billing_source: ctx.codex_priority_billing_source,
             enable_response_fixer: ctx.enable_response_fixer,
             response_fixer_stream_config: ctx.response_fixer_stream_config,
             response_fixer_non_stream_config: ctx.response_fixer_non_stream_config,
@@ -308,6 +313,7 @@ pub(super) struct ProviderCtx<'a> {
     pub(super) session_reuse: Option<bool>,
     pub(super) stream_idle_timeout_seconds: Option<u32>,
     pub(super) claude_model_mapping: Option<&'a ClaudeModelMapping>,
+    pub(super) model_redirect: Option<&'a ModelRedirect>,
 }
 
 pub(super) struct ProviderCtxOwned {
@@ -319,6 +325,8 @@ pub(super) struct ProviderCtxOwned {
     pub(super) provider_bridged: bool,
     pub(super) session_reuse: Option<bool>,
     pub(super) stream_idle_timeout_seconds: Option<u32>,
+    pub(super) claude_model_mapping: Option<ClaudeModelMapping>,
+    pub(super) model_redirect: Option<ModelRedirect>,
 }
 
 impl<'a> From<ProviderCtx<'a>> for ProviderCtxOwned {
@@ -332,6 +340,8 @@ impl<'a> From<ProviderCtx<'a>> for ProviderCtxOwned {
             provider_bridged: ctx.provider_bridged,
             session_reuse: ctx.session_reuse,
             stream_idle_timeout_seconds: ctx.stream_idle_timeout_seconds,
+            claude_model_mapping: ctx.claude_model_mapping.cloned(),
+            model_redirect: ctx.model_redirect.cloned(),
         }
     }
 }
@@ -403,6 +413,8 @@ pub(super) struct AttemptCtx<'a> {
     pub(super) gemini_oauth_response_mode: Option<gemini_oauth::GeminiOAuthResponseMode>,
     pub(super) cx2cc_active: bool,
     pub(super) anthropic_stream_requested: bool,
+    pub(super) reasoning_effort: Option<&'a str>,
+    pub(super) upstream_sent: bool,
 }
 
 pub(super) struct LoopState<'a, R: tauri::Runtime = tauri::Wry> {

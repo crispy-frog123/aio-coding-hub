@@ -110,6 +110,8 @@ export const usageKeys = {
       providerId: number | null;
       folderKeys?: readonly string[] | null;
       dayStartHour?: number | null;
+      fullIdleGapMinutes?: number | null;
+      sessionBreakGapMinutes?: number | null;
       excludeCx2CcGatewayBridge?: boolean | null;
     }
   ) =>
@@ -123,6 +125,8 @@ export const usageKeys = {
       input.providerId,
       normalizeKeyParts(input.folderKeys ?? []),
       input.dayStartHour ?? null,
+      input.fullIdleGapMinutes ?? null,
+      input.sessionBreakGapMinutes ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
   leaderboardV2: (
@@ -136,6 +140,8 @@ export const usageKeys = {
       limit: number | null;
       folderKeys?: readonly string[] | null;
       dayStartHour?: number | null;
+      fullIdleGapMinutes?: number | null;
+      sessionBreakGapMinutes?: number | null;
       excludeCx2CcGatewayBridge?: boolean | null;
     }
   ) =>
@@ -151,29 +157,10 @@ export const usageKeys = {
       input.limit,
       normalizeKeyParts(input.folderKeys ?? []),
       input.dayStartHour ?? null,
+      input.fullIdleGapMinutes ?? null,
+      input.sessionBreakGapMinutes ?? null,
       input.excludeCx2CcGatewayBridge ?? null,
     ] as const,
-  dayDetailV1: (input: {
-    day: string;
-    cliKey: CliKey | null;
-    providerId: number | null;
-    folderLimit: number | null;
-    folderKeys?: readonly string[] | null;
-    dayStartHour?: number | null;
-    excludeCx2CcGatewayBridge?: boolean | null;
-  }) =>
-    [
-      ...usageAllKey,
-      "dayDetailV1",
-      input.day,
-      input.cliKey,
-      input.providerId,
-      input.folderLimit,
-      normalizeKeyParts(input.folderKeys ?? []),
-      input.dayStartHour ?? null,
-      input.excludeCx2CcGatewayBridge ?? null,
-    ] as const,
-  dayDetailV1Disabled: () => [...usageAllKey, "dayDetailV1", "disabled"] as const,
   folderOptionsV1: (
     period: UsagePeriod,
     input: {
@@ -210,6 +197,28 @@ export const usageKeys = {
     [
       ...usageAllKey,
       "providerCacheRateTrendV1",
+      period,
+      input.startTs,
+      input.endTs,
+      input.cliKey,
+      input.providerId,
+      input.limit,
+      input.excludeCx2CcGatewayBridge ?? null,
+    ] as const,
+  providerMetricsTrendV1: (
+    period: UsagePeriod,
+    input: {
+      startTs: number | null;
+      endTs: number | null;
+      cliKey: CliKey | null;
+      providerId: number | null;
+      limit: number | null;
+      excludeCx2CcGatewayBridge?: boolean | null;
+    }
+  ) =>
+    [
+      ...usageAllKey,
+      "providerMetricsTrendV1",
       period,
       input.startTs,
       input.endTs,
@@ -327,13 +336,14 @@ export const cliManagerKeys = {
     ] as const,
   geminiInfo: () => [...cliManagerAllKey, "gemini", "info"] as const,
   geminiConfig: () => [...cliManagerAllKey, "gemini", "config"] as const,
+  grokInfo: () => [...cliManagerAllKey, "grok", "info"] as const,
+  grokConfig: () => [...cliManagerAllKey, "grok", "config"] as const,
 };
 
 const modelPricesAllKey = ["modelPrices"] as const;
 export const modelPricesKeys = {
   all: modelPricesAllKey,
   lists: () => [...modelPricesAllKey, "list"] as const,
-  list: (cliKey: CliKey) => [...modelPricesAllKey, "list", cliKey] as const,
   aliases: () => [...modelPricesAllKey, "aliases"] as const,
 };
 
@@ -347,6 +357,7 @@ const cliProxyAllKey = ["cliProxy"] as const;
 export const cliProxyKeys = {
   all: cliProxyAllKey,
   statusAll: () => [...cliProxyAllKey, "statusAll"] as const,
+  envConflicts: (cliKey: CliKey) => [...cliProxyAllKey, "envConflicts", cliKey] as const,
 };
 
 const appAboutAllKey = ["appAbout"] as const;

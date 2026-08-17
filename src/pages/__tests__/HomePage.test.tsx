@@ -374,6 +374,7 @@ describe("pages/HomePage", () => {
             ],
           } as any;
         }
+        if (cliKey === "grok") return { data: [] } as any;
         return {
           data: [
             { provider_id: 3, state: "OPEN", open_until: nowUnix + 1, cooldown_until: nowUnix + 2 },
@@ -384,6 +385,7 @@ describe("pages/HomePage", () => {
       vi.mocked(useProvidersListQuery).mockImplementation((cliKey: any) => {
         if (cliKey === "claude") return { data: [{ id: 1, name: " P1 " }] } as any;
         if (cliKey === "codex") return { data: [{ id: 2, name: "" }] } as any;
+        if (cliKey === "grok") return { data: [] } as any;
         return { data: [{ id: 3, name: "P3" }] } as any;
       });
 
@@ -514,7 +516,7 @@ describe("pages/HomePage", () => {
     }
   });
 
-  it("does not count HALF_OPEN rows as open circuits", () => {
+  it("surfaces HALF_OPEN rows as attention circuits on the home overview", () => {
     setTauriRuntime();
 
     const client = createTestQueryClient();
@@ -543,7 +545,9 @@ describe("pages/HomePage", () => {
 
     renderWithProviders(client, <HomePage />);
 
-    expect(screen.getByText("open-circuits:0")).toBeInTheDocument();
+    // 半开行进入主页非健康行列表（displayState=half_open），
+    // 但不计入不可用（isUnavailable 语义见 useHomeCircuitState 测试）。
+    expect(screen.getByText("open-circuits:1")).toBeInTheDocument();
   });
 
   it("emits home overview visible trigger on mount and when returning to overview tab", async () => {
@@ -598,7 +602,7 @@ describe("pages/HomePage", () => {
     expect(screen.queryByRole("tab", { name: "花费" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "用量" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "更多" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "查看曲线" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "今日总览" })).toBeInTheDocument();
     expect(vi.mocked(useUsageHourlySeriesQuery)).toHaveBeenLastCalledWith(
       15,
       expect.objectContaining({ enabled: false })
@@ -640,17 +644,17 @@ describe("pages/HomePage", () => {
     renderWithProviders(client, <HomePage />);
 
     expect(screen.getByText("personalized-usage-view:summary")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "查看曲线" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "今日总览" })).toBeInTheDocument();
     expect(vi.mocked(useUsageHourlySeriesQuery)).toHaveBeenLastCalledWith(
       15,
       expect.objectContaining({ enabled: false })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "查看曲线" }));
+    fireEvent.click(screen.getByRole("button", { name: "今日总览" }));
 
     await waitFor(() => {
       expect(screen.getByText("personalized-usage-view:usageChart")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "查看总览" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "用量趋势" })).toBeInTheDocument();
     });
     expect(vi.mocked(useUsageHourlySeriesQuery)).toHaveBeenLastCalledWith(
       15,

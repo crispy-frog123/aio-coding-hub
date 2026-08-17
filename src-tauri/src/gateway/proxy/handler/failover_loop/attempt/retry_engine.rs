@@ -32,19 +32,19 @@ where
 {
     let mut retry_state = RetryLoopState::new();
 
-    let mut retry_index = 1;
+    let mut retry_index = 1u32;
     loop {
         if let Some(response) =
             layered_policy::maybe_finish_expired_total(ctx, prepared, loop_state.reborrow()).await
         {
             return Some(response);
         }
-        let beyond_max_attempts = retry_index > prepared.provider_max_attempts;
+        let beyond_max_attempts =
+            retry_index > retry_state.effective_attempt_limit(prepared.provider_max_attempts);
         if beyond_max_attempts && !retry_state.allow_next_retry_beyond_max_attempts {
             break;
         }
         retry_state.allow_next_retry_beyond_max_attempts = false;
-
         let attempt_index = loop_state.attempts.len().saturating_add(1) as u32;
 
         let send_outcome = attempt_executor::execute_attempt(
@@ -74,7 +74,10 @@ where
 
         match ctrl {
             LoopControl::ContinueRetry => {
-                retry_index = retry_index.saturating_add(1);
+                let Some(next_retry_index) = retry_index.checked_add(1) else {
+                    break;
+                };
+                retry_index = next_retry_index;
                 continue;
             }
             LoopControl::BreakRetry => break,
@@ -179,7 +182,7 @@ where
 fn build_error_contexts<'a, R: tauri::Runtime>(
     _input: &RequestContext<R>,
     prepared: &'a PreparedProvider,
-    timing: &AttemptTiming,
+    timing: &'a AttemptTiming,
     attempt_index: u32,
     retry_index: u32,
 ) -> (AttemptCtx<'a>, ProviderCtx<'a>) {
@@ -194,6 +197,8 @@ fn build_error_contexts<'a, R: tauri::Runtime>(
         gemini_oauth_response_mode: prepared.gemini_oauth_response_mode,
         cx2cc_active: prepared.cx2cc_active,
         anthropic_stream_requested: prepared.anthropic_stream_requested,
+        reasoning_effort: timing.reasoning_effort.as_deref(),
+        upstream_sent: timing.upstream_sent,
     };
     let provider_ctx = ProviderCtx {
         provider_id: prepared.provider_id,
@@ -205,6 +210,57 @@ fn build_error_contexts<'a, R: tauri::Runtime>(
         session_reuse: prepared.session_reuse,
         stream_idle_timeout_seconds: prepared.stream_idle_timeout_seconds,
         claude_model_mapping: prepared.claude_model_mapping.as_ref(),
+        model_redirect: prepared.model_redirect.as_ref(),
     };
     (attempt_ctx, provider_ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attempt_executor::grant_repair_retry_slot_if_needed;
+    use super::RetryLoopState;
+
+    #[test]
+    fn repair_retry_slot_extends_only_at_the_current_boundary() {
+        let mut slots = 0;
+
+        assert!(!grant_repair_retry_slot_if_needed(&mut slots, 1, 2));
+        let state = RetryLoopState {
+            additional_repair_retry_slots: slots,
+            ..RetryLoopState::new()
+        };
+        assert_eq!(state.effective_attempt_limit(2), 2);
+
+        assert!(grant_repair_retry_slot_if_needed(&mut slots, 2, 2));
+        let state = RetryLoopState {
+            additional_repair_retry_slots: slots,
+            ..RetryLoopState::new()
+        };
+        assert_eq!(state.effective_attempt_limit(2), 3);
+    }
+
+    #[test]
+    fn later_repair_can_extend_the_new_boundary_once_more() {
+        let mut slots = 0;
+
+        assert!(grant_repair_retry_slot_if_needed(&mut slots, 1, 1));
+        let state = RetryLoopState {
+            additional_repair_retry_slots: slots,
+            ..RetryLoopState::new()
+        };
+        assert_eq!(state.effective_attempt_limit(1), 2);
+        assert!(grant_repair_retry_slot_if_needed(&mut slots, 2, 1));
+        let state = RetryLoopState {
+            additional_repair_retry_slots: slots,
+            ..RetryLoopState::new()
+        };
+        assert_eq!(state.effective_attempt_limit(1), 3);
+    }
+
+    #[test]
+    fn ordinary_attempt_limit_is_unchanged_without_a_repair() {
+        let state = RetryLoopState::new();
+        assert_eq!(state.effective_attempt_limit(1), 1);
+        assert_eq!(state.effective_attempt_limit(5), 5);
+    }
 }

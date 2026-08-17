@@ -582,6 +582,10 @@ async fn record_policy_attempt<R: tauri::Runtime>(
         circuit_trigger_error_code: None,
         provider_bridged: Some(provider_ctx.provider_bridged),
         timeout_secs: None,
+        reasoning_effort: attempt_ctx.reasoning_effort.map(str::to_string),
+        upstream_sent: attempt_ctx.upstream_sent,
+        claude_model_mapping: provider_ctx.claude_model_mapping.cloned(),
+        model_redirect: provider_ctx.model_redirect.cloned(),
     });
     emit_attempt_event_and_log(
         ctx,
@@ -824,6 +828,10 @@ async fn record_timeout_attempt<R: tauri::Runtime>(
         circuit_trigger_error_code: None,
         provider_bridged: Some(provider_ctx.provider_bridged),
         timeout_secs: None,
+        reasoning_effort: attempt_ctx.reasoning_effort.map(str::to_string),
+        upstream_sent: attempt_ctx.upstream_sent,
+        claude_model_mapping: provider_ctx.claude_model_mapping.cloned(),
+        model_redirect: provider_ctx.model_redirect.cloned(),
     });
     emit_attempt_event_and_log(
         ctx,
@@ -959,6 +967,7 @@ pub(super) async fn maybe_finish_expired_total<R: tauri::Runtime>(
         session_reuse: prepared.session_reuse,
         stream_idle_timeout_seconds: prepared.stream_idle_timeout_seconds,
         claude_model_mapping: prepared.claude_model_mapping.as_ref(),
+        model_redirect: prepared.model_redirect.as_ref(),
     };
     match finish_timeout_response(ctx, provider_ctx, None, loop_state, TimeoutPhase::Total).await {
         LoopControl::Return(response) => Some(response),
@@ -1020,6 +1029,10 @@ pub(super) async fn handle_inspection_limit_before_forward<R: tauri::Runtime>(
         circuit_trigger_error_code: None,
         provider_bridged: Some(provider_ctx.provider_bridged),
         timeout_secs: None,
+        reasoning_effort: attempt_ctx.reasoning_effort.map(str::to_string),
+        upstream_sent: attempt_ctx.upstream_sent,
+        claude_model_mapping: provider_ctx.claude_model_mapping.cloned(),
+        model_redirect: provider_ctx.model_redirect.cloned(),
     });
     emit_attempt_event_and_log(
         ctx,

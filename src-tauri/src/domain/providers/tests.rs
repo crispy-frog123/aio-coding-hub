@@ -1,4 +1,5 @@
 use super::queries::pool_order_set;
+use super::types::CX2CC_BRIDGE_TYPE;
 use super::*;
 use rusqlite::OptionalExtension;
 
@@ -425,6 +426,7 @@ fn default_provider_params(name: &str) -> ProviderUpsertParams {
         cost_multiplier: 1.0,
         priority: Some(100),
         claude_models: None,
+        model_policy: None,
         limit_5h_usd: None,
         limit_daily_usd: None,
         daily_reset_mode: Some(DailyResetMode::Fixed),
@@ -563,6 +565,7 @@ fn provider_duplicate_copies_extension_values() {
             cost_multiplier: source_summary.cost_multiplier,
             priority: None,
             claude_models: Some(source_summary.claude_models.clone()),
+            model_policy: source_summary.model_policy.clone(),
             limit_5h_usd: source_summary.limit_5h_usd,
             limit_daily_usd: source_summary.limit_daily_usd,
             daily_reset_mode: Some(source_summary.daily_reset_mode),
@@ -680,6 +683,79 @@ fn upsert_oauth_provider_drops_submitted_base_urls() {
 
     let saved = upsert(&db, params).expect("save oauth provider");
     assert!(saved.base_urls.is_empty());
+}
+
+#[test]
+fn upsert_accepts_grok_api_key_provider() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("providers_grok_api_key.db");
+    let db = crate::db::init_for_tests(&db_path).expect("init db");
+
+    let mut params = default_provider_params("grok-api-key");
+    params.cli_key = "grok".to_string();
+
+    let saved = upsert(&db, params).expect("save Grok API key provider");
+
+    assert_eq!(saved.cli_key, "grok");
+    assert_eq!(saved.auth_mode, ProviderAuthMode::ApiKey.as_str());
+    assert_eq!(saved.base_urls, vec!["https://api.example.com"]);
+}
+
+#[test]
+fn upsert_accepts_grok_oauth_provider() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("providers_grok_oauth.db");
+    let db = crate::db::init_for_tests(&db_path).expect("init db");
+
+    let mut params = default_provider_params("grok-oauth");
+    params.cli_key = "grok".to_string();
+    params.auth_mode = Some(ProviderAuthMode::Oauth);
+    params.api_key = None;
+    // OAuth providers discard base_urls (empty list) to avoid stale transport values.
+    params.base_urls = vec!["https://should-be-cleared.example".to_string()];
+
+    let saved = upsert(&db, params).expect("save Grok OAuth provider");
+
+    assert_eq!(saved.cli_key, "grok");
+    assert_eq!(saved.auth_mode, ProviderAuthMode::Oauth.as_str());
+    assert!(saved.base_urls.is_empty());
+}
+
+#[test]
+fn upsert_rejects_grok_cx2cc_provider() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("providers_grok_cx2cc.db");
+    let db = crate::db::init_for_tests(&db_path).expect("init db");
+
+    let mut params = default_provider_params("grok-cx2cc");
+    params.cli_key = "grok".to_string();
+    params.bridge_type = Some(CX2CC_BRIDGE_TYPE.to_string());
+
+    let error = upsert(&db, params).expect_err("Grok CX2CC must be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("cx2cc bridge is only supported for claude"));
+}
+
+#[test]
+fn upsert_rejects_grok_claude_model_fields() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("providers_grok_claude_models.db");
+    let db = crate::db::init_for_tests(&db_path).expect("init db");
+
+    let mut params = default_provider_params("grok-claude-models");
+    params.cli_key = "grok".to_string();
+    params.claude_models = Some(ClaudeModels {
+        main_model: Some("not-applicable".to_string()),
+        ..ClaudeModels::default()
+    });
+
+    let error = upsert(&db, params).expect_err("Grok Claude model fields must be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("claude_models is only supported for cli_key=claude"));
 }
 
 #[test]
@@ -841,6 +917,7 @@ fn create_oauth_provider_for_cas_test(db: &crate::db::Db, name: &str) -> i64 {
             cost_multiplier: 1.0,
             priority: Some(100),
             claude_models: None,
+            model_policy: None,
             limit_5h_usd: None,
             limit_daily_usd: None,
             daily_reset_mode: Some(DailyResetMode::Fixed),
@@ -858,6 +935,130 @@ fn create_oauth_provider_for_cas_test(db: &crate::db::Db, name: &str) -> i64 {
     )
     .expect("create oauth provider")
     .id
+}
+
+#[test]
+fn provider_model_policy_round_trips_and_invalid_rows_fail_closed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db =
+        crate::db::init_for_tests(&dir.path().join("provider-model-policy.db")).expect("init db");
+    let mut params = default_provider_params("model-policy-ready");
+    params.model_policy = Some(
+        ProviderModelPolicyV1 {
+            version: 1,
+            mode: ProviderModelMode::Selected,
+            model_patterns: vec![],
+            mappings: vec![ProviderModelMapping {
+                source: "gpt-*".to_string(),
+                target: "upstream-*".to_string(),
+            }],
+        }
+        .normalized()
+        .expect("valid model policy"),
+    );
+
+    let saved = upsert(&db, params).expect("save model policy");
+    assert_eq!(saved.model_policy_status, ProviderModelPolicyStatus::Ready);
+    assert_eq!(
+        saved
+            .model_policy
+            .as_ref()
+            .unwrap()
+            .resolve_mapping("gpt-5"),
+        "upstream-5"
+    );
+
+    let conn = db.open_connection().expect("open db");
+    conn.execute(
+        "UPDATE providers SET model_policy_json = ?1 WHERE id = ?2",
+        rusqlite::params![r#"{"version":99,"mode":"all","rules":[]}"#, saved.id],
+    )
+    .expect("corrupt policy");
+    let invalid = get_by_id(&conn, saved.id).expect("read invalid provider");
+    assert_eq!(invalid.model_policy, None);
+    assert_eq!(
+        invalid.model_policy_status,
+        ProviderModelPolicyStatus::Invalid
+    );
+}
+
+#[test]
+fn non_claude_null_model_policy_is_invalid() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = crate::db::init_for_tests(&dir.path().join("provider-model-policy-null.db"))
+        .expect("init db");
+    let mut params = default_provider_params("model-policy-null");
+    params.cli_key = "codex".to_string();
+    params.model_policy = Some(ProviderModelPolicyV1::all());
+    let saved = upsert(&db, params).expect("save codex provider");
+
+    let conn = db.open_connection().expect("open db");
+    conn.execute(
+        "UPDATE providers SET model_policy_json = NULL WHERE id = ?1",
+        rusqlite::params![saved.id],
+    )
+    .expect("clear policy");
+    let invalid = get_by_id(&conn, saved.id).expect("read invalid provider");
+    assert_eq!(invalid.model_policy, None);
+    assert_eq!(
+        invalid.model_policy_status,
+        ProviderModelPolicyStatus::Invalid
+    );
+}
+
+#[test]
+fn provider_model_policy_preserves_legacy_fields_until_explicit_cutover() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = crate::db::init_for_tests(&dir.path().join("provider-model-policy-legacy.db"))
+        .expect("init db");
+    let saved =
+        upsert(&db, default_provider_params("model-policy-legacy")).expect("save legacy provider");
+    let conn = db.open_connection().expect("open db");
+    conn.execute(
+        "UPDATE providers SET supported_models_json = ?1, model_mapping_json = ?2 WHERE id = ?3",
+        rusqlite::params![r#"{"legacy":1}"#, r#"{"legacy":2}"#, saved.id],
+    )
+    .expect("seed legacy fields");
+    drop(conn);
+
+    let mut ordinary_edit = default_provider_params("model-policy-legacy");
+    ordinary_edit.provider_id = Some(saved.id);
+    ordinary_edit.name = "legacy-renamed".to_string();
+    let renamed = upsert(&db, ordinary_edit).expect("save ordinary legacy edit");
+    assert_eq!(
+        renamed.model_policy_status,
+        ProviderModelPolicyStatus::Legacy
+    );
+
+    let conn = db.open_connection().expect("open db");
+    let legacy_fields: (Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT model_policy_json, supported_models_json, model_mapping_json FROM providers WHERE id = ?1",
+            rusqlite::params![saved.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read legacy fields");
+    assert_eq!(legacy_fields.0, None);
+    assert_eq!(legacy_fields.1.as_deref(), Some(r#"{"legacy":1}"#));
+    assert_eq!(legacy_fields.2.as_deref(), Some(r#"{"legacy":2}"#));
+    drop(conn);
+
+    let mut cutover = default_provider_params("legacy-renamed");
+    cutover.provider_id = Some(saved.id);
+    cutover.model_policy = Some(ProviderModelPolicyV1::all());
+    let ready = upsert(&db, cutover).expect("cut over legacy provider");
+    assert_eq!(ready.model_policy_status, ProviderModelPolicyStatus::Ready);
+    let conn = db.open_connection().expect("open db");
+    let preserved: (Option<String>, String, String) = conn
+        .query_row(
+            "SELECT model_policy_json, supported_models_json, model_mapping_json FROM providers WHERE id = ?1",
+            rusqlite::params![saved.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read cutover fields");
+    assert!(preserved.0.is_some());
+    assert_eq!(preserved.1, r#"{"legacy":1}"#);
+    assert_eq!(preserved.2, r#"{"legacy":2}"#);
 }
 
 #[test]

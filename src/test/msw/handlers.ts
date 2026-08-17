@@ -3,6 +3,7 @@
 import { http, HttpResponse } from "msw";
 import { TAURI_ENDPOINT } from "../tauriEndpoint";
 import type { CliKey, ClaudeModels, ProviderSummary } from "../../services/providers/providers";
+import { CLI_KEYS, isCliKey } from "../../constants/clis";
 import {
   buildCliProxySetEnabledResult,
   getAppAboutState,
@@ -196,10 +197,10 @@ export const handlers = [
     }
 
     const cliKeyRaw = input.cliKey;
-    if (cliKeyRaw !== "claude" && cliKeyRaw !== "codex" && cliKeyRaw !== "gemini") {
+    if (!isCliKey(cliKeyRaw)) {
       return HttpResponse.json({ error: "invalid provider_upsert cliKey" }, { status: 400 });
     }
-    const cliKey = cliKeyRaw as CliKey;
+    const cliKey = cliKeyRaw;
 
     if (typeof input.name !== "string" || !Array.isArray(input.baseUrls)) {
       return HttpResponse.json({ error: "invalid provider_upsert payload" }, { status: 400 });
@@ -252,6 +253,17 @@ export const handlers = [
       source_provider_id:
         typeof input.sourceProviderId === "number" ? input.sourceProviderId : null,
       bridge_type: typeof input.bridgeType === "string" ? input.bridgeType : null,
+      model_policy_status:
+        input.modelPolicy && typeof input.modelPolicy === "object"
+          ? "ready"
+          : (existing?.model_policy_status ?? (cliKey === "claude" ? "legacy" : "ready")),
+      model_policy:
+        input.modelPolicy && typeof input.modelPolicy === "object"
+          ? (input.modelPolicy as ProviderSummary["model_policy"])
+          : (existing?.model_policy ??
+            (cliKey === "claude"
+              ? null
+              : { version: 1, mode: "all", modelPatterns: [], mappings: [] })),
       api_key_configured:
         input.authMode === "oauth"
           ? false
@@ -288,7 +300,7 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/provider_duplicate`, async ({ request }) => {
     const payload = await withJson<{ providerId?: number }>(request);
     const providerId = payload.providerId ?? -1;
-    const cliKeys: CliKey[] = ["claude", "codex", "gemini"];
+    const cliKeys: readonly CliKey[] = CLI_KEYS;
 
     for (const cliKey of cliKeys) {
       const current = getProvidersState(cliKey);
@@ -470,22 +482,35 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/app_restart`, () => HttpResponse.json(true)),
 
   // ---- Model Prices ----
-  http.post(`${TAURI_ENDPOINT}/model_prices_list`, () => HttpResponse.json([])),
-  http.post(`${TAURI_ENDPOINT}/model_prices_sync_basellm`, () =>
+  http.post(`${TAURI_ENDPOINT}/model_prices_list_all`, () => HttpResponse.json([])),
+  http.post(`${TAURI_ENDPOINT}/model_prices_sync`, () =>
     HttpResponse.json({
       status: "not_modified",
       inserted: 0,
       updated: 0,
-      skipped: 0,
+      unchanged: 0,
       total: 0,
+      error: null,
     })
   ),
   http.post(`${TAURI_ENDPOINT}/model_price_aliases_get`, () =>
-    HttpResponse.json({ version: 1, rules: [] })
+    HttpResponse.json({
+      version: 1,
+      rules: [
+        {
+          cli_key: "grok",
+          match_type: "exact",
+          pattern: "grok-build",
+          target_model: "grok-build-0.1",
+          enabled: true,
+        },
+      ],
+    })
   ),
-  http.post(`${TAURI_ENDPOINT}/model_price_aliases_set`, () =>
-    HttpResponse.json({ version: 1, rules: [] })
-  ),
+  http.post(`${TAURI_ENDPOINT}/model_price_aliases_set`, async ({ request }) => {
+    const payload = await withJson<{ aliases?: unknown }>(request);
+    return HttpResponse.json(payload.aliases ?? { version: 1, rules: [] });
+  }),
 
   // ---- CLI Manager ----
   http.post(`${TAURI_ENDPOINT}/cli_manager_claude_info_get`, () => HttpResponse.json(null)),

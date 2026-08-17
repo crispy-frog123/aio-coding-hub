@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.60.17](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.16...aio-coding-hub-v0.60.17) (2026-08-12)
+
+
+### Features
+
+* **app:** 添加思考等级展示和模型价格别名优化 ([6007d7a](https://github.com/dyndynjyxa/aio-coding-hub/commit/6007d7a09dace7a775a2fb5300c05e165050b340))
+* **providers:** add unified model policy routing ([9e2d84c](https://github.com/dyndynjyxa/aio-coding-hub/commit/9e2d84c87ef14929ef7b20dc559f3421f2f2f761))
+* **providers:** add upstream model discovery ([bcb6338](https://github.com/dyndynjyxa/aio-coding-hub/commit/bcb633824d2eef70faae8d8aebe24908b66ad042))
+* **providers:** improve model policy routing UX ([4856337](https://github.com/dyndynjyxa/aio-coding-hub/commit/48563377053944a139dd412edb6bb97778534d61))
+* **provider:** 新增Codex模型目录事件及刷新反馈功能 ([a09cbb0](https://github.com/dyndynjyxa/aio-coding-hub/commit/a09cbb057b47d5286e089281bf02d0d38ab25ec1))
+
+
+### Bug Fixes
+
+* **deps:** patch blocking pnpm advisories ([eee73cc](https://github.com/dyndynjyxa/aio-coding-hub/commit/eee73cce4441324c44d8b1dc50110a35bba36208))
+* **gateway:** 对齐 CCH v0.9.2 网关整流器行为 ([e2d0379](https://github.com/dyndynjyxa/aio-coding-hub/commit/e2d037928d2200e3321c3ce614db55db66da32bc))
+* **HomeRequestLogsPanel:** 处理缓存创建指标显示逻辑 ([cda19b2](https://github.com/dyndynjyxa/aio-coding-hub/commit/cda19b2512fe893b2cb446be85f0bac07174cdee))
+* **providers:** correct model policy routing ([537dd7a](https://github.com/dyndynjyxa/aio-coding-hub/commit/537dd7a838e9ec720acef3db79a4f086023bf5ac))
+
+## [0.60.16](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.15...aio-coding-hub-v0.60.16) (2026-07-27)
+
+
+### Features
+
+* **ui:** 用量统计新增文件夹排行与预估开发时间 ([#360](https://github.com/dyndynjyxa/aio-coding-hub/issues/360)) ([c9326c0](https://github.com/dyndynjyxa/aio-coding-hub/commit/c9326c0a18ab15eebcc5513d2b195f8f1f1dbb2d))
+* **usage:** provider「指标走势」tab(平均时延/TTFB/出字速率) ([#336](https://github.com/dyndynjyxa/aio-coding-hub/issues/336)) ([d27efdb](https://github.com/dyndynjyxa/aio-coding-hub/commit/d27efdb8c8bbfadf12c3b76c677a9524f312baee))
+
+
+### Bug Fixes
+
+* **gateway:** restore Claude OAuth login via claude.ai authorize endpoint ([7bd1812](https://github.com/dyndynjyxa/aio-coding-hub/commit/7bd1812f9502670dd7536f251fbaf8fcc27966bd))
+* **gateway:** 隔离客户端 ChatGPT 账号头 ([#347](https://github.com/dyndynjyxa/aio-coding-hub/issues/347)) ([7cc1d8a](https://github.com/dyndynjyxa/aio-coding-hub/commit/7cc1d8accc3725d63ff34519fde9d82f285d3510))
+* **providers:** 刷新 OAuth Token 后同步更新到期时间展示 ([#353](https://github.com/dyndynjyxa/aio-coding-hub/issues/353)) ([84564a5](https://github.com/dyndynjyxa/aio-coding-hub/commit/84564a5b27db017cab02c77e5f8ad82f799befef))
+* **ui:** 关于应用不展示未知的 Bundle/运行模式 ([de09d64](https://github.com/dyndynjyxa/aio-coding-hub/commit/de09d64509a1d389e4da57c79317612b66cf02ea)), closes [#358](https://github.com/dyndynjyxa/aio-coding-hub/issues/358)
+
+## [0.60.15](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.14...aio-coding-hub-v0.60.15) (2026-07-16)
+
+
+### Features
+
+* **grok:** 支持供应商 OAuth 登录 ([#348](https://github.com/dyndynjyxa/aio-coding-hub/issues/348)) ([9e19e7c](https://github.com/dyndynjyxa/aio-coding-hub/commit/9e19e7c1b0bb2f1656b806757c7b23c7e0c412d4))
+* **image-gen:** 生图页面、并发生成与历史持久化 ([#351](https://github.com/dyndynjyxa/aio-coding-hub/issues/351)) ([656b077](https://github.com/dyndynjyxa/aio-coding-hub/commit/656b07780016b3ed25a7059bbcafbb5a7cc2d531))
+
+## [0.60.14](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.13...aio-coding-hub-v0.60.14) (2026-07-15)
+
+
+### Features
+
+* **grok:** 接入 Grok CLI 网关 ([#342](https://github.com/dyndynjyxa/aio-coding-hub/issues/342)) ([2deb7e8](https://github.com/dyndynjyxa/aio-coding-hub/commit/2deb7e82ca8672cefd994327990fda4d5ccd9419))
+
 ## [0.60.13](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.12...aio-coding-hub-v0.60.13) (2026-07-14)
 
 

@@ -11,6 +11,9 @@ const CliManagerPage = lazy(() =>
 const ConsolePage = lazy(() =>
   import("../pages/ConsolePage").then((m) => ({ default: m.ConsolePage }))
 );
+const ImageGenPage = lazy(() =>
+  import("../pages/ImageGenPage").then((m) => ({ default: m.ImageGenPage }))
+);
 const LogsPage = lazy(() => import("../pages/LogsPage").then((m) => ({ default: m.LogsPage })));
 const McpPage = lazy(() => import("../pages/McpPage").then((m) => ({ default: m.McpPage })));
 const ModelDetectionPage = lazy(() =>
@@ -72,6 +75,7 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
+        <Route path="/image-gen" element={<LazyPage Page={ImageGenPage} />} />
         <Route path="/providers" element={<LazyPage Page={ProvidersPage} />} />
         <Route path="/sessions" element={<LazyPage Page={SessionsPage} />} />
         <Route

@@ -29,6 +29,8 @@ mod codex_service_tier;
 mod codex_session_id_completion;
 #[path = "prepare/cx2cc_preparation.rs"]
 mod cx2cc_preparation;
+#[path = "prepare/grok_chat_usage.rs"]
+mod grok_chat_usage;
 #[path = "prepare/oauth.rs"]
 mod oauth;
 #[path = "prepare/provider_checks.rs"]
@@ -39,6 +41,8 @@ mod provider_gate;
 mod provider_iterator;
 #[path = "prepare/provider_limits.rs"]
 mod provider_limits;
+#[path = "prepare/provider_model_policy.rs"]
+mod provider_model_policy;
 #[path = "prepare/request_sanitizer.rs"]
 mod request_sanitizer;
 
@@ -49,6 +53,8 @@ mod attempt_auth;
 mod attempt_executor;
 #[path = "attempt/attempt_record.rs"]
 mod attempt_record;
+#[path = "attempt/reasoning_effort.rs"]
+mod reasoning_effort;
 #[path = "attempt/retry_engine.rs"]
 mod retry_engine;
 #[path = "attempt/send.rs"]
@@ -233,6 +239,7 @@ where
         layered_policy_state: &layered_policy_state,
         max_attempts_per_provider: input.max_attempts_per_provider,
         sse_error_retry_count: input.sse_error_retry_count,
+        codex_priority_billing_source: input.codex_priority_billing_source,
         enable_response_fixer: input.enable_response_fixer,
         response_fixer_stream_config: input.response_fixer_stream_config,
         response_fixer_non_stream_config: input.response_fixer_non_stream_config,

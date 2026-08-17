@@ -8,8 +8,8 @@ It is intentionally a mapping and update checklist, not a user guide.
 
 - Upstream repository: `https://github.com/nonononull/codex-retry-gateway`
 - Upstream branch: `main`
-- Last reviewed upstream commit: `ef7fc5a0f9da125b91431cd99bcf6fd9387a53b2`
-- Last reviewed upstream subject: `Merge pull request #27 from nonononull/codex/passthrough-retry-timeout-policies`
+- Last reviewed upstream commit: `867a0db38588c6e91360bbe4e822e68096dda7b1`
+- Last reviewed upstream subject: `Latest upstream main reviewed during the 2026-08-17 AIO synchronization`
 - AIO integration style: manual Rust/React reimplementation inside AIO, not vendoring or executing upstream `gateway.mjs`.
 
 When updating this integration, first compare upstream changes from the commit above. Do not replace AIO gateway code with `gateway.mjs`.

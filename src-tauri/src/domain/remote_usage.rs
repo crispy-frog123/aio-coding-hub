@@ -1012,6 +1012,7 @@ mod tests {
                 cost_multiplier: 1.0,
                 priority: None,
                 claude_models: None,
+                model_policy: None,
                 limit_5h_usd: None,
                 limit_daily_usd: None,
                 daily_reset_mode: None,

@@ -64,6 +64,7 @@ describe("generated/bindings.ts contract", () => {
     expect(bindingsSource).toContain("cli_proxy_status_all");
     expect(bindingsSource).toContain("cli_proxy_set_enabled");
     expect(bindingsSource).toContain("provider_upsert");
+    expect(bindingsSource).toContain("provider_models_discover");
     expect(bindingsSource).toContain("provider_oauth_fetch_limits");
     expect(bindingsSource).toContain("wsl_detect");
     expect(bindingsSource).toContain("sort_modes_list");
@@ -123,6 +124,12 @@ describe("generated/bindings.ts contract", () => {
   it("pins acronym casing for usage bridge filter DTO fields", () => {
     expect(extractTypeBody(bindingsSource, "UsageQueryParams")).toContain(
       "dayStartHour: number | null"
+    );
+    expect(extractTypeBody(bindingsSource, "UsageQueryParams")).toContain(
+      "fullIdleGapMinutes: number | null"
+    );
+    expect(extractTypeBody(bindingsSource, "UsageQueryParams")).toContain(
+      "sessionBreakGapMinutes: number | null"
     );
     expect(extractTypeBody(bindingsSource, "UsageDayDetailParams")).toContain(
       "dayStartHour: number | null"

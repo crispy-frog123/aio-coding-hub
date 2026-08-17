@@ -60,7 +60,7 @@ describe("query/keys", () => {
     expect(usageKeys.hourlySeries(7)).toEqual(["usage", "hourlySeries", 7]);
     expect(
       usageKeys.summaryV2("daily", { startTs: 1, endTs: 2, cliKey: "claude", providerId: 3 })
-    ).toEqual(["usage", "summaryV2", "daily", 1, 2, "claude", 3, [], null, null]);
+    ).toEqual(["usage", "summaryV2", "daily", 1, 2, "claude", 3, [], null, null, null, null]);
     expect(
       usageKeys.summaryV2("daily", {
         startTs: 1,
@@ -69,7 +69,20 @@ describe("query/keys", () => {
         providerId: 3,
         folderKeys: [" /tmp/b ", "", "/tmp/a", "/tmp/a"],
       })
-    ).toEqual(["usage", "summaryV2", "daily", 1, 2, "claude", 3, ["/tmp/a", "/tmp/b"], null, null]);
+    ).toEqual([
+      "usage",
+      "summaryV2",
+      "daily",
+      1,
+      2,
+      "claude",
+      3,
+      ["/tmp/a", "/tmp/b"],
+      null,
+      null,
+      null,
+      null,
+    ]);
     expect(
       usageKeys.leaderboardV2("provider", "weekly", {
         startTs: 1,
@@ -89,6 +102,8 @@ describe("query/keys", () => {
       3,
       null,
       [],
+      null,
+      null,
       null,
       null,
     ]);
@@ -157,12 +172,13 @@ describe("query/keys", () => {
       "0.0.0",
     ]);
     expect(cliManagerKeys.geminiInfo()).toEqual(["cliManager", "gemini", "info"]);
+    expect(cliManagerKeys.grokInfo()).toEqual(["cliManager", "grok", "info"]);
+    expect(cliManagerKeys.grokConfig()).toEqual(["cliManager", "grok", "config"]);
   });
 
   it("builds modelPrices keys", () => {
     expect(modelPricesKeys.all).toEqual(["modelPrices"]);
     expect(modelPricesKeys.lists()).toEqual(["modelPrices", "list"]);
-    expect(modelPricesKeys.list("claude")).toEqual(["modelPrices", "list", "claude"]);
     expect(modelPricesKeys.aliases()).toEqual(["modelPrices", "aliases"]);
   });
 
@@ -174,6 +190,7 @@ describe("query/keys", () => {
   it("builds cliProxy keys", () => {
     expect(cliProxyKeys.all).toEqual(["cliProxy"]);
     expect(cliProxyKeys.statusAll()).toEqual(["cliProxy", "statusAll"]);
+    expect(cliProxyKeys.envConflicts("grok")).toEqual(["cliProxy", "envConflicts", "grok"]);
   });
 
   it("builds appAbout keys", () => {

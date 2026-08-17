@@ -17,5 +17,12 @@ export const USAGE_TABLE_TAB_ITEMS = [
   { key: "remoteUsage", label: "远端用量" },
   { key: "usage", label: "用量" },
   { key: "cacheTrend", label: "缓存走势图" },
+  { key: "metricsTrend", label: "指标走势" },
   { key: "availability", label: "可用率" },
 ] satisfies Array<TabListItem<UsageTableTab>>;
+
+export const USAGE_METRICS_TREND_ITEMS = [
+  { key: "duration", label: "耗时" },
+  { key: "ttfb", label: "首字" },
+  { key: "rate", label: "速率" },
+] satisfies Array<TabListItem<"duration" | "ttfb" | "rate">>;
