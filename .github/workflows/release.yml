@@ -204,16 +204,29 @@ jobs:
           cache: pnpm
 
       - name: Install Rust 1.90.0
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-        with:
-          toolchain: 1.90.0
-          components: rustfmt, clippy
-          targets: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          workspaces: src-tauri
+          for attempt in 1 2 3 4 5; do
+            if rustup toolchain install 1.90.0 \
+              --profile minimal \
+              --component rustfmt \
+              --component clippy \
+              --target "${{ matrix.target }}"; then
+              rustup default 1.90.0
+              exit 0
+            fi
+
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "Rust toolchain installation failed after ${attempt} attempts." >&2
+              exit 1
+            fi
+
+            delay=$((attempt * 15))
+            echo "Rust toolchain installation failed (attempt ${attempt}/5); retrying in ${delay}s..." >&2
+            sleep "$delay"
+          done
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -391,13 +404,37 @@ jobs:
           if-no-files-found: error
 
       - name: Upload stable assets (GitHub Release)
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        with:
-          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
-          files: stable-assets/*
-          fail_on_unmatched_files: true
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          files=(stable-assets/*)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No stable assets found to upload." >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            if gh release upload \
+              "${{ needs.prepare-release.outputs.tag_name }}" \
+              "${files[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber; then
+              exit 0
+            fi
+
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "Release asset upload failed after ${attempt} attempts." >&2
+              exit 1
+            fi
+
+            delay=$((attempt * 15))
+            echo "Release asset upload failed (attempt ${attempt}/5); retrying in ${delay}s..." >&2
+            sleep "$delay"
+          done
 
   assemble-latest-json:
     needs: [prepare-release, build]
@@ -487,13 +524,35 @@ jobs:
             });
 
       - name: Upload latest.json (GitHub Release)
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        with:
-          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
-          files: latest.json
-          fail_on_unmatched_files: true
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f latest.json ]]; then
+            echo "latest.json was not generated." >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            if gh release upload \
+              "${{ needs.prepare-release.outputs.tag_name }}" \
+              latest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber; then
+              exit 0
+            fi
+
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "latest.json upload failed after ${attempt} attempts." >&2
+              exit 1
+            fi
+
+            delay=$((attempt * 15))
+            echo "latest.json upload failed (attempt ${attempt}/5); retrying in ${delay}s..." >&2
+            sleep "$delay"
+          done
 
   publish:
     needs: [prepare-release, build, assemble-latest-json]
