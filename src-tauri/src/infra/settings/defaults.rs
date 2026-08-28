@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-pub const SCHEMA_VERSION: u32 = 45;
+pub const SCHEMA_VERSION: u32 = 46;
 pub const DEFAULT_GATEWAY_PORT: u16 = 37123;
 pub const MAX_GATEWAY_PORT: u16 = 37199;
 pub const DEFAULT_PROVIDER_COOLDOWN_SECONDS: u32 = 30;
@@ -53,6 +53,7 @@ pub(super) const SCHEMA_VERSION_ADD_SSE_ERROR_RETRY_COUNT: u32 = 42;
 pub(super) const SCHEMA_VERSION_ADD_GROK_PROXY_PREFERENCES: u32 = 43;
 pub(super) const SCHEMA_VERSION_ADD_IMAGE_GEN_STORAGE_DIR: u32 = 44;
 pub(super) const SCHEMA_VERSION_ALIGN_CCH_GATEWAY_RECTIFIERS: u32 = 45;
+pub(super) const SCHEMA_VERSION_ADD_DESKTOP_UPDATE_PROXY: u32 = 46;
 
 pub(super) const DEFAULT_LOG_RETENTION_DAYS: u32 = 7;
 pub(super) const MAX_LOG_RETENTION_DAYS: u32 = 3650;

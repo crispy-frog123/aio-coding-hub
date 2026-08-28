@@ -124,6 +124,21 @@ describe("services/settings/settingsValidation", () => {
     expect(
       validateSettingsSetInput({ updateReleasesUrl: "https://example.com/releases" })
     ).toBeNull();
+    expect(
+      validateSettingsSetInput({ desktopUpdateProxyMode: "custom", desktopUpdateProxyUrl: "" })
+    ).toContain("更新代理地址不能为空");
+    expect(
+      validateSettingsSetInput({
+        desktopUpdateProxyMode: "custom",
+        desktopUpdateProxyUrl: "https://user:pass@example.com",
+      })
+    ).toContain("更新代理地址不能包含用户名或密码");
+    expect(
+      validateSettingsSetInput({
+        desktopUpdateProxyMode: "custom",
+        desktopUpdateProxyUrl: "socks5://127.0.0.1:7890",
+      })
+    ).toBeNull();
 
     expect(validateUpstreamProxyFields({ enabled: true, url: "" })).toContain("代理地址不能为空");
     expect(

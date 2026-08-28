@@ -80,6 +80,8 @@ pub(crate) struct SettingsUpdate {
     pub circuit_breaker_failure_threshold: Option<u32>,
     pub circuit_breaker_open_duration_minutes: Option<u32>,
     pub update_releases_url: Option<String>,
+    pub desktop_update_proxy_mode: Option<settings::DesktopUpdateProxyMode>,
+    pub desktop_update_proxy_url: Option<String>,
     pub wsl_auto_config: Option<bool>,
     pub wsl_target_cli: Option<settings::WslTargetCli>,
     pub cli_priority_order: Option<Vec<String>>,
@@ -208,6 +210,8 @@ pub(crate) struct SettingsView {
     pub upstream_request_timeout_non_streaming_seconds: u32,
     pub sse_error_retry_count: u32,
     pub update_releases_url: String,
+    pub desktop_update_proxy_mode: settings::DesktopUpdateProxyMode,
+    pub desktop_update_proxy_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
     pub circuit_breaker_failure_threshold: u32,
@@ -367,6 +371,8 @@ impl From<&settings::AppSettings> for SettingsView {
                 .upstream_request_timeout_non_streaming_seconds,
             sse_error_retry_count: value.sse_error_retry_count,
             update_releases_url: value.update_releases_url.clone(),
+            desktop_update_proxy_mode: value.desktop_update_proxy_mode,
+            desktop_update_proxy_url: value.desktop_update_proxy_url.clone(),
             failover_max_attempts_per_provider: value.failover_max_attempts_per_provider,
             failover_max_providers_to_try: value.failover_max_providers_to_try,
             circuit_breaker_failure_threshold: value.circuit_breaker_failure_threshold,
@@ -670,6 +676,8 @@ pub(crate) async fn settings_set_impl(
         circuit_breaker_failure_threshold,
         circuit_breaker_open_duration_minutes,
         update_releases_url,
+        desktop_update_proxy_mode,
+        desktop_update_proxy_url,
         wsl_auto_config,
         wsl_target_cli,
         cli_priority_order,
@@ -726,6 +734,12 @@ pub(crate) async fn settings_set_impl(
             let previous = read_settings_for_update(&app_for_work)?;
             let update_releases_url = update_releases_url
                 .unwrap_or(previous.update_releases_url.clone())
+                .trim()
+                .to_string();
+            let desktop_update_proxy_mode =
+                desktop_update_proxy_mode.unwrap_or(previous.desktop_update_proxy_mode);
+            let desktop_update_proxy_url = desktop_update_proxy_url
+                .unwrap_or(previous.desktop_update_proxy_url.clone())
                 .trim()
                 .to_string();
             let tray_enabled = tray_enabled.unwrap_or(previous.tray_enabled);
@@ -981,6 +995,8 @@ pub(crate) async fn settings_set_impl(
                 upstream_request_timeout_non_streaming_seconds,
                 sse_error_retry_count,
                 update_releases_url,
+                desktop_update_proxy_mode,
+                desktop_update_proxy_url,
                 failover_max_attempts_per_provider,
                 failover_max_providers_to_try,
                 circuit_breaker_failure_threshold,

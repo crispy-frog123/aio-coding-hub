@@ -26,7 +26,7 @@ const DEFAULT_CLI_PROXY_STATUS: CliProxyStatus[] = [
 // schema_version and the historically drift-prone fields below are guarded by
 // src/constants/__tests__/crossLayerContracts.test.ts.
 const DEFAULT_SETTINGS: AppSettings = {
-  schema_version: 45,
+  schema_version: 46,
   preferred_port: 37123,
   show_home_heatmap: true,
   show_home_usage: true,
@@ -75,6 +75,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   upstream_request_timeout_non_streaming_seconds: 0,
   sse_error_retry_count: 2,
   update_releases_url: "https://github.com/dyndynjyxa/aio-coding-hub/releases",
+  desktop_update_proxy_mode: "system",
+  desktop_update_proxy_url: "",
   failover_max_attempts_per_provider: 5,
   failover_max_providers_to_try: 5,
   circuit_breaker_failure_threshold: 5,

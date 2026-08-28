@@ -897,9 +897,20 @@ fn migrate_align_cch_gateway_rectifiers(
     )
 }
 
+fn migrate_add_desktop_update_proxy(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_DESKTOP_UPDATE_PROXY,
+    )
+}
+
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 39] = [
+const SETTINGS_MIGRATIONS: [SettingsMigration; 40] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -939,6 +950,7 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 39] = [
     migrate_add_grok_proxy_preferences,
     migrate_add_image_gen_storage_dir,
     migrate_align_cch_gateway_rectifiers,
+    migrate_add_desktop_update_proxy,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {

@@ -3186,6 +3186,7 @@ export type DesktopOpenPathRequest = { path: string; with: string | null };
 export type DesktopOpenUrlRequest = { url: string; with: string | null };
 export type DesktopRevealItemRequest = { path: string };
 export type DesktopThemeMode = "light" | "dark" | "system";
+export type DesktopUpdateProxyMode = "system" | "custom";
 export type DesktopUpdaterMetadata = {
   rid: number;
   currentVersion: string;
@@ -4545,6 +4546,8 @@ export type SettingsUpdate = {
   circuitBreakerFailureThreshold: number | null;
   circuitBreakerOpenDurationMinutes: number | null;
   updateReleasesUrl: string | null;
+  desktopUpdateProxyMode: DesktopUpdateProxyMode | null;
+  desktopUpdateProxyUrl: string | null;
   wslAutoConfig: boolean | null;
   wslTargetCli: WslTargetCli | null;
   cliPriorityOrder: string[] | null;
@@ -4640,6 +4643,8 @@ export type SettingsView = {
   upstream_request_timeout_non_streaming_seconds: number;
   sse_error_retry_count: number;
   update_releases_url: string;
+  desktop_update_proxy_mode: DesktopUpdateProxyMode;
+  desktop_update_proxy_url: string;
   failover_max_attempts_per_provider: number;
   failover_max_providers_to_try: number;
   circuit_breaker_failure_threshold: number;

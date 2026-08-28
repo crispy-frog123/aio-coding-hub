@@ -28,6 +28,6 @@ pub use types::{
     AppSettings, CodexGatewayFirstProgressAction, CodexGatewayPolicyAction, CodexHomeMode,
     CodexPriorityBillingSource, CodexReasoningGuardCompareMode, CodexReasoningGuardExhaustedAction,
     CodexReasoningGuardMatchMode, CodexReasoningGuardModelRule, CodexReasoningGuardRuleMode,
-    CodexReasoningGuardStreamAction, GatewayListenMode, HomeUsagePeriod, WslHostAddressMode,
-    WslTargetCli,
+    CodexReasoningGuardStreamAction, DesktopUpdateProxyMode, GatewayListenMode, HomeUsagePeriod,
+    WslHostAddressMode, WslTargetCli,
 };

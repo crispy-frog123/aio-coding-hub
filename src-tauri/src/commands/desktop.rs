@@ -648,7 +648,23 @@ pub(crate) async fn desktop_updater_check(
     app: tauri::AppHandle,
     timeout: Option<u64>,
 ) -> Result<Option<DesktopUpdaterMetadata>, String> {
+    let app_for_settings = app.clone();
+    let update_proxy = crate::blocking::run("desktop_updater_resolve_proxy", move || {
+        let settings = crate::settings::read(&app_for_settings)?;
+        Ok::<_, crate::shared::error::AppError>(
+            (settings.desktop_update_proxy_mode == crate::settings::DesktopUpdateProxyMode::Custom)
+                .then_some(settings.desktop_update_proxy_url),
+        )
+    })
+    .await?;
+
     let mut builder = app.updater_builder();
+    if let Some(proxy_url) = update_proxy {
+        let proxy = proxy_url
+            .parse()
+            .map_err(|error| format!("failed to parse desktop update proxy: {error}"))?;
+        builder = builder.proxy(proxy);
+    }
     if let Some(timeout) = to_duration(timeout) {
         builder = builder.timeout(timeout);
     }

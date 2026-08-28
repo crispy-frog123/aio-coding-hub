@@ -1,9 +1,11 @@
 import type {
   AppSettings,
+  DesktopUpdateProxyMode,
   HomeUsagePeriod,
   SettingsSetInput,
   SettingsViewBackedInputKey,
 } from "../../services/settings/settings";
+import { validateDesktopUpdateProxy } from "../../services/settings/settingsValidation";
 import type { CliKey } from "../../services/providers/providers";
 import { DEFAULT_GATEWAY_PORT } from "../../constants/gateway";
 import {
@@ -29,6 +31,8 @@ export type PersistedSettings = {
   upstream_first_byte_timeout_seconds: number;
   upstream_stream_idle_timeout_seconds: number;
   upstream_request_timeout_non_streaming_seconds: number;
+  desktop_update_proxy_mode: DesktopUpdateProxyMode;
+  desktop_update_proxy_url: string;
   intercept_anthropic_warmup_requests: boolean;
   enable_thinking_signature_rectifier: boolean;
   enable_debug_log: boolean;
@@ -61,6 +65,8 @@ export const DEFAULT_PERSISTED_SETTINGS: PersistedSettings = {
   upstream_first_byte_timeout_seconds: 0,
   upstream_stream_idle_timeout_seconds: 0,
   upstream_request_timeout_non_streaming_seconds: 0,
+  desktop_update_proxy_mode: "system",
+  desktop_update_proxy_url: "",
   intercept_anthropic_warmup_requests: false,
   enable_thinking_signature_rectifier: true,
   enable_debug_log: false,
@@ -94,6 +100,8 @@ const PERSISTED_SETTINGS_INPUT_KEYS = [
   "upstreamFirstByteTimeoutSeconds",
   "upstreamStreamIdleTimeoutSeconds",
   "upstreamRequestTimeoutNonStreamingSeconds",
+  "desktopUpdateProxyMode",
+  "desktopUpdateProxyUrl",
   "interceptAnthropicWarmupRequests",
   "enableThinkingSignatureRectifier",
   "enableDebugLog",
@@ -185,6 +193,10 @@ export function buildPersistedSettingsSnapshot(
     upstream_request_timeout_non_streaming_seconds:
       settingsValue.upstream_request_timeout_non_streaming_seconds ??
       fallback.upstream_request_timeout_non_streaming_seconds,
+    desktop_update_proxy_mode:
+      settingsValue.desktop_update_proxy_mode ?? fallback.desktop_update_proxy_mode,
+    desktop_update_proxy_url:
+      settingsValue.desktop_update_proxy_url ?? fallback.desktop_update_proxy_url,
     intercept_anthropic_warmup_requests:
       settingsValue.intercept_anthropic_warmup_requests ??
       fallback.intercept_anthropic_warmup_requests,
@@ -271,6 +283,14 @@ export function validatePersistedSettings(desired: PersistedSettings, keys: Pers
     if (!isIntegerInRange(desired.upstream_request_timeout_non_streaming_seconds, 0, 86400)) {
       return "上游非流式总超时必须为 0-86400 秒";
     }
+  }
+
+  if (keys.includes("desktop_update_proxy_mode") || keys.includes("desktop_update_proxy_url")) {
+    const message = validateDesktopUpdateProxy(
+      desired.desktop_update_proxy_mode,
+      desired.desktop_update_proxy_url
+    );
+    if (message) return message;
   }
 
   if (keys.includes("failover_max_attempts_per_provider")) {

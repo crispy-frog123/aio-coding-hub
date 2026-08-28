@@ -174,11 +174,22 @@ export function UpdateDialog() {
 
         {meta.installingUpdate ? (
           <div className="rounded-lg border border-border bg-white dark:bg-secondary p-3 text-sm text-secondary-foreground">
-            <div className="font-medium">下载并安装中…</div>
-            <div className="mt-1 font-mono text-xs text-muted-foreground">
-              {formatBytes(meta.installDownloadedBytes)}
-              {meta.installTotalBytes != null ? ` / ${formatBytes(meta.installTotalBytes)}` : ""}
-            </div>
+            {meta.installDownloadedBytes === 0 ? (
+              <>
+                <div className="font-medium">连接更新服务器中…</div>
+                <div className="mt-1 text-xs text-muted-foreground">尚未接收下载数据</div>
+              </>
+            ) : (
+              <>
+                <div className="font-medium">下载并安装中…</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">
+                  {formatBytes(meta.installDownloadedBytes)}
+                  {meta.installTotalBytes != null
+                    ? ` / ${formatBytes(meta.installTotalBytes)}`
+                    : ""}
+                </div>
+              </>
+            )}
           </div>
         ) : null}
 

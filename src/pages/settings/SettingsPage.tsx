@@ -51,6 +51,10 @@ export function SettingsPage() {
             setRequestLogRetentionDays={persistence.setRequestLogRetentionDays}
             enableDebugLog={persistence.enableDebugLog}
             setEnableDebugLog={persistence.setEnableDebugLog}
+            desktopUpdateProxyMode={persistence.desktopUpdateProxyMode}
+            setDesktopUpdateProxyMode={persistence.setDesktopUpdateProxyMode}
+            desktopUpdateProxyUrl={persistence.desktopUpdateProxyUrl}
+            setDesktopUpdateProxyUrl={persistence.setDesktopUpdateProxyUrl}
             requestPersist={persistence.requestPersist}
             noticePermissionStatus={notice.noticePermissionStatus}
             requestingNoticePermission={notice.requestingNoticePermission}

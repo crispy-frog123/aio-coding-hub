@@ -139,6 +139,25 @@ describe("components/UpdateDialog", () => {
     expect(screen.getByRole("button", { name: "安装中…" })).toBeDisabled();
   });
 
+  it("shows a connection state until the updater receives its first download bytes", () => {
+    vi.mocked(useUpdateMeta).mockReturnValue({
+      about: { run_mode: "desktop", app_version: "0.0.0" },
+      updateCandidate: { version: "1.2.0", currentVersion: "1.1.0", date: null, rid: "rid" },
+      checkingUpdate: false,
+      dialogOpen: true,
+      installingUpdate: true,
+      installError: null,
+      installTotalBytes: null,
+      installDownloadedBytes: 0,
+    } as any);
+
+    render(<UpdateDialog />);
+
+    expect(screen.getByText("连接更新服务器中…")).toBeInTheDocument();
+    expect(screen.getByText("尚未接收下载数据")).toBeInTheDocument();
+    expect(screen.queryByText("下载并安装中…")).not.toBeInTheDocument();
+  });
+
   it("toasts when download/install is unavailable in non-portable mode", async () => {
     vi.mocked(useUpdateMeta).mockReturnValue({
       about: { run_mode: "desktop", app_version: "0.0.0" },

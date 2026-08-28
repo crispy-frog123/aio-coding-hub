@@ -160,6 +160,8 @@ describe("pages/settings/settingsPersistenceModel", () => {
       upstreamFirstByteTimeoutSeconds: 0,
       upstreamStreamIdleTimeoutSeconds: 0,
       upstreamRequestTimeoutNonStreamingSeconds: 0,
+      desktopUpdateProxyMode: "system",
+      desktopUpdateProxyUrl: "",
       interceptAnthropicWarmupRequests: false,
       enableThinkingSignatureRectifier: true,
       enableDebugLog: false,
@@ -172,5 +174,26 @@ describe("pages/settings/settingsPersistenceModel", () => {
       circuitBreakerFailureThreshold: 5,
       circuitBreakerOpenDurationMinutes: 30,
     });
+  });
+
+  it("validates custom update proxies before they reach IPC", () => {
+    expect(
+      validatePersistedSettings(
+        applyPersistedSettingsPatch(DEFAULT_PERSISTED_SETTINGS, {
+          desktop_update_proxy_mode: "custom",
+        }),
+        ["desktop_update_proxy_mode"]
+      )
+    ).toBe("更新代理地址不能为空");
+
+    expect(
+      validatePersistedSettings(
+        applyPersistedSettingsPatch(DEFAULT_PERSISTED_SETTINGS, {
+          desktop_update_proxy_mode: "custom",
+          desktop_update_proxy_url: "socks5://127.0.0.1:7890",
+        }),
+        ["desktop_update_proxy_mode", "desktop_update_proxy_url"]
+      )
+    ).toBeNull();
   });
 });

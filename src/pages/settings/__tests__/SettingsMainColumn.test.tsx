@@ -103,6 +103,10 @@ function renderSettingsMainColumn(
     setRequestLogRetentionDays: vi.fn(),
     enableDebugLog: false,
     setEnableDebugLog: vi.fn(),
+    desktopUpdateProxyMode: "system",
+    setDesktopUpdateProxyMode: vi.fn(),
+    desktopUpdateProxyUrl: "",
+    setDesktopUpdateProxyUrl: vi.fn(),
     requestPersist: vi.fn(),
     noticePermissionStatus: "checking",
     requestingNoticePermission: false,
@@ -173,6 +177,45 @@ describe("pages/settings/SettingsMainColumn", () => {
     fireEvent.click(within(row as HTMLElement).getByRole("switch"));
     expect(setShowHomeHeatmap).toHaveBeenCalledWith(false);
     expect(requestPersist).toHaveBeenCalledWith({ show_home_heatmap: false });
+  });
+
+  it("persists the update download proxy mode and custom address", () => {
+    const setDesktopUpdateProxyMode = vi.fn();
+    const setDesktopUpdateProxyUrl = vi.fn();
+    const requestPersist = vi.fn();
+    vi.mocked(useTheme).mockReturnValue({
+      theme: "system",
+      resolvedTheme: "light",
+      setTheme: vi.fn(),
+    } as any);
+
+    renderSettingsMainColumn({
+      desktopUpdateProxyMode: "custom",
+      setDesktopUpdateProxyMode,
+      desktopUpdateProxyUrl: "http://127.0.0.1:7890",
+      setDesktopUpdateProxyUrl,
+      requestPersist,
+    });
+
+    const systemMode = screen.getByRole("button", { name: "跟随系统代理" });
+    expect(systemMode).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "单独代理" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    const proxyInput = screen.getByPlaceholderText("例如：http://127.0.0.1:7890");
+    fireEvent.change(proxyInput, { target: { value: "socks5://127.0.0.1:7891" } });
+    expect(setDesktopUpdateProxyUrl).toHaveBeenCalledWith("socks5://127.0.0.1:7891");
+    fireEvent.blur(proxyInput);
+    expect(requestPersist).toHaveBeenCalledWith({
+      desktop_update_proxy_mode: "custom",
+      desktop_update_proxy_url: "http://127.0.0.1:7890",
+    });
+
+    fireEvent.click(systemMode);
+    expect(setDesktopUpdateProxyMode).toHaveBeenCalledWith("system");
+    expect(requestPersist).toHaveBeenLastCalledWith({ desktop_update_proxy_mode: "system" });
   });
 
   it("shows readonly protection and disables config writes after settings read failure", () => {
