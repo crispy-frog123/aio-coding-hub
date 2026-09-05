@@ -635,7 +635,7 @@ mod tests {
     #[cfg(unix)]
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     #[cfg(windows)]
-    use std::{ffi::OsStr, ffi::OsString};
+    use std::{ffi::OsStr, ffi::OsString, path::PathBuf};
 
     #[cfg(unix)]
     fn fixture(script: &str) -> (PathBuf, PathBuf, CodexLaunchSpec) {

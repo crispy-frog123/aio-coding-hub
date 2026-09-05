@@ -21,16 +21,18 @@ pub(crate) fn build_for_proxy<R: tauri::Runtime>(
     db_override: Option<&db::Db>,
 ) -> crate::shared::error::AppResult<Option<CatalogProjection>> {
     let policies = load_routable_ready_policies(app, db_override)?;
-    if mapping_source_signature(&policies).is_empty() {
+    let codex_home = codex_paths::codex_home_dir(app)?;
+    let user_catalog = load_user_catalog(original_config, original_aio_catalog, &codex_home)?;
+    let has_model_mappings = !mapping_source_signature(&policies).is_empty();
+    let needs_catalog_overlay = has_model_mappings || user_catalog.is_some();
+    if !needs_catalog_overlay {
         return Ok(None);
     }
 
     let launch = cli_manager::codex_launch_spec(app)?
         .ok_or_else(|| "CLI_PROXY_CODEX_CATALOG_FAILED: Codex CLI not found".to_string())?;
-    let codex_home = codex_paths::codex_home_dir(app)?;
     let bundled_bytes = cli_manager::codex_bundled_model_catalog_json(&launch, &codex_home)?;
     let bundled = parse_catalog_json(&bundled_bytes, "bundled Codex catalog")?;
-    let user_catalog = load_user_catalog(original_config, original_aio_catalog, &codex_home)?;
 
     build_projection(&bundled, user_catalog.as_ref(), &policies).map_err(Into::into)
 }
@@ -49,6 +51,10 @@ pub(crate) fn build_projection(
     user_catalog: Option<&Value>,
     policies: &[ProviderModelPolicyV1],
 ) -> Result<Option<CatalogProjection>, String> {
+    // A user-supplied catalog replaces Codex's bundled list when referenced directly.
+    // While the proxy is enabled, project it over the latest bundled catalog so that
+    // third-party entries survive without hiding models introduced by Codex updates.
+    let force_catalog_overlay = user_catalog.is_some();
     let mut models = merge_models(bundled, user_catalog)?;
     let baseline_slugs = models
         .iter()
@@ -56,7 +62,7 @@ pub(crate) fn build_projection(
         .map(str::to_string)
         .collect::<Vec<_>>();
     let affected_sources = collect_affected_sources(&baseline_slugs, policies);
-    if affected_sources.is_empty() {
+    if affected_sources.is_empty() && !force_catalog_overlay {
         return Ok(None);
     }
 
@@ -516,6 +522,48 @@ mod tests {
         assert!(build_projection(&bundled(), None, &[])
             .expect("projection")
             .is_none());
+    }
+
+    #[test]
+    fn user_catalog_overlay_keeps_custom_models_and_adds_new_bundled_models() {
+        let mut current_bundled = bundled();
+        current_bundled["models"]
+            .as_array_mut()
+            .expect("bundled models")
+            .insert(
+                0,
+                serde_json::json!({
+                    "slug": "gpt-6-astra",
+                    "display_name": "GPT-6 Astra"
+                }),
+            );
+        let user = serde_json::json!({
+            "models": [
+                {"slug": "gpt-5.6-sol", "display_name": "Custom Sol"},
+                {"slug": "deepseek-v4-flash", "display_name": "DeepSeek V4 Flash"}
+            ]
+        });
+
+        let result = build_projection(&current_bundled, Some(&user), &[])
+            .expect("projection")
+            .expect("user catalog overlay");
+        let value: Value = serde_json::from_slice(&result.bytes).expect("json");
+        let models = value["models"].as_array().expect("models");
+        let slugs = models
+            .iter()
+            .map(|model| model["slug"].as_str().expect("slug"))
+            .collect::<Vec<_>>();
+
+        assert!(slugs.contains(&"gpt-6-astra"));
+        assert!(slugs.contains(&"deepseek-v4-flash"));
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model["slug"] == "gpt-5.6-sol")
+                .expect("custom override")["display_name"],
+            "Custom Sol"
+        );
+        assert!(result.affected_sources.is_empty());
     }
 
     #[test]
