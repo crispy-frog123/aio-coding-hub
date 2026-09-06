@@ -250,12 +250,10 @@ fn load_user_catalog(
         codex_home.join(referenced)
     };
     let bytes = if path == codex_home.join(AIO_CODEX_MODEL_CATALOG_FILENAME) {
-        Some(original_aio_catalog.map(ToOwned::to_owned).ok_or_else(|| {
-            format!(
-                "CLI_PROXY_CODEX_CATALOG_FAILED: user Codex catalog {} does not exist",
-                path.display()
-            )
-        })?)
+        // This filename is AIO-owned. It may remain in a stale proxy config after
+        // the generated file has been removed while disabling the proxy. Only use
+        // it as an input when it genuinely existed before AIO first took over.
+        original_aio_catalog.map(ToOwned::to_owned)
     } else {
         Some(crate::shared::fs::read_file_with_max_len(
             &path,
@@ -515,6 +513,40 @@ mod tests {
             .expect("catalog");
 
         assert_eq!(value["models"][0]["slug"], "external-model");
+    }
+
+    #[test]
+    fn stale_aio_catalog_pointer_without_original_file_is_ignored() {
+        let codex_home = tempfile::tempdir().expect("codex home");
+        let config = format!(
+            "model_catalog_json = \"{}\"\n",
+            AIO_CODEX_MODEL_CATALOG_FILENAME
+        );
+
+        let value = load_user_catalog(Some(config.as_bytes()), None, codex_home.path())
+            .expect("stale AIO pointer should not fail");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn original_aio_catalog_pointer_uses_manifest_backup() {
+        let codex_home = tempfile::tempdir().expect("codex home");
+        let config = format!(
+            "model_catalog_json = \"{}\"\n",
+            AIO_CODEX_MODEL_CATALOG_FILENAME
+        );
+        let original_catalog = br#"{"models":[{"slug":"legacy-user-model"}]}"#;
+
+        let value = load_user_catalog(
+            Some(config.as_bytes()),
+            Some(original_catalog),
+            codex_home.path(),
+        )
+        .expect("read original catalog")
+        .expect("catalog");
+
+        assert_eq!(value["models"][0]["slug"], "legacy-user-model");
     }
 
     #[test]

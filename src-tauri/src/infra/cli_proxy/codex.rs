@@ -57,6 +57,60 @@ fn root_model_catalog_value(config: Option<&[u8]>) -> Option<String> {
     find_root_key_value(&lines, "model_catalog_json")
 }
 
+fn is_aio_model_catalog_pointer(value: &str, catalog_path: &Path) -> bool {
+    let Ok(document) = format!("model_catalog_json = {value}").parse::<toml::Value>() else {
+        return false;
+    };
+    let Some(pointer) = document
+        .get("model_catalog_json")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|pointer| !pointer.is_empty())
+    else {
+        return false;
+    };
+
+    let referenced = Path::new(pointer);
+    let configured_path = if referenced.is_absolute() {
+        referenced.to_path_buf()
+    } else {
+        catalog_path
+            .parent()
+            .expect("Codex model catalog path has a parent")
+            .join(referenced)
+    };
+    configured_path == catalog_path
+}
+
+fn build_catalog_apply_plan(
+    projection: Option<crate::infra::codex_model_catalog::projection::CatalogProjection>,
+    original_catalog: Option<Vec<u8>>,
+    original_catalog_pointer: Option<String>,
+    original_pointer_is_aio_managed: bool,
+) -> CatalogApplyPlan {
+    if let Some(projection) = projection {
+        return CatalogApplyPlan {
+            catalog_bytes: Some(projection.bytes),
+            catalog_pointer: Some(format!(
+                "\"{}\"",
+                crate::infra::codex_model_catalog::projection::AIO_CODEX_MODEL_CATALOG_FILENAME
+            )),
+        };
+    }
+
+    // AIO removes its generated catalog while disabled. Do not restore a pointer
+    // to that file unless the manifest proves it belonged to the user originally.
+    let catalog_pointer = if original_catalog.is_none() && original_pointer_is_aio_managed {
+        None
+    } else {
+        original_catalog_pointer
+    };
+    CatalogApplyPlan {
+        catalog_bytes: original_catalog,
+        catalog_pointer,
+    }
+}
+
 /// Projection is an enhancement on top of the proxy takeover: enabling/syncing the
 /// proxy must not fail just because the Codex CLI is missing or too old to export
 /// its bundled catalog. The refresh path stays strict so the UI can report that
@@ -86,6 +140,11 @@ fn prepare_catalog_apply_plan<R: tauri::Runtime>(
 ) -> AppResult<CatalogApplyPlan> {
     let original_config = manifest_original_bytes(app, "codex_config_toml", current_config)?;
     let original_catalog = manifest_original_bytes(app, CODEX_MODEL_CATALOG_KIND, current_catalog)?;
+    let original_catalog_pointer = root_model_catalog_value(original_config.as_deref());
+    let catalog_path = codex_model_catalog_path(app)?;
+    let original_pointer_is_aio_managed = original_catalog_pointer
+        .as_deref()
+        .is_some_and(|value| is_aio_model_catalog_pointer(value, &catalog_path));
     let projection = resolve_projection(
         crate::infra::codex_model_catalog::projection::build_for_proxy(
             app,
@@ -96,23 +155,12 @@ fn prepare_catalog_apply_plan<R: tauri::Runtime>(
         degrade_projection_failure,
     )?;
 
-    let catalog_pointer = projection
-        .as_ref()
-        .map(|_| {
-            format!(
-                "\"{}\"",
-                crate::infra::codex_model_catalog::projection::AIO_CODEX_MODEL_CATALOG_FILENAME
-            )
-        })
-        .or_else(|| root_model_catalog_value(original_config.as_deref()));
-    let catalog_bytes = projection
-        .map(|projection| projection.bytes)
-        .or(original_catalog);
-
-    Ok(CatalogApplyPlan {
-        catalog_bytes,
-        catalog_pointer,
-    })
+    Ok(build_catalog_apply_plan(
+        projection,
+        original_catalog,
+        original_catalog_pointer,
+        original_pointer_is_aio_managed,
+    ))
 }
 
 fn build_codex_catalog_pointer_config(
@@ -1446,6 +1494,61 @@ mod tests {
         assert!(removed.contains("model_catalog_json_backup = \"keep.json\""));
         assert!(removed.contains("model = \"gpt-test\""));
         assert!(removed.contains("[other]\nvalue = 1"));
+    }
+
+    #[test]
+    fn catalog_plan_removes_stale_aio_pointer_without_original_catalog() {
+        let catalog_path = Path::new("C:/Users/example/.codex/aio-codex-model-catalog.json");
+        let stale_pointer = "\"aio-codex-model-catalog.json\"".to_string();
+        assert!(is_aio_model_catalog_pointer(&stale_pointer, catalog_path));
+
+        let plan = build_catalog_apply_plan(None, None, Some(stale_pointer), true);
+
+        assert!(plan.catalog_bytes.is_none());
+        assert!(plan.catalog_pointer.is_none());
+    }
+
+    #[test]
+    fn catalog_plan_preserves_original_aio_named_catalog() {
+        let original_catalog = b"{\"models\":[]}".to_vec();
+        let plan = build_catalog_apply_plan(
+            None,
+            Some(original_catalog.clone()),
+            Some("\"aio-codex-model-catalog.json\"".to_string()),
+            true,
+        );
+
+        assert_eq!(plan.catalog_bytes, Some(original_catalog));
+        assert_eq!(
+            plan.catalog_pointer.as_deref(),
+            Some("\"aio-codex-model-catalog.json\"")
+        );
+    }
+
+    #[test]
+    fn catalog_plan_keeps_non_aio_catalog_pointer_without_projection() {
+        let plan = build_catalog_apply_plan(None, None, Some("\"models.json\"".to_string()), false);
+
+        assert_eq!(plan.catalog_pointer.as_deref(), Some("\"models.json\""));
+    }
+
+    #[test]
+    fn proxy_config_removes_catalog_pointer_when_catalog_plan_has_none() {
+        let config = build_codex_config_toml_for_proxy(
+            Some(
+                b"model_catalog_json = \"aio-codex-model-catalog.json\"\nmodel = \"gpt-test\"\n"
+                    .to_vec(),
+            ),
+            "http://127.0.0.1:37123/v1",
+            CodexConfigPlatform::Other,
+            false,
+            None,
+        )
+        .expect("proxy config");
+        let config = String::from_utf8(config).expect("utf8");
+
+        assert!(!config.contains("model_catalog_json ="));
+        assert!(config.contains("model = \"gpt-test\""));
     }
 
     #[test]
