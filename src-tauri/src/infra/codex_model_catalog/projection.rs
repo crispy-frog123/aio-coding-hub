@@ -544,6 +544,40 @@ mod tests {
     }
 
     #[test]
+    fn stale_aio_catalog_pointer_without_original_file_is_ignored() {
+        let codex_home = tempfile::tempdir().expect("codex home");
+        let config = format!(
+            "model_catalog_json = \"{}\"\n",
+            AIO_CODEX_MODEL_CATALOG_FILENAME
+        );
+
+        let value = load_user_catalog(Some(config.as_bytes()), None, codex_home.path())
+            .expect("stale AIO pointer should not fail");
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn original_aio_catalog_pointer_uses_manifest_backup() {
+        let codex_home = tempfile::tempdir().expect("codex home");
+        let config = format!(
+            "model_catalog_json = \"{}\"\n",
+            AIO_CODEX_MODEL_CATALOG_FILENAME
+        );
+        let original_catalog = br#"{"models":[{"slug":"legacy-user-model"}]}"#;
+
+        let value = load_user_catalog(
+            Some(config.as_bytes()),
+            Some(original_catalog),
+            codex_home.path(),
+        )
+        .expect("read original catalog")
+        .expect("catalog");
+
+        assert_eq!(value["models"][0]["slug"], "legacy-user-model");
+    }
+
+    #[test]
     fn orphaned_aio_catalog_pointer_is_not_treated_as_a_user_catalog() {
         let codex_home = tempfile::tempdir().expect("codex home");
         let config = format!(

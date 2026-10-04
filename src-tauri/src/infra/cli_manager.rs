@@ -686,8 +686,7 @@ fn resolve_executable_via_login_shell(
 }
 
 fn run_version(exe: &Path) -> crate::shared::error::AppResult<String> {
-    let mut cmd = Command::new(exe);
-    cmd.arg("--version");
+    let mut cmd = codex_command(exe, &["--version"]);
 
     // GUI-launched processes on macOS/Linux inherit a minimal PATH that often
     // lacks Homebrew / nvm / system dirs. Prepend the standard locations so that
@@ -736,6 +735,43 @@ fn run_version(exe: &Path) -> crate::shared::error::AppResult<String> {
     .into())
 }
 
+/// Build a Codex CLI command for a fixed list of trusted CLI arguments.
+///
+/// npm installs `codex` on Windows as a `.cmd` wrapper. Invoking that wrapper
+/// through `cmd.exe /C` without `call` is sensitive to cmd's quote parsing and
+/// can fail before the wrapper reaches Node. `call` keeps the wrapper invocation
+/// in the current cmd process and correctly handles paths containing spaces.
+pub(crate) fn codex_command(executable: &Path, args: &[&str]) -> Command {
+    #[cfg(windows)]
+    {
+        if is_windows_command_script(executable) {
+            use std::os::windows::process::CommandExt;
+
+            let mut command = Command::new("cmd.exe");
+            command.args(["/D", "/S", "/C"]);
+            command.raw_arg(format!(
+                " call \"{}\" {}",
+                executable.display(),
+                args.join(" ")
+            ));
+            return command;
+        }
+    }
+
+    let mut command = Command::new(executable);
+    command.args(args);
+    command
+}
+
+#[cfg(windows)]
+fn is_windows_command_script(executable: &Path) -> bool {
+    executable
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.eq_ignore_ascii_case("cmd") || value.eq_ignore_ascii_case("bat"))
+        .unwrap_or(false)
+}
+
 fn runtime_path_for_executable(exe: &Path) -> crate::shared::error::AppResult<OsString> {
     #[cfg(not(windows))]
     {
@@ -771,12 +807,126 @@ fn runtime_path_for_executable(exe: &Path) -> crate::shared::error::AppResult<Os
     }
 }
 
+#[cfg(all(windows, target_arch = "aarch64"))]
+const VSCODE_CODEX_BINARY_DIR: &str = "windows-arm64";
+#[cfg(all(windows, not(target_arch = "aarch64")))]
+const VSCODE_CODEX_BINARY_DIR: &str = "windows-x86_64";
+
+/// Finds the native Codex bundled with the Codex Desktop app.
+///
+/// Desktop keeps the current binary in a versioned directory below
+/// `%LOCALAPPDATA%\\OpenAI\\Codex\\bin`. Ignore its dated backup directories
+/// and prefer the most recently updated executable.
+#[cfg(windows)]
+fn windows_desktop_codex_executable() -> Option<PathBuf> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA")?;
+    windows_desktop_codex_executable_in(
+        &PathBuf::from(local_app_data)
+            .join("OpenAI")
+            .join("Codex")
+            .join("bin"),
+    )
+}
+
+#[cfg(windows)]
+fn windows_desktop_codex_executable_in(bin_dir: &Path) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    let root_executable = bin_dir.join("codex.exe");
+    if is_path_executable(&root_executable) {
+        candidates.push(root_executable);
+    }
+
+    candidates.extend(
+        std::fs::read_dir(bin_dir)
+            .ok()?
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name();
+                let name = name.to_str()?;
+                if name.starts_with("backup-") {
+                    return None;
+                }
+
+                let executable = entry.path().join("codex.exe");
+                is_path_executable(&executable).then_some(executable)
+            }),
+    );
+
+    candidates.sort_by(|left, right| {
+        let left_modified = std::fs::metadata(left)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        let right_modified = std::fs::metadata(right)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        right_modified
+            .cmp(&left_modified)
+            .then_with(|| left.cmp(right))
+    });
+    candidates.into_iter().next()
+}
+
+/// Finds the native Codex bundled with the installed OpenAI VS Code extension.
+///
+/// The extension ships the same native Codex runtime used for current model
+/// catalogs. Prefer it to an npm `.cmd` shim, whose version can lag behind the
+/// desktop app and omit newly available models from `debug models --bundled`.
+#[cfg(windows)]
+fn windows_vscode_codex_executable(home: &Path) -> Option<PathBuf> {
+    windows_vscode_codex_executable_in(
+        &home.join(".vscode").join("extensions"),
+        VSCODE_CODEX_BINARY_DIR,
+    )
+}
+
+#[cfg(windows)]
+fn windows_vscode_codex_executable_in(extensions_dir: &Path, binary_dir: &str) -> Option<PathBuf> {
+    let mut candidates = std::fs::read_dir(extensions_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            if !name.starts_with("openai.chatgpt-") || !name.contains("-win32-") {
+                return None;
+            }
+
+            let executable = entry.path().join("bin").join(binary_dir).join("codex.exe");
+            if !is_path_executable(&executable) {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok());
+            Some((modified, executable))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    candidates
+        .into_iter()
+        .next()
+        .map(|(_, executable)| executable)
+}
+
 pub(crate) fn codex_launch_spec<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> crate::shared::error::AppResult<Option<CodexLaunchSpec>> {
-    let exe = match resolve_executable_via_login_shell("codex") {
-        Ok(Some(path)) => Some(path),
-        Ok(None) | Err(_) => scan_executable(app, "codex")?,
+    #[cfg(windows)]
+    let native_exe = windows_desktop_codex_executable().or_else(|| {
+        home_dir(app)
+            .ok()
+            .and_then(|home| windows_vscode_codex_executable(&home))
+    });
+    #[cfg(not(windows))]
+    let native_exe: Option<PathBuf> = None;
+
+    let exe = match native_exe {
+        Some(executable) => Some(executable),
+        None => match resolve_executable_via_login_shell("codex") {
+            Ok(Some(path)) => Some(path),
+            Ok(None) | Err(_) => scan_executable(app, "codex")?,
+        },
     };
     let Some(executable) = exe else {
         return Ok(None);
@@ -812,8 +962,7 @@ pub(crate) fn codex_bundled_model_catalog_json(
     launch: &CodexLaunchSpec,
     codex_home: &Path,
 ) -> crate::shared::error::AppResult<Vec<u8>> {
-    let mut command = Command::new(&launch.executable);
-    command.args(["debug", "models", "--bundled"]);
+    let mut command = codex_command(&launch.executable, &["debug", "models", "--bundled"]);
 
     command
         .env("CODEX_HOME", codex_home)
@@ -1118,5 +1267,84 @@ mod tests {
             assert!(entries.contains(&PathBuf::from(dir)));
         }
         assert!(entries.ends_with(&[PathBuf::from("/usr/bin"), PathBuf::from("/bin")]));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn codex_command_calls_batch_wrapper_from_path_with_spaces() {
+        use std::ffi::OsStr;
+
+        let dir = tempdir().expect("tempdir");
+        let wrapper_dir = dir.path().join("wrapper with spaces");
+        fs::create_dir_all(&wrapper_dir).expect("create wrapper dir");
+        let wrapper = wrapper_dir.join("codex.cmd");
+        fs::write(&wrapper, "@echo off\r\necho %1,%2,%3\r\n").expect("write wrapper");
+
+        let command = codex_command(&wrapper, &["debug", "models", "--bundled"]);
+        assert_eq!(command.get_program(), OsStr::new("cmd.exe"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![
+                OsStr::new("/D"),
+                OsStr::new("/S"),
+                OsStr::new("/C"),
+                OsStr::new(&format!(
+                    "call \"{}\" debug models --bundled",
+                    wrapper.display()
+                )),
+            ]
+        );
+
+        let output = command_output_with_timeout(
+            command,
+            VERSION_TIMEOUT,
+            "test batch wrapper invocation".to_string(),
+        )
+        .expect("run wrapper");
+        assert!(output.status.success());
+        assert_eq!(
+            limited_output_to_string(&output.stdout, "stdout").trim(),
+            "debug,models,--bundled"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_vscode_codex_discovery_finds_native_executable() {
+        let dir = tempdir().expect("tempdir");
+        let extensions_dir = dir.path().join("extensions");
+        let executable = extensions_dir
+            .join("openai.chatgpt-26.820.71523-win32-x64")
+            .join("bin")
+            .join("windows-x86_64")
+            .join("codex.exe");
+        fs::create_dir_all(executable.parent().expect("executable parent"))
+            .expect("create extension directory");
+        fs::write(&executable, b"fixture").expect("write native executable");
+
+        assert_eq!(
+            windows_vscode_codex_executable_in(&extensions_dir, "windows-x86_64"),
+            Some(executable)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_desktop_codex_discovery_ignores_backup_directory() {
+        let dir = tempdir().expect("tempdir");
+        let bin_dir = dir.path().join("bin");
+        let executable = bin_dir.join("d0097be4feba73d0").join("codex.exe");
+        let backup = bin_dir.join("backup-20260620-190720").join("codex.exe");
+        fs::create_dir_all(executable.parent().expect("executable parent"))
+            .expect("create current desktop directory");
+        fs::create_dir_all(backup.parent().expect("backup parent"))
+            .expect("create backup desktop directory");
+        fs::write(&executable, b"fixture").expect("write current executable");
+        fs::write(&backup, b"fixture").expect("write backup executable");
+
+        assert_eq!(
+            windows_desktop_codex_executable_in(&bin_dir),
+            Some(executable)
+        );
     }
 }

@@ -63,6 +63,10 @@ impl CliProxyTestApp {
             "AIO_CODING_HUB_DOTDIR_NAME",
             format!(".aio-coding-hub-cli-proxy-test-{seq}"),
         );
+        // Keep native Codex discovery isolated from the developer machine. The
+        // production resolver prefers Codex Desktop when it is installed, but
+        // these tests intentionally exercise the fake CLI placed on PATH.
+        env.set_var("LOCALAPPDATA", home_os.clone());
         crate::test_support::clear_settings_cache();
 
         Self {

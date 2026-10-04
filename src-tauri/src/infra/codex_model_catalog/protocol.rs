@@ -429,9 +429,7 @@ impl Drop for ManagedChild {
 }
 
 fn build_command(launch: &CodexLaunchSpec) -> Command {
-    let mut command = Command::new(&launch.executable);
-    command.args(["app-server", "--stdio"]);
-    command
+    crate::cli_manager::codex_command(&launch.executable, &["app-server", "--stdio"])
 }
 
 fn configure_command(command: &mut Command) {
@@ -762,6 +760,28 @@ mod tests {
         let mut byte_budget = StdoutBudget::new(3, 10);
         assert!(byte_budget.record(10));
         assert!(!byte_budget.record(1));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn build_command_calls_windows_batch_wrapper() {
+        let launch = CodexLaunchSpec {
+            executable: PathBuf::from(r"C:\Program Files\npm\codex.cmd"),
+            runtime_path: OsString::new(),
+            version: None,
+        };
+
+        let command = super::build_command(&launch);
+        assert_eq!(command.get_program(), OsStr::new("cmd.exe"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![
+                OsStr::new("/D"),
+                OsStr::new("/S"),
+                OsStr::new("/C"),
+                OsStr::new("call \"C:\\Program Files\\npm\\codex.cmd\" app-server --stdio"),
+            ]
+        );
     }
 
     #[cfg(unix)]
