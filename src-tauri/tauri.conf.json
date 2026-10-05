@@ -46,9 +46,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/dyndynjyxa/aio-coding-hub/releases/latest/download/latest.json"
+        "https://github.com/crispy-frog123/aio-coding-hub/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzQzM1RUIxM0I1MzQxNjQKUldSa1FWTTdzVjdEWXdCNE5mbGZHTWFNczZrT1UrMzZPdjJRWldHTlQ3WnZIV3dEM0U1S1BFaWEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3ODc2RTlBQzA2OURCNTkKUldSWjIybkFtbTZIbDhKaDd1VGRiR21ybkx2SFZGUWxoUFg4RVZ5NFNoM0xuZE5STTNzcTJYMzcK",
       "windows": {
         "installMode": "passive"
       }
