@@ -1,5 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
+import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -14,6 +16,7 @@ import {
   MessageSquare,
   Pencil,
   Puzzle,
+  RefreshCw,
   Settings2,
   Sun,
   Terminal,
@@ -32,9 +35,12 @@ import { useTheme } from "../hooks/useTheme";
 import { updateDialogSetOpen } from "../hooks/useUpdateMeta";
 import { useCliProxyControls } from "../hooks/useCliProxyControls";
 import { CliProxyConflictDialog } from "../components/cli-proxy/CliProxyConflictDialog";
+import { cliManagerCodexAppRestart } from "../services/cli/cliManager";
+import { logToConsole } from "../services/consoleLog";
 import { openDesktopUrl } from "../services/desktop/opener";
 import { Switch } from "./Switch";
 import { cn } from "../utils/cn";
+import { formatActionFailureToast } from "../utils/errors";
 
 type NavItem = {
   to: string;
@@ -274,6 +280,34 @@ function GatewayStatusRow({
 }
 
 function CliProxyGrid({ cliProxyState }: { cliProxyState: CliProxyState }) {
+  const [codexAppRestarting, setCodexAppRestarting] = useState(false);
+
+  async function restartCodexApp() {
+    if (codexAppRestarting) return;
+
+    try {
+      setCodexAppRestarting(true);
+      const result = await cliManagerCodexAppRestart();
+      if (!result) return;
+
+      if (result.ok) {
+        toast.success(result.message || "已重启 Codex");
+      } else {
+        toast(result.message || "未能重启 Codex");
+      }
+      logToConsole(result.ok ? "info" : "warn", "重启 Codex", result);
+    } catch (err) {
+      const formatted = formatActionFailureToast("重启 Codex", err);
+      logToConsole("error", "重启 Codex 失败", {
+        error: formatted.raw,
+        error_code: formatted.error_code ?? undefined,
+      });
+      toast(formatted.toast);
+    } finally {
+      setCodexAppRestarting(false);
+    }
+  }
+
   if (cliProxyState.cliProxyLoading) {
     return (
       <div className="px-1 py-1 text-muted-foreground/70 text-[10px] font-medium italic animate-pulse text-center">
@@ -320,14 +354,31 @@ function CliProxyGrid({ cliProxyState }: { cliProxyState: CliProxyState }) {
                 (cliKey === "codex" || cliKey === "grok") && "dark:invert"
               )}
             />
-            <Switch
-              checked={isEnabled}
-              disabled={toggling}
-              onCheckedChange={(next) => cliProxyState.requestCliProxyEnabledSwitch(cliKey, next)}
-              size="sm"
-              className="border-0"
-              aria-label={`${label} 代理开关`}
-            />
+            <div className="flex items-center gap-0.5">
+              {cliKey === "codex" ? (
+                <button
+                  type="button"
+                  disabled={codexAppRestarting}
+                  onClick={() => void restartCodexApp()}
+                  className={cn(
+                    "inline-flex h-5 w-5 items-center justify-center rounded-md border border-sidebar-control-border bg-sidebar-control-inset text-muted-foreground transition hover:text-sidebar-foreground",
+                    codexAppRestarting && "cursor-not-allowed opacity-60"
+                  )}
+                  aria-label="重启 Codex"
+                  title="重启 Codex"
+                >
+                  <RefreshCw className={cn("h-3 w-3", codexAppRestarting && "animate-spin")} />
+                </button>
+              ) : null}
+              <Switch
+                checked={isEnabled}
+                disabled={toggling}
+                onCheckedChange={(next) => cliProxyState.requestCliProxyEnabledSwitch(cliKey, next)}
+                size="sm"
+                className="border-0"
+                aria-label={`${label} 代理开关`}
+              />
+            </div>
             {drifted ? (
               <button
                 type="button"

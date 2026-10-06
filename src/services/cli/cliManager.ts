@@ -12,6 +12,7 @@ import {
   type CodexConfigTomlState as GeneratedCodexConfigTomlState,
   type CodexConfigTomlValidationError as GeneratedCodexConfigTomlValidationError,
   type CodexConfigTomlValidationResult as GeneratedCodexConfigTomlValidationResult,
+  type CodexAppRestartResult as GeneratedCodexAppRestartResult,
   type CodexModelCatalogState as GeneratedCodexModelCatalogState,
   type CodexModelCapability as GeneratedCodexModelCapability,
   type CodexReasoningEffortOption as GeneratedCodexReasoningEffortOption,
@@ -37,6 +38,7 @@ export type CodexConfigPatch = Partial<GeneratedCodexConfigPatch>;
 export type CodexConfigTomlState = GeneratedCodexConfigTomlState;
 export type CodexConfigTomlValidationError = GeneratedCodexConfigTomlValidationError;
 export type CodexConfigTomlValidationResult = GeneratedCodexConfigTomlValidationResult;
+export type CodexAppRestartResult = GeneratedCodexAppRestartResult;
 export type CodexModelCatalogState = GeneratedCodexModelCatalogState;
 export type CodexModelCapability = GeneratedCodexModelCapability;
 export type CodexReasoningEffortOption = GeneratedCodexReasoningEffortOption;
@@ -165,6 +167,17 @@ export async function cliManagerCodexInfoGet() {
     cmd: "cli_manager_codex_info_get",
     invoke: () =>
       commands.cliManagerCodexInfoGet() as Promise<GeneratedCommandResult<SimpleCliInfo>>,
+  });
+}
+
+export async function cliManagerCodexAppRestart() {
+  return invokeGeneratedIpc<CodexAppRestartResult>({
+    title: "重启 Codex 失败",
+    cmd: "cli_manager_codex_app_restart",
+    invoke: () =>
+      commands.cliManagerCodexAppRestart() as Promise<
+        GeneratedCommandResult<CodexAppRestartResult>
+      >,
   });
 }
 

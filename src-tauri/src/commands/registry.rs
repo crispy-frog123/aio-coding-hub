@@ -50,6 +50,7 @@ macro_rules! generated_command_registry {
             // ── cli_manager ──
             cli_manager_claude_info_get => crate::commands::cli_manager::cli_manager_claude_info_get,
             cli_manager_codex_info_get => crate::commands::cli_manager::cli_manager_codex_info_get,
+            cli_manager_codex_app_restart => crate::commands::cli_manager::cli_manager_codex_app_restart,
             cli_manager_codex_model_catalog_get => crate::commands::cli_manager::cli_manager_codex_model_catalog_get,
             cli_manager_codex_config_get => crate::commands::cli_manager::cli_manager_codex_config_get,
             cli_manager_codex_config_set => crate::commands::cli_manager::cli_manager_codex_config_set,

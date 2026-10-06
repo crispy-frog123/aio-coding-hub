@@ -32,6 +32,7 @@ import {
   useCliManagerCodexConfigTomlQuery,
   useCliManagerCodexConfigTomlSetMutation,
   useCliManagerCodexInfoQuery,
+  useCliManagerCodexAppRestartMutation,
   useCliManagerCodexModelCatalogQuery,
   useCliManagerCodexModelCatalogRefresh,
   useCliManagerGeminiConfigQuery,
@@ -235,6 +236,7 @@ export function useCliManagerPageDataModel() {
   const codexConfigTomlQuery = useCliManagerCodexConfigTomlQuery({ enabled: tab === "codex" });
   const codexConfigSetMutation = useCliManagerCodexConfigSetMutation();
   const codexConfigTomlSetMutation = useCliManagerCodexConfigTomlSetMutation();
+  const codexAppRestartMutation = useCliManagerCodexAppRestartMutation();
   const refreshCodexModelCatalog = useCliManagerCodexModelCatalogRefresh();
   const codexModelCatalogQuery = useCliManagerCodexModelCatalogQuery({
     enabled:
@@ -262,6 +264,7 @@ export function useCliManagerPageDataModel() {
   const codexConfigLoading = codexConfigQuery.isFetching;
   const codexConfigTomlLoading = codexConfigTomlQuery.isFetching;
   const codexConfigTomlSaving = codexConfigTomlSetMutation.isPending;
+  const codexAppRestarting = codexAppRestartMutation.isPending;
   const codexConfigWriting = codexConfigSetMutation.isPending || codexConfigTomlSaving;
   const codexConfigSaving = codexConfigWriting;
   const codexModelCatalogLoading = codexModelCatalogQuery.isFetching;
@@ -716,6 +719,29 @@ export function useCliManagerPageDataModel() {
     }
   }
 
+  async function restartCodexApp() {
+    if (codexAppRestarting) return;
+
+    try {
+      const result = await codexAppRestartMutation.mutateAsync();
+      if (!result) return;
+
+      if (result.ok) {
+        toast.success(result.message || "已重启 Codex");
+      } else {
+        toast(result.message || "未能重启 Codex");
+      }
+      logToConsole(result.ok ? "info" : "warn", "重启 Codex", result);
+    } catch (err) {
+      const formatted = formatActionFailureToast("重启 Codex", err);
+      logToConsole("error", "重启 Codex 失败", {
+        error: formatted.raw,
+        error_code: formatted.error_code ?? undefined,
+      });
+      toast(formatted.toast);
+    }
+  }
+
   return {
     tab,
     setTab,
@@ -796,6 +822,8 @@ export function useCliManagerPageDataModel() {
       codexHomeSettingsSaving: commonSettingsSaving || settingsWriteBlocked,
       refreshCodex,
       openCodexConfigDir,
+      restartCodexApp,
+      codexAppRestarting,
       persistCodexConfig,
       persistCodexConfigToml,
       persistCodexHomeSettings,

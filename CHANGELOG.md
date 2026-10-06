@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.60.21](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.20...aio-coding-hub-v0.60.21) (2026-10-06)
+
+### Features
+
+- **codex:** Restore the Windows Codex Desktop restart action in CLI management and the sidebar Codex proxy card, including progress and error feedback.
+
 ## [0.60.20](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.60.19...aio-coding-hub-v0.60.20) (2026-09-28)
 
 

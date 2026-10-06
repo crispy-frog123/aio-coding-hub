@@ -275,6 +275,14 @@ export const commands = {
       else return { status: "error", error: e as any };
     }
   },
+  async cliManagerCodexAppRestart(): Promise<Result<CodexAppRestartResult, string>> {
+    try {
+      return { status: "ok", data: await TAURI_INVOKE("cli_manager_codex_app_restart") };
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      else return { status: "error", error: e as any };
+    }
+  },
   async cliManagerCodexModelCatalogGet(): Promise<Result<CodexModelCatalogState, string>> {
     try {
       return { status: "ok", data: await TAURI_INVOKE("cli_manager_codex_model_catalog_get") };
@@ -2587,6 +2595,15 @@ export type CliVersionCheck = {
   latestVersion: string | null;
   updateAvailable: boolean;
   error: string | null;
+};
+export type CodexAppRestartResult = {
+  ok: boolean;
+  action: string;
+  executable_path: string | null;
+  killed_count: number;
+  started: boolean;
+  source: string;
+  message: string;
 };
 export type CodexCatalogEventPayload = { status: CodexCatalogEventStatus };
 export type CodexCatalogEventStatus = "updated" | "failed";

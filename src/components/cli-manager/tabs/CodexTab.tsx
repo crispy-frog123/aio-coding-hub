@@ -295,6 +295,8 @@ export type CliManagerCodexTabProps = {
   codexHomeSettingsSaving?: boolean;
   refreshCodex: () => Promise<void> | void;
   openCodexConfigDir: () => Promise<void> | void;
+  restartCodexApp?: () => Promise<void> | void;
+  codexAppRestarting?: boolean;
   persistCodexConfig: (patch: CodexConfigPatch) => Promise<CodexConfigState | null>;
   persistCodexConfigToml: (toml: string) => Promise<boolean> | boolean;
   persistCodexHomeSettings?: (
@@ -353,6 +355,8 @@ function CodexHeader({
   saving,
   versionRefreshToken,
   refreshCodexStatus,
+  restartCodexApp,
+  codexAppRestarting = false,
 }: {
   codexAvailable: CliManagerAvailability;
   codexInfo: SimpleCliInfo | null;
@@ -360,6 +364,8 @@ function CodexHeader({
   saving: boolean;
   versionRefreshToken: number;
   refreshCodexStatus: () => Promise<void>;
+  restartCodexApp?: () => Promise<void> | void;
+  codexAppRestarting?: boolean;
 }) {
   return (
     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -397,16 +403,31 @@ function CodexHeader({
         </div>
       </div>
 
-      <Button
-        onClick={() => void refreshCodexStatus()}
-        variant="secondary"
-        size="sm"
-        disabled={loading || saving}
-        className="gap-2"
-      >
-        <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-        刷新
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {isWindowsRuntime() ? (
+          <Button
+            onClick={() => void restartCodexApp?.()}
+            variant="secondary"
+            size="sm"
+            disabled={!restartCodexApp || codexAppRestarting}
+            className="gap-2"
+            title="关闭当前 Codex 窗口并重新启动。正在进行的 Codex 对话会中断。"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", codexAppRestarting && "animate-spin")} />
+            {codexAppRestarting ? "重启中..." : "重启 Codex"}
+          </Button>
+        ) : null}
+        <Button
+          onClick={() => void refreshCodexStatus()}
+          variant="secondary"
+          size="sm"
+          disabled={loading || saving}
+          className="gap-2"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          刷新
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1965,6 +1986,8 @@ export function CliManagerCodexTab({
   codexHomeSettingsSaving = false,
   refreshCodex,
   openCodexConfigDir,
+  restartCodexApp,
+  codexAppRestarting = false,
   persistCodexConfig,
   persistCodexConfigToml,
   persistCodexHomeSettings,
@@ -2066,6 +2089,8 @@ export function CliManagerCodexTab({
               saving={saving}
               versionRefreshToken={versionRefreshToken}
               refreshCodexStatus={refreshCodexStatus}
+              restartCodexApp={restartCodexApp}
+              codexAppRestarting={codexAppRestarting}
             />
 
             {codexConfig ? (
