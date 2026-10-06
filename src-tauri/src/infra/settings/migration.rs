@@ -706,7 +706,18 @@ fn migrate_add_codex_responses_websocket(
 
 type SettingsMigration = fn(&mut AppSettings, bool) -> bool;
 
-const SETTINGS_MIGRATIONS: [SettingsMigration; 32] = [
+fn migrate_add_desktop_update_proxy(
+    settings: &mut AppSettings,
+    schema_version_present: bool,
+) -> bool {
+    migrate_bump_schema_version(
+        settings,
+        schema_version_present,
+        SCHEMA_VERSION_ADD_DESKTOP_UPDATE_PROXY,
+    )
+}
+
+const SETTINGS_MIGRATIONS: [SettingsMigration; 33] = [
     migrate_disable_upstream_timeouts,
     migrate_add_gateway_rectifiers,
     migrate_add_circuit_breaker_notice,
@@ -739,6 +750,7 @@ const SETTINGS_MIGRATIONS: [SettingsMigration; 32] = [
     migrate_add_image_gen_storage_dir,
     migrate_align_cch_gateway_rectifiers,
     migrate_add_codex_responses_websocket,
+    migrate_add_desktop_update_proxy,
 ];
 
 fn apply_settings_migrations(settings: &mut AppSettings, schema_version_present: bool) -> bool {
@@ -773,6 +785,35 @@ pub(super) fn repair_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_update_proxy_migration_defaults_to_system_and_preserves_custom_values() {
+        let mut old: AppSettings = serde_json::from_value(serde_json::json!({
+            "schema_version": 38
+        }))
+        .unwrap();
+        assert_eq!(
+            old.desktop_update_proxy_mode,
+            super::super::DesktopUpdateProxyMode::System
+        );
+        assert!(old.desktop_update_proxy_url.is_empty());
+        assert!(migrate_add_desktop_update_proxy(&mut old, true));
+        assert_eq!(old.schema_version, SCHEMA_VERSION_ADD_DESKTOP_UPDATE_PROXY);
+
+        let mut custom: AppSettings = serde_json::from_value(serde_json::json!({
+            "schema_version": 38,
+            "desktop_update_proxy_mode": "custom",
+            "desktop_update_proxy_url": "http://127.0.0.1:7890"
+        }))
+        .unwrap();
+        assert!(migrate_add_desktop_update_proxy(&mut custom, true));
+        assert_eq!(
+            custom.desktop_update_proxy_mode,
+            super::super::DesktopUpdateProxyMode::Custom
+        );
+        assert_eq!(custom.desktop_update_proxy_url, "http://127.0.0.1:7890");
+        assert!(!migrate_add_desktop_update_proxy(&mut custom, true));
+    }
     use crate::infra::settings::types::default_cli_priority_order;
 
     #[test]

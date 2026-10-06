@@ -4,7 +4,9 @@ use super::defaults::*;
 use super::migration::{
     normalize_cli_priority_order, normalize_codex_home_override, repair_settings,
 };
-use super::types::{AppSettings, CodexHomeMode, GatewayListenMode, WslHostAddressMode};
+use super::types::{
+    AppSettings, CodexHomeMode, DesktopUpdateProxyMode, GatewayListenMode, WslHostAddressMode,
+};
 use crate::app_paths;
 use crate::shared::error::AppResult;
 use crate::shared::fs::read_file_with_max_len;
@@ -96,6 +98,41 @@ fn validate_update_releases_url(value: &str) -> AppResult<()> {
         return Err("SEC_INVALID_INPUT: update_releases_url must not include credentials".into());
     }
 
+    Ok(())
+}
+
+fn validate_desktop_update_proxy(settings: &AppSettings) -> AppResult<()> {
+    let raw = settings.desktop_update_proxy_url.trim();
+    if settings.desktop_update_proxy_mode == DesktopUpdateProxyMode::System {
+        return Ok(());
+    }
+    if raw.is_empty() {
+        return Err(
+            "SEC_INVALID_INPUT: desktop_update_proxy_url cannot be empty in custom mode".into(),
+        );
+    }
+    if raw.len() > 2048 {
+        return Err(
+            "SEC_INVALID_INPUT: desktop_update_proxy_url must be <= 2048 characters".into(),
+        );
+    }
+
+    let parsed = reqwest::Url::parse(raw)
+        .map_err(|err| format!("SEC_INVALID_INPUT: invalid desktop_update_proxy_url: {err}"))?;
+    if !matches!(parsed.scheme(), "http" | "https" | "socks5" | "socks5h") {
+        return Err(
+            "SEC_INVALID_INPUT: desktop_update_proxy_url must use http, https, socks5, or socks5h"
+                .into(),
+        );
+    }
+    if parsed.host_str().is_none() {
+        return Err("SEC_INVALID_INPUT: desktop_update_proxy_url must include a host".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(
+            "SEC_INVALID_INPUT: desktop_update_proxy_url must not include credentials".into(),
+        );
+    }
     Ok(())
 }
 
@@ -328,6 +365,7 @@ pub(crate) fn validate_bounds(settings: &AppSettings) -> AppResult<()> {
         MAX_CX2CC_OPTIONAL_FIELD_LEN,
     )?;
     validate_update_releases_url(&settings.update_releases_url)?;
+    validate_desktop_update_proxy(settings)?;
     if settings.log_retention_days == 0 {
         return Err("SEC_INVALID_INPUT: log_retention_days must be >= 1".into());
     }
@@ -467,6 +505,7 @@ pub fn write<R: tauri::Runtime>(
     let mut settings = settings.clone();
     settings.cli_priority_order = normalize_cli_priority_order(&settings.cli_priority_order);
     settings.update_releases_url = settings.update_releases_url.trim().to_string();
+    settings.desktop_update_proxy_url = settings.desktop_update_proxy_url.trim().to_string();
     settings.upstream_proxy_url = settings.upstream_proxy_url.trim().to_string();
     settings.upstream_proxy_username = settings.upstream_proxy_username.trim().to_string();
     settings.cx2cc_fallback_model_opus = settings.cx2cc_fallback_model_opus.trim().to_string();
@@ -534,6 +573,41 @@ pub fn clear_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_update_proxy_validation_accepts_supported_schemes() {
+        for url in [
+            "http://127.0.0.1:7890",
+            "https://proxy.example:443",
+            "socks5://127.0.0.1:7890",
+            "socks5h://127.0.0.1:7890",
+        ] {
+            let settings = AppSettings {
+                desktop_update_proxy_mode: DesktopUpdateProxyMode::Custom,
+                desktop_update_proxy_url: url.to_string(),
+                ..AppSettings::default()
+            };
+            validate_desktop_update_proxy(&settings).expect("valid update proxy");
+        }
+    }
+
+    #[test]
+    fn desktop_update_proxy_validation_rejects_invalid_custom_values() {
+        for url in [
+            "",
+            "not-a-url",
+            "file:///tmp/proxy",
+            "ftp://proxy.example",
+            "http://user:secret@proxy.example",
+        ] {
+            let settings = AppSettings {
+                desktop_update_proxy_mode: DesktopUpdateProxyMode::Custom,
+                desktop_update_proxy_url: url.to_string(),
+                ..AppSettings::default()
+            };
+            assert!(validate_desktop_update_proxy(&settings).is_err(), "{url}");
+        }
+    }
 
     // -- parse_settings_json --
 

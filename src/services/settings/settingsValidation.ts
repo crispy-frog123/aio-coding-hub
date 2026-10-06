@@ -1,10 +1,12 @@
 import type {
+  DesktopUpdateProxyMode,
   GatewayListenMode,
   SensitiveStringUpdate,
   WslHostAddressMode,
 } from "../../generated/bindings";
 
 const MAX_UPDATE_RELEASES_URL_LEN = 2048;
+const MAX_DESKTOP_UPDATE_PROXY_URL_LEN = 2048;
 const MAX_UPSTREAM_PROXY_URL_LEN = 2048;
 const MAX_UPSTREAM_PROXY_USERNAME_LEN = 256;
 const MAX_UPSTREAM_PROXY_PASSWORD_LEN = 4096;
@@ -200,6 +202,29 @@ export function validateWslCustomHostAddress(input: string): string | null {
   return parseCustomHostAddress(raw) ? null : "宿主机地址仅支持 host/IP";
 }
 
+export function validateDesktopUpdateProxy(
+  mode: DesktopUpdateProxyMode,
+  value: string
+): string | null {
+  if (mode === "system") return null;
+  if (mode !== "custom") return "更新代理模式无效";
+
+  const raw = value.trim();
+  if (!raw) return "更新代理地址不能为空";
+  if (utf8Length(raw) > MAX_DESKTOP_UPDATE_PROXY_URL_LEN) {
+    return `更新代理地址必须 <= ${MAX_DESKTOP_UPDATE_PROXY_URL_LEN} 字符`;
+  }
+
+  const parsed = parseUrl(raw);
+  if (!parsed) return "更新代理地址不是有效 URL";
+  if (!SUPPORTED_PROXY_SCHEMES.has(parsed.protocol.slice(0, -1))) {
+    return "更新代理地址仅支持 http、https、socks5 或 socks5h";
+  }
+  if (!parsed.hostname) return "更新代理地址必须包含 host";
+  if (parsed.username || parsed.password) return "更新代理地址不能包含用户名或密码";
+  return null;
+}
+
 function parseUrl(value: string): URL | null {
   try {
     return new URL(value);
@@ -346,6 +371,8 @@ export type SettingsSetValidationInput = {
   wslHostAddressMode?: WslHostAddressMode | null;
   wslCustomHostAddress?: string | null;
   updateReleasesUrl?: string | null;
+  desktopUpdateProxyMode?: DesktopUpdateProxyMode | null;
+  desktopUpdateProxyUrl?: string | null;
   upstreamProxyEnabled?: boolean | null;
   upstreamProxyUrl?: string | null;
   upstreamProxyUsername?: string | null;
@@ -439,6 +466,20 @@ export function validateSettingsSetInput(input: SettingsSetValidationInput): str
 
   if (input.updateReleasesUrl != null) {
     const message = validateUpdateReleasesUrl(input.updateReleasesUrl);
+    if (message) return message;
+  }
+
+  if (
+    input.desktopUpdateProxyMode != null &&
+    !["system", "custom"].includes(input.desktopUpdateProxyMode)
+  ) {
+    return "更新代理模式无效";
+  }
+  if (input.desktopUpdateProxyMode === "custom") {
+    const message = validateDesktopUpdateProxy(
+      input.desktopUpdateProxyMode,
+      input.desktopUpdateProxyUrl ?? ""
+    );
     if (message) return message;
   }
 

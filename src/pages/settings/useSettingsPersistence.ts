@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { AppAboutInfo } from "../../services/app/appAbout";
+import type { DesktopUpdateProxyMode } from "../../services/settings/settings";
 import type { CliKey } from "../../services/providers/providers";
 import type { GatewayStatus } from "../../services/gateway/gateway";
 import { useSettingsQuery, useSettingsSetMutation } from "../../query/settings";
@@ -122,6 +123,18 @@ export function useSettingsPersistence(options: {
     },
     [setField]
   );
+  const setDesktopUpdateProxyMode = useCallback(
+    (next: DesktopUpdateProxyMode) => {
+      setField("desktop_update_proxy_mode", next);
+    },
+    [setField]
+  );
+  const setDesktopUpdateProxyUrl = useCallback(
+    (next: string) => {
+      setField("desktop_update_proxy_url", next);
+    },
+    [setField]
+  );
 
   return {
     settingsReady,
@@ -151,6 +164,10 @@ export function useSettingsPersistence(options: {
     setRequestLogRetentionDays,
     enableDebugLog: draft.enable_debug_log,
     setEnableDebugLog,
+    desktopUpdateProxyMode: draft.desktop_update_proxy_mode,
+    setDesktopUpdateProxyMode,
+    desktopUpdateProxyUrl: draft.desktop_update_proxy_url,
+    setDesktopUpdateProxyUrl,
 
     requestPersist,
     commitNumberField,

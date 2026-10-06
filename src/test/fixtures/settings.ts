@@ -34,6 +34,8 @@ export function createTestAppSettings(overrides?: Partial<AppSettings>): AppSett
     upstream_stream_idle_timeout_seconds: 0,
     upstream_request_timeout_non_streaming_seconds: 0,
     update_releases_url: "",
+    desktop_update_proxy_mode: "system",
+    desktop_update_proxy_url: "",
     failover_max_attempts_per_provider: 5,
     failover_max_providers_to_try: 5,
     circuit_breaker_failure_threshold: 5,

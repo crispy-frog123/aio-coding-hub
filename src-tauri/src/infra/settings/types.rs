@@ -49,6 +49,14 @@ pub enum CodexHomeMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum DesktopUpdateProxyMode {
+    #[default]
+    System,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum CodexPriorityBillingSource {
     #[default]
     Requested,
@@ -133,6 +141,10 @@ pub struct AppSettings {
     pub upstream_stream_idle_timeout_seconds: u32,
     pub upstream_request_timeout_non_streaming_seconds: u32,
     pub update_releases_url: String,
+    #[serde(default)]
+    pub desktop_update_proxy_mode: DesktopUpdateProxyMode,
+    #[serde(default)]
+    pub desktop_update_proxy_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
     pub circuit_breaker_failure_threshold: u32,
@@ -223,6 +235,8 @@ impl Default for AppSettings {
             upstream_request_timeout_non_streaming_seconds:
                 DEFAULT_UPSTREAM_REQUEST_TIMEOUT_NON_STREAMING_SECONDS,
             update_releases_url: DEFAULT_UPDATE_RELEASES_URL.to_string(),
+            desktop_update_proxy_mode: DesktopUpdateProxyMode::default(),
+            desktop_update_proxy_url: String::new(),
             failover_max_attempts_per_provider: DEFAULT_FAILOVER_MAX_ATTEMPTS_PER_PROVIDER,
             failover_max_providers_to_try: DEFAULT_FAILOVER_MAX_PROVIDERS_TO_TRY,
             circuit_breaker_failure_threshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,

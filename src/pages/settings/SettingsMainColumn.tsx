@@ -12,7 +12,7 @@ import {
   readHomeWorkspaceConfigShowAllFromStorage,
   writeHomeWorkspaceConfigShowAllToStorage,
 } from "../../services/home/homeWorkspaceConfigDisplay";
-import type { HomeUsagePeriod } from "../../services/settings/settings";
+import type { DesktopUpdateProxyMode, HomeUsagePeriod } from "../../services/settings/settings";
 import { useGatewayStartMutation, useGatewayStopMutation } from "../../query/gateway";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
@@ -42,6 +42,8 @@ type SettingsPersistPatch = Partial<{
   start_minimized: boolean;
   tray_enabled: boolean;
   enable_debug_log: boolean;
+  desktop_update_proxy_mode: DesktopUpdateProxyMode;
+  desktop_update_proxy_url: string;
 }>;
 
 const HOME_USAGE_PERIOD_OPTIONS: Array<{ value: HomeUsagePeriod; label: string }> = [
@@ -91,6 +93,10 @@ export type SettingsMainColumnProps = {
   setRequestLogRetentionDays: (next: number) => void;
   enableDebugLog: boolean;
   setEnableDebugLog: (next: boolean) => void;
+  desktopUpdateProxyMode: DesktopUpdateProxyMode;
+  setDesktopUpdateProxyMode: (next: DesktopUpdateProxyMode) => void;
+  desktopUpdateProxyUrl: string;
+  setDesktopUpdateProxyUrl: (next: string) => void;
   requestPersist: (patch: SettingsPersistPatch) => void;
 
   noticePermissionStatus: NoticePermissionStatus;
@@ -275,6 +281,10 @@ function SystemSettingsPanel({
   setTrayEnabled,
   enableDebugLog,
   setEnableDebugLog,
+  desktopUpdateProxyMode,
+  setDesktopUpdateProxyMode,
+  desktopUpdateProxyUrl,
+  setDesktopUpdateProxyUrl,
   logRetentionDays,
   setLogRetentionDays,
   requestLogRetentionDays,
@@ -292,6 +302,10 @@ function SystemSettingsPanel({
   | "setTrayEnabled"
   | "enableDebugLog"
   | "setEnableDebugLog"
+  | "desktopUpdateProxyMode"
+  | "setDesktopUpdateProxyMode"
+  | "desktopUpdateProxyUrl"
+  | "setDesktopUpdateProxyUrl"
   | "logRetentionDays"
   | "setLogRetentionDays"
   | "requestLogRetentionDays"
@@ -341,6 +355,63 @@ function SystemSettingsPanel({
             disabled={settingsInputsDisabled}
           />
         </SettingsRow>
+        <SettingsRow
+          label="更新下载代理"
+          subtitle="跟随系统代理读取 Windows 静态代理；使用 PAC 时可填 Clash 的本地 HTTP/SOCKS 地址"
+        >
+          <div
+            className="flex items-center gap-1 rounded-xl border border-line bg-surface-inset p-1"
+            role="group"
+            aria-label="更新下载代理模式"
+          >
+            {(
+              [
+                ["system", "跟随系统代理"],
+                ["custom", "单独代理"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                  desktopUpdateProxyMode === mode
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/15"
+                    : "text-muted-foreground hover:bg-state-hover/50 hover:text-foreground"
+                )}
+                aria-pressed={desktopUpdateProxyMode === mode}
+                disabled={settingsInputsDisabled}
+                onClick={() => {
+                  setDesktopUpdateProxyMode(mode);
+                  if (mode === "system" || desktopUpdateProxyUrl.trim()) {
+                    requestPersist({ desktop_update_proxy_mode: mode });
+                  }
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+        {desktopUpdateProxyMode === "custom" ? (
+          <SettingsRow label="更新代理地址" subtitle="仅用于检查、下载和安装应用更新">
+            <Input
+              type="url"
+              value={desktopUpdateProxyUrl}
+              placeholder="例如：http://127.0.0.1:7890"
+              onChange={(event) => setDesktopUpdateProxyUrl(event.currentTarget.value)}
+              onBlur={() =>
+                requestPersist({
+                  desktop_update_proxy_mode: "custom",
+                  desktop_update_proxy_url: desktopUpdateProxyUrl,
+                })
+              }
+              onKeyDown={blurOnEnter}
+              className="h-8 w-full min-w-0 text-xs sm:w-64"
+              disabled={settingsInputsDisabled}
+            />
+          </SettingsRow>
+        ) : null}
         <SettingsRow label="日志保留">
           <div className="flex items-center gap-2">
             <Input
@@ -705,6 +776,10 @@ export function SettingsMainColumn({
   setRequestLogRetentionDays,
   enableDebugLog,
   setEnableDebugLog,
+  desktopUpdateProxyMode,
+  setDesktopUpdateProxyMode,
+  desktopUpdateProxyUrl,
+  setDesktopUpdateProxyUrl,
   requestPersist,
   noticePermissionStatus,
   requestingNoticePermission,
@@ -762,6 +837,10 @@ export function SettingsMainColumn({
           setTrayEnabled,
           enableDebugLog,
           setEnableDebugLog,
+          desktopUpdateProxyMode,
+          setDesktopUpdateProxyMode,
+          desktopUpdateProxyUrl,
+          setDesktopUpdateProxyUrl,
           logRetentionDays,
           setLogRetentionDays,
           requestLogRetentionDays,

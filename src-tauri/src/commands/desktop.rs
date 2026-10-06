@@ -642,13 +642,38 @@ pub(crate) fn desktop_notification_play_sound() -> Result<bool, String> {
     Ok(true)
 }
 
+async fn resolve_desktop_update_proxy(
+    app: &tauri::AppHandle,
+) -> Result<Option<reqwest::Url>, String> {
+    let app_for_settings = app.clone();
+    crate::blocking::run("desktop_updater_resolve_proxy", move || {
+        let settings = crate::settings::read(&app_for_settings)?;
+        Ok::<_, crate::shared::error::AppError>(
+            (settings.desktop_update_proxy_mode == crate::settings::DesktopUpdateProxyMode::Custom)
+                .then_some(settings.desktop_update_proxy_url),
+        )
+    })
+    .await?
+    .map(|value| {
+        value
+            .parse()
+            .map_err(|error| format!("failed to parse desktop update proxy: {error}"))
+    })
+    .transpose()
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn desktop_updater_check(
     app: tauri::AppHandle,
     timeout: Option<u64>,
 ) -> Result<Option<DesktopUpdaterMetadata>, String> {
+    let update_proxy = resolve_desktop_update_proxy(&app).await?;
+
     let mut builder = app.updater_builder();
+    if let Some(proxy) = update_proxy {
+        builder = builder.proxy(proxy);
+    }
     if let Some(timeout) = to_duration(timeout) {
         builder = builder.timeout(timeout);
     }
@@ -699,6 +724,8 @@ pub(crate) async fn desktop_updater_download_and_install(
         .map_err(|error| format!("failed to resolve updater resource: {error}"))?;
     let mut update = (*update).clone();
     update.timeout = to_duration(timeout);
+    // Re-read the preference so changes made after checking also affect download.
+    update.proxy = resolve_desktop_update_proxy(&app).await?;
 
     let mut first_chunk = true;
     update

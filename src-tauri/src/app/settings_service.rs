@@ -79,6 +79,8 @@ pub(crate) struct SettingsUpdate {
     pub circuit_breaker_failure_threshold: Option<u32>,
     pub circuit_breaker_open_duration_minutes: Option<u32>,
     pub update_releases_url: Option<String>,
+    pub desktop_update_proxy_mode: Option<settings::DesktopUpdateProxyMode>,
+    pub desktop_update_proxy_url: Option<String>,
     pub wsl_auto_config: Option<bool>,
     pub wsl_target_cli: Option<settings::WslTargetCli>,
     pub cli_priority_order: Option<Vec<String>>,
@@ -165,6 +167,8 @@ pub(crate) struct SettingsView {
     pub upstream_stream_idle_timeout_seconds: u32,
     pub upstream_request_timeout_non_streaming_seconds: u32,
     pub update_releases_url: String,
+    pub desktop_update_proxy_mode: settings::DesktopUpdateProxyMode,
+    pub desktop_update_proxy_url: String,
     pub failover_max_attempts_per_provider: u32,
     pub failover_max_providers_to_try: u32,
     pub circuit_breaker_failure_threshold: u32,
@@ -307,6 +311,8 @@ impl From<&settings::AppSettings> for SettingsView {
             upstream_request_timeout_non_streaming_seconds: value
                 .upstream_request_timeout_non_streaming_seconds,
             update_releases_url: value.update_releases_url.clone(),
+            desktop_update_proxy_mode: value.desktop_update_proxy_mode,
+            desktop_update_proxy_url: value.desktop_update_proxy_url.clone(),
             failover_max_attempts_per_provider: value.failover_max_attempts_per_provider,
             failover_max_providers_to_try: value.failover_max_providers_to_try,
             circuit_breaker_failure_threshold: value.circuit_breaker_failure_threshold,
@@ -672,6 +678,8 @@ where
         circuit_breaker_failure_threshold,
         circuit_breaker_open_duration_minutes,
         update_releases_url,
+        desktop_update_proxy_mode,
+        desktop_update_proxy_url,
         wsl_auto_config,
         wsl_target_cli,
         cli_priority_order,
@@ -713,6 +721,9 @@ where
                 .trim()
                 .to_string();
             let tray_enabled = tray_enabled.unwrap_or(previous.tray_enabled);
+            let desktop_update_proxy_mode = desktop_update_proxy_mode.unwrap_or(previous.desktop_update_proxy_mode);
+            let desktop_update_proxy_url = desktop_update_proxy_url
+                .unwrap_or(previous.desktop_update_proxy_url.clone()).trim().to_string();
             let start_minimized = start_minimized.unwrap_or(previous.start_minimized);
             let enable_cli_proxy_startup_recovery = enable_cli_proxy_startup_recovery
                 .unwrap_or(previous.enable_cli_proxy_startup_recovery);
@@ -893,6 +904,8 @@ where
                 upstream_stream_idle_timeout_seconds,
                 upstream_request_timeout_non_streaming_seconds,
                 update_releases_url,
+                desktop_update_proxy_mode,
+                desktop_update_proxy_url,
                 failover_max_attempts_per_provider,
                 failover_max_providers_to_try,
                 circuit_breaker_failure_threshold,

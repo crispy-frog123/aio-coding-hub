@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.60.22](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.21...aio-coding-hub-v0.60.22) (2026-10-07)
+
+### Features
+
+- **updater:** Restore system and custom download proxy settings for update checks and installation, preserving independence from gateway proxy settings.
+
+### Bug Fixes
+
+- **updater:** Apply the latest proxy preference before downloading and show a connection status until download data arrives.
+
 ## [0.60.21](https://github.com/crispy-frog123/aio-coding-hub/compare/aio-coding-hub-v0.60.20...aio-coding-hub-v0.60.21) (2026-10-06)
 
 ### Features
