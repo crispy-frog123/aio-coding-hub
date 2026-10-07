@@ -54,7 +54,7 @@ jobs:
       - id: package_version
         name: Read package version
         shell: bash
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -e 'console.log(require("./package.json").version)')" >> "$GITHUB_OUTPUT"
 
       - id: release_context
         name: Create or resolve release
