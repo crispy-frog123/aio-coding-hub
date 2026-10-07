@@ -590,7 +590,7 @@ function checkWorkflowContracts() {
   );
   assertWorkflowContains(
     releaseWorkflow,
-    "include: ${{ fromJson(needs.release-please.outputs.build_matrix) }}",
+    "include: ${{ fromJson(needs.release-context.outputs.build_matrix) }}",
     "release matrix usage"
   );
   assertWorkflowContains(
